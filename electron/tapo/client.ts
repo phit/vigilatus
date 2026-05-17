@@ -143,7 +143,30 @@ export class TapoClient {
    * @param date YYYYMMDD string
    */
   async getRecordingsForDate(date: string): Promise<Recording[]> {
-    const userId = await this.getUserId();
+    let userId: number | undefined;
+    try {
+      userId = await this.getUserId();
+    } catch {
+      // Some firmware variants do not expose user ID but still allow recording search.
+      userId = undefined;
+    }
+
+    const daySearchParams: {
+      channel: number;
+      date: string;
+      end_index: number;
+      start_index: number;
+      id?: number;
+    } = {
+      channel: 0,
+      date,
+      end_index: 9999,
+      start_index: 0,
+    };
+
+    if (typeof userId === 'number') {
+      daySearchParams.id = userId;
+    }
 
     const resp = await this.apiRequest({
       method: 'multipleRequest',
@@ -151,7 +174,7 @@ export class TapoClient {
         requests: [
           {
             method: 'searchVideoOfDay',
-            params: { channel: 0, date, id: userId, end_index: 9999, start_index: 0 },
+            params: daySearchParams,
           },
         ],
       },
@@ -450,12 +473,30 @@ export class TapoClient {
       params: { system: { get_user_id: 'null' } },
     });
 
+    const asNumber = (v: unknown): number | null => {
+      if (typeof v === 'number' && Number.isFinite(v)) return v;
+      if (typeof v === 'string' && /^\d+$/.test(v)) return Number(v);
+      return null;
+    };
+
     const direct = (resp.result as { user_id?: unknown }).user_id;
-    if (typeof direct === 'number') return direct;
+    const directNum = asNumber(direct);
+    if (directNum != null) return directNum;
 
     const nested = (resp.result.responses?.[0] as { result?: { user_id?: unknown } } | undefined)
       ?.result?.user_id;
-    if (typeof nested === 'number') return nested;
+    const nestedNum = asNumber(nested);
+    if (nestedNum != null) return nestedNum;
+
+    const systemNested = (resp.result.responses?.[0] as {
+      result?: { system?: { get_user_id?: { id?: unknown; user_id?: unknown } } };
+    } | undefined)?.result?.system?.get_user_id;
+
+    const systemId = asNumber(systemNested?.id);
+    if (systemId != null) return systemId;
+
+    const systemUserId = asNumber(systemNested?.user_id);
+    if (systemUserId != null) return systemUserId;
 
     throw new Error('Failed to retrieve recording user ID');
   }
@@ -526,7 +567,7 @@ export class TapoClient {
     return flattened;
   }
 
-  private async searchRecordingsWithUtcRange(date: string, userId: number): Promise<Recording[]> {
+  private async searchRecordingsWithUtcRange(date: string, userId?: number): Promise<Recording[]> {
     const year = Number(date.slice(0, 4));
     const month = Number(date.slice(4, 6));
     const day = Number(date.slice(6, 8));
@@ -537,20 +578,32 @@ export class TapoClient {
     const startUtcSec = Math.floor(Date.UTC(year, month - 1, day, 0, 0, 0) / 1000);
     const endUtcSec = Math.floor(Date.UTC(year, month - 1, day, 23, 59, 59) / 1000);
 
+    const utcSearchParams: {
+      channel: number;
+      start_time: number;
+      end_time: number;
+      start_index: number;
+      end_index: number;
+      id?: number;
+    } = {
+      channel: 0,
+      start_time: startUtcSec,
+      end_time: endUtcSec,
+      start_index: 0,
+      end_index: 9999,
+    };
+
+    if (typeof userId === 'number') {
+      utcSearchParams.id = userId;
+    }
+
     const resp = await this.apiRequest({
       method: 'multipleRequest',
       params: {
         requests: [
           {
             method: 'searchVideoWithUTC',
-            params: {
-              channel: 0,
-              start_time: startUtcSec,
-              end_time: endUtcSec,
-              start_index: 0,
-              end_index: 9999,
-              id: userId,
-            },
+            params: utcSearchParams,
           },
         ],
       },
