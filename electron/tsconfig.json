@@ -12,5 +12,6 @@
     "moduleResolution": "Node",
     "types": ["node"]
   },
+  "composite": true,
   "include": ["**/*.ts"]
 }
