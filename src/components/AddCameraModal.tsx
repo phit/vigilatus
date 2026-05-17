@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { CameraConfig } from '../types';
 
 interface Props {
@@ -29,6 +29,7 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const backdropPointerDownRef = useRef(false);
 
   const set = (field: keyof CameraConfig, value: string) =>
     setForm((f) => ({ ...f, [field]: value }));
@@ -59,8 +60,31 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
     onSave(cfg);
   };
 
+  const handleBackdropMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    backdropPointerDownRef.current = e.button === 0 && e.target === e.currentTarget;
+  };
+
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const shouldClose =
+      e.button === 0 && backdropPointerDownRef.current && e.target === e.currentTarget;
+    backdropPointerDownRef.current = false;
+    if (shouldClose) onClose();
+  };
+
+  const handleBackdropContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
+    backdropPointerDownRef.current = false;
+    if (e.target === e.currentTarget) {
+      e.preventDefault();
+    }
+  };
+
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <div
+      className="modal-backdrop"
+      onMouseDown={handleBackdropMouseDown}
+      onClick={handleBackdropClick}
+      onContextMenu={handleBackdropContextMenu}
+    >
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{initial ? 'Edit Camera' : 'Add Camera'}</h2>
@@ -69,8 +93,9 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
 
         <p className="modal-hint">
           Newer firmware: enable <strong>Third-Party Compatibility</strong> in Tapo app →{' '}
-          <em>Me → Tapo Lab</em>. Set a <strong>Camera Account</strong> password under Advanced
-          Settings — enter it in Stream Password below.
+          <em>Me → Tapo Lab</em>. The API password is usually your Tapo / TP-Link account
+          password. The <strong>Camera Account</strong> under Advanced Settings is separate and is
+          only for direct RTSP streaming.
         </p>
 
         <form onSubmit={handleSubmit} className="modal-form">
@@ -96,17 +121,17 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
 
           <div className="form-row">
             <label>
-              API username
+              Tapo API username
               <input value={form.username} onChange={(e) => set('username', e.target.value)} />
             </label>
             <label>
-              API password
+              Tapo API password
               <input
                 type="password"
                 required
                 value={form.password}
                 onChange={(e) => set('password', e.target.value)}
-                placeholder="TP-Link account password"
+                placeholder="Usually your Tapo / TP-Link account password"
               />
             </label>
           </div>
@@ -116,7 +141,7 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
             className="btn-secondary"
             onClick={() => setShowAdvanced((v) => !v)}
           >
-            {showAdvanced ? '▲' : '▼'} Stream credentials (Camera Account)
+            {showAdvanced ? '▲' : '▼'} Stream settings
           </button>
 
           {showAdvanced && (
@@ -135,7 +160,7 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
               </label>
               <div className="form-row">
                 <label>
-                  Proxy basic auth username
+                  Proxy RTSP username
                   <input
                     value={form.rtspUsername ?? ''}
                     onChange={(e) => set('rtspUsername', e.target.value)}
@@ -143,7 +168,7 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
                   />
                 </label>
                 <label>
-                  Proxy basic auth password
+                  Proxy RTSP password
                   <input
                     type="password"
                     value={form.rtspPassword ?? ''}
@@ -154,7 +179,7 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
               </div>
               <div className="form-row">
                 <label>
-                  Direct RTSP username
+                  Camera Account username
                   <input
                     value={form.streamUser}
                     onChange={(e) => set('streamUser', e.target.value)}
@@ -162,7 +187,7 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
                   />
                 </label>
                 <label>
-                  Direct RTSP password
+                  Camera Account password
                   <input
                     type="password"
                     value={form.streamPassword}
