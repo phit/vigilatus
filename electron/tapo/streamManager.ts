@@ -225,7 +225,7 @@ async function captureSnapshot(cameraId: string, cfg: CameraConfig): Promise<str
     }, 8000);
 
     const proc = ffmpeg(rtsp)
-      .inputOptions(['-rtsp_transport', 'tcp', '-rw_timeout', '5000000'])
+      .inputOptions(['-rtsp_transport', 'tcp'])
       .frames(1)
       .outputOptions(['-q:v 5'])
       .on('error', () => {
@@ -286,8 +286,6 @@ function createHlsCommand(
   const command = ffmpeg(rtspUrl).inputOptions([
     '-rtsp_transport',
     'tcp',
-    '-rw_timeout',
-    '10000000',
     '-fflags',
     'nobuffer',
     '-flags',
