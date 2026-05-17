@@ -1,0 +1,395 @@
+/**
+ * TapoClient — Tapo camera HTTP API client.
+ *
+ * Supports both firmware generations:
+ *   • Older firmware: plain login with MD5-hashed password.
+ *   • Newer firmware: AES-128-CBC encrypted challenge-response (encrypt_type "3").
+ *
+ * Auth protocol reverse-engineered from kopiro/homebridge-tapo-camera.
+ *
+ * IMPORTANT — prerequisites on the camera:
+ *   • Newer firmware (build ≥ 230921): enable "Third-Party Compatibility"
+ *     in the Tapo app → Me → Tapo Lab → Third-Party Compatibility.
+ *   • Set a Camera Account (stream credentials) in Advanced Settings
+ *     — these are separate from the API / TP-Link account password.
+ */
+
+import crypto from 'node:crypto';
+import https from 'node:https';
+import type { Recording } from '../types';
+
+const AES_BLOCK_SIZE = 16;
+const MAX_LOGIN_RETRIES = 2;
+
+interface TapoClientConfig {
+  host: string;
+  username: string;
+  password: string;
+}
+
+interface ApiRequest {
+  method: string;
+  params?: unknown;
+}
+
+interface ApiResponse {
+  error_code: number;
+  result: {
+    stok?: string;
+    start_seq?: number;
+    user_group?: string;
+    data?: {
+      nonce?: string;
+      device_confirm?: string;
+      encrypt_type?: string;
+      code?: number;
+      sec_left?: number;
+    };
+    response?: string;
+    responses?: Array<{ method: string; error_code: number; result: unknown }>;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function md5Upper(text: string): string {
+  return crypto.createHash('md5').update(text).digest('hex').toUpperCase();
+}
+
+function sha256Upper(text: string): string {
+  return crypto.createHash('sha256').update(text).digest('hex').toUpperCase();
+}
+
+function encryptPad(text: string, blockSize: number): string {
+  const padSize = blockSize - (text.length % blockSize);
+  return text + String.fromCharCode(padSize).repeat(padSize);
+}
+
+function encryptUnpad(text: string, blockSize: number): string {
+  const padLen = text.charCodeAt(text.length - 1);
+  if (padLen > blockSize || padLen > text.length) throw new Error('Invalid AES padding');
+  return text.slice(0, text.length - padLen);
+}
+
+function aesEncrypt(data: string, key: Buffer, iv: Buffer): Buffer {
+  const cipher = crypto.createCipheriv('aes-128-cbc', key, iv);
+  const padded = encryptPad(data, AES_BLOCK_SIZE);
+  const hex = cipher.update(padded, 'utf-8', 'hex') + cipher.final('hex');
+  return Buffer.from(hex, 'hex');
+}
+
+function aesDecrypt(b64: string, key: Buffer, iv: Buffer): string {
+  const decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
+  const raw = decipher.update(b64, 'base64', 'utf-8') + decipher.final('utf-8');
+  return encryptUnpad(raw, AES_BLOCK_SIZE);
+}
+
+// ---------------------------------------------------------------------------
+// TapoClient
+// ---------------------------------------------------------------------------
+
+export class TapoClient {
+  private readonly host: string;
+  private readonly username: string;
+  private readonly hashedMd5: string;
+  private readonly hashedSha256: string;
+  private readonly cnonce: string;
+  private readonly agent: https.Agent;
+
+  private stok?: string;
+  private lsk?: Buffer;
+  private ivb?: Buffer;
+  private seq?: number;
+  private isSecureValue?: boolean;
+  private passwordMethod?: 'md5' | 'sha256';
+
+  constructor(cfg: TapoClientConfig) {
+    this.host = cfg.host;
+    this.username = cfg.username || 'admin';
+    this.hashedMd5 = md5Upper(cfg.password);
+    this.hashedSha256 = sha256Upper(cfg.password);
+    this.cnonce = crypto.randomBytes(8).toString('hex').toUpperCase();
+    this.agent = new https.Agent({
+      rejectUnauthorized: false,
+      ciphers: 'AES256-SHA:AES128-GCM-SHA256',
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Public API
+  // -------------------------------------------------------------------------
+
+  async testConnection(): Promise<{ success: boolean; error?: string }> {
+    try {
+      this.reset();
+      await this.getStok();
+      return { success: true };
+    } catch (e) {
+      return { success: false, error: (e as Error).message };
+    }
+  }
+
+  /**
+   * Return recordings for a given day.
+   * @param date YYYYMMDD string
+   */
+  async getRecordingsForDate(date: string): Promise<Recording[]> {
+    const resp = await this.apiRequest({
+      method: 'multipleRequest',
+      params: {
+        requests: [
+          {
+            method: 'searchVideoOfDay',
+            params: { channel: 0, date, end_index: 200, start_index: 0 },
+          },
+        ],
+      },
+    });
+
+    const sub = (resp.result?.responses ?? [])[0];
+    const videoResult = (sub as { result?: { video?: { video_info?: unknown[] } } } | undefined)
+      ?.result?.video;
+    const list = (videoResult as { video_info?: Array<{ startTime: number; endTime: number }> })
+      ?.video_info ?? [];
+    return list.map((v) => ({
+      startTime: v.startTime * 1000,
+      endTime: v.endTime * 1000,
+    }));
+  }
+
+  // -------------------------------------------------------------------------
+  // Auth
+  // -------------------------------------------------------------------------
+
+  private reset(): void {
+    this.stok = undefined;
+    this.lsk = undefined;
+    this.ivb = undefined;
+    this.seq = undefined;
+    this.isSecureValue = undefined;
+    this.passwordMethod = undefined;
+  }
+
+  private getHashedPassword(): string {
+    return this.passwordMethod === 'sha256' ? this.hashedSha256 : this.hashedMd5;
+  }
+
+  private async isSecureConnection(): Promise<boolean> {
+    if (this.isSecureValue !== undefined) return this.isSecureValue;
+
+    const resp = await this.post<ApiResponse>(`https://${this.host}`, {
+      method: 'login',
+      params: { encrypt_type: '3', username: this.username },
+    });
+
+    this.isSecureValue =
+      resp.error_code === -40413 &&
+      String(resp.result?.data?.encrypt_type ?? '').includes('3');
+    return this.isSecureValue;
+  }
+
+  private validateDeviceConfirm(
+    nonce: string,
+    deviceConfirm: string,
+  ): boolean {
+    const sha256Check = sha256Upper(this.cnonce + this.hashedSha256 + nonce);
+    if (deviceConfirm === sha256Check + nonce + this.cnonce) {
+      this.passwordMethod = 'sha256';
+      return true;
+    }
+    const md5Check = md5Upper(this.cnonce + this.hashedMd5 + nonce);
+    if (deviceConfirm === md5Check + nonce + this.cnonce) {
+      this.passwordMethod = 'md5';
+      return true;
+    }
+    return false;
+  }
+
+  private generateToken(tokenType: string, nonce: string): Buffer {
+    const hashedKey = sha256Upper(this.cnonce + this.getHashedPassword() + nonce);
+    return crypto
+      .createHash('sha256')
+      .update(tokenType + this.cnonce + nonce + hashedKey)
+      .digest()
+      .slice(0, 16);
+  }
+
+  private tapoTag(encryptedBody: object): string {
+    const base = sha256Upper(this.getHashedPassword() + this.cnonce);
+    return sha256Upper(base + JSON.stringify(encryptedBody) + this.seq!.toString());
+  }
+
+  async refreshStok(retryCount = 0): Promise<void> {
+    const secure = await this.isSecureConnection();
+
+    if (!secure) {
+      // ---- insecure path ----
+      const resp = await this.post<ApiResponse>(`https://${this.host}`, {
+        method: 'login',
+        params: { username: this.username, password: this.hashedMd5, hashed: true },
+      });
+      if (!resp?.result?.stok) throw new Error('Login failed: no stok returned');
+      this.passwordMethod = 'md5';
+      this.stok = resp.result.stok;
+      return;
+    }
+
+    // ---- secure path: step 1 — request nonce ----
+    const step1 = await this.post<ApiResponse>(`https://${this.host}`, {
+      method: 'login',
+      params: { cnonce: this.cnonce, encrypt_type: '3', username: this.username },
+    });
+
+    const nonce = step1.result?.data?.nonce;
+    const deviceConfirm = step1.result?.data?.device_confirm;
+
+    if (!nonce || !deviceConfirm || !this.validateDeviceConfirm(nonce, deviceConfirm)) {
+      if (step1.error_code === -40413 && retryCount < MAX_LOGIN_RETRIES) {
+        return this.refreshStok(retryCount + 1);
+      }
+      throw new Error('Secure login: invalid device confirm');
+    }
+
+    // ---- secure path: step 2 — respond with digest ----
+    const digestPasswd = sha256Upper(this.getHashedPassword() + this.cnonce + nonce);
+    const digestPasswdFull = Buffer.concat([
+      Buffer.from(digestPasswd, 'utf8'),
+      Buffer.from(this.cnonce, 'utf8'),
+      Buffer.from(nonce, 'utf8'),
+    ]).toString('utf8');
+
+    const step2 = await this.post<ApiResponse>(`https://${this.host}`, {
+      method: 'login',
+      params: { cnonce: this.cnonce, encrypt_type: '3', digest_passwd: digestPasswdFull, username: this.username },
+    });
+
+    const secLeft = step2.result?.data?.sec_left ?? 0;
+    if (secLeft > 0) {
+      throw new Error(`Temporary suspension: retry in ${secLeft}s`);
+    }
+
+    if (!step2.result?.stok) {
+      if (step2.error_code === -40413 && retryCount < MAX_LOGIN_RETRIES) {
+        return this.refreshStok(retryCount + 1);
+      }
+      throw new Error('Secure login: no stok in step-2 response');
+    }
+
+    if (step2.result.user_group !== 'root') {
+      throw new Error('Secure login: user_group is not root — 3rd-party access may be disabled');
+    }
+
+    this.stok = step2.result.stok;
+    this.seq = step2.result.start_seq;
+    this.lsk = this.generateToken('lsk', nonce);
+    this.ivb = this.generateToken('ivb', nonce);
+  }
+
+  async getStok(retryCount = 0): Promise<string> {
+    if (this.stok) return this.stok;
+    await this.refreshStok(retryCount);
+    if (!this.stok) throw new Error('Failed to obtain stok');
+    return this.stok;
+  }
+
+  // -------------------------------------------------------------------------
+  // API requests
+  // -------------------------------------------------------------------------
+
+  async apiRequest(req: ApiRequest, retryCount = 0): Promise<ApiResponse> {
+    const secure = await this.isSecureConnection();
+    const stok = await this.getStok(retryCount);
+    const url = `https://${this.host}/stok=${stok}/ds`;
+
+    let fetchBody: object = req;
+    let extraHeaders: Record<string, string> = {};
+
+    if (secure && this.lsk && this.ivb && this.seq !== undefined) {
+      const encrypted = aesEncrypt(JSON.stringify(req), this.lsk, this.ivb);
+      const encBody = {
+        method: 'securePassthrough',
+        params: { request: encrypted.toString('base64') },
+      };
+      extraHeaders = {
+        Tapo_tag: this.tapoTag(encBody),
+        Seq: String(this.seq),
+      };
+      this.seq += 1;
+      fetchBody = encBody;
+    }
+
+    const raw = await this.post<ApiResponse>(url, fetchBody, extraHeaders);
+
+    // Token expired
+    if (
+      !raw ||
+      raw.error_code === -40401 ||
+      raw.error_code === -1
+    ) {
+      this.stok = undefined;
+      if (retryCount < MAX_LOGIN_RETRIES) return this.apiRequest(req, retryCount + 1);
+      throw new Error(`API request failed: error_code ${raw?.error_code}`);
+    }
+
+    // Decrypt if secure
+    if (secure && raw.result?.response) {
+      try {
+        const decrypted = aesDecrypt(raw.result.response, this.lsk!, this.ivb!);
+        return JSON.parse(decrypted) as ApiResponse;
+      } catch {
+        throw new Error('Failed to decrypt API response');
+      }
+    }
+
+    return raw;
+  }
+
+  // -------------------------------------------------------------------------
+  // HTTP
+  // -------------------------------------------------------------------------
+
+  private post<T>(url: string, body: object, extraHeaders?: Record<string, string>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const data = Buffer.from(JSON.stringify(body), 'utf-8');
+      const parsed = new URL(url);
+
+      const req = https.request(
+        {
+          hostname: parsed.hostname,
+          port: Number(parsed.port || 443),
+          path: parsed.pathname + parsed.search,
+          method: 'POST',
+          agent: this.agent,
+          headers: {
+            Host: `https://${this.host}`,
+            Referer: `https://${this.host}`,
+            Accept: 'application/json',
+            'Accept-Encoding': 'gzip, deflate',
+            'User-Agent': 'Tapo CameraClient Android',
+            Connection: 'close',
+            requestByApp: 'true',
+            'Content-Type': 'application/json; charset=UTF-8',
+            'Content-Length': data.length,
+            ...extraHeaders,
+          },
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => {
+            try {
+              resolve(JSON.parse(Buffer.concat(chunks).toString('utf-8')) as T);
+            } catch {
+              reject(new Error('Invalid JSON from camera'));
+            }
+          });
+        },
+      );
+      req.on('error', reject);
+      req.write(data);
+      req.end();
+    });
+  }
+}

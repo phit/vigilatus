@@ -8,16 +8,21 @@
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron-compile\" \"npm:dev:electron-run\"",
     "dev:renderer": "vite",
     "dev:electron-compile": "tsc -p electron/tsconfig.json --watch",
-    "dev:electron-run": "wait-on tcp:5173 file:dist/electron/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
+    "dev:electron-run": "wait-on http-get://localhost:5173 file:dist/electron/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .",
     "build": "vite build && tsc -p electron/tsconfig.json",
     "start": "electron .",
     "package": "npm run build"
   },
   "dependencies": {
+    "ffmpeg-static": "^5.2.0",
+    "fluent-ffmpeg": "^2.1.3",
+    "hls.js": "^1.5.21",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@types/fluent-ffmpeg": "^2.1.27",
     "@types/node": "^22.15.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",

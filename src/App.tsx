@@ -1,103 +1,182 @@
-type Camera = {
-  id: string;
-  name: string;
-  status: 'live' | 'idle' | 'offline';
-  stream: string;
-  motion: string;
-  battery?: string;
-};
-
-const cameras: Camera[] = [
-  { id: 'front', name: 'Front Door', status: 'live', stream: 'Main stream', motion: 'Motion 2 min ago' },
-  { id: 'driveway', name: 'Driveway', status: 'live', stream: 'Sub stream', motion: 'Motion today', battery: 'Mains' },
-  { id: 'garage', name: 'Garage', status: 'idle', stream: 'Main stream', motion: 'No recent motion' },
-  { id: 'backyard', name: 'Backyard', status: 'offline', stream: 'Awaiting camera', motion: 'Last clip 1h ago' },
-];
-
-const timelineMarks = ['Now', '5m', '10m', '15m', '20m', '30m'];
+import { useEffect, useState } from 'react';
+import { useCameraStore } from './store/cameras';
+import { CameraViewer } from './components/CameraViewer';
+import { CameraPreview } from './components/CameraPreview';
+import { Timeline } from './components/Timeline';
+import { AddCameraModal } from './components/AddCameraModal';
+import type { CameraConfig } from './types';
 
 export function App() {
+  const {
+    cameras,
+    selectedId,
+    showPreviews,
+    playbackMode,
+    playbackTime,
+    recordings,
+    loadCameras,
+    addCamera,
+    updateCamera,
+    removeCamera,
+    selectCamera,
+    startStream,
+    stopStream,
+    togglePreviews,
+    loadRecordings,
+    seekTo,
+    goLive,
+  } = useCameraStore();
+
+  const [showModal, setShowModal] = useState(false);
+  const [editTarget, setEditTarget] = useState<CameraConfig | undefined>(undefined);
+
+  const selectedCamera = cameras.find((c) => c.config.id === selectedId);
+
+  useEffect(() => {
+    void loadCameras();
+  }, []);
+
+  // Auto-select + start first camera on load
+  useEffect(() => {
+    if (!selectedId && cameras.length > 0) {
+      selectCamera(cameras[0].config.id);
+    }
+  }, [cameras.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openAdd = () => { setEditTarget(undefined); setShowModal(true); };
+  const openEdit = (cfg: CameraConfig) => { setEditTarget(cfg); setShowModal(true); };
+
+  const handleSave = async (cfg: CameraConfig) => {
+    if (editTarget) {
+      await updateCamera(cfg.id, cfg);
+    } else {
+      await addCamera(cfg);
+    }
+    setShowModal(false);
+  };
+
+  const handleRemove = async (id: string) => {
+    if (confirm('Remove this camera?')) await removeCamera(id);
+  };
+
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <div>
-          <p className="eyebrow">TapoStudio</p>
-          <h1>Selected camera maximized, previews beside it, timeline below.</h1>
-          <p className="lede">
-            Built for mixed Tapo camera fleets on Windows and Linux, with local SD recordings ready for later playback support.
-          </p>
+    <div className="app">
+      {/* ── Header ─────────────────────────────────────── */}
+      <header className="header">
+        <div className="header-brand">
+          <span className="brand-dot" />
+          TapoStudio
         </div>
 
-        <section className="panel selected-card">
-          <div className="selected-header">
-            <span className="live-pill">Live</span>
-            <span className="muted">Front Door</span>
-          </div>
-          <div className="viewer-stage">
-            <div className="viewer-overlay">
-              <div>
-                <strong>Front Door</strong>
-                <p>1080p main stream</p>
-              </div>
-              <button type="button">Fullscreen</button>
-            </div>
-            <div className="camera-feed">Selected camera feed</div>
-          </div>
-        </section>
+        <div className="header-cam-info">
+          {selectedCamera && (
+            <>
+              <span className="header-cam-name">{selectedCamera.config.name}</span>
+              <span className={`badge badge-${playbackMode === 'playback' ? 'playback' : selectedCamera.status}`}>
+                {playbackMode === 'playback' ? 'Playback' : selectedCamera.status}
+              </span>
+              <button
+                type="button"
+                className="btn-icon"
+                title={`${selectedCamera.hlsUrl ? 'Stop' : 'Start'} stream`}
+                onClick={() =>
+                  selectedCamera.hlsUrl
+                    ? stopStream(selectedCamera.config.id)
+                    : startStream(selectedCamera.config.id)
+                }
+              >
+                {selectedCamera.hlsUrl ? '⏹' : '▶'}
+              </button>
+              <button
+                type="button"
+                className="btn-icon"
+                title="Edit camera"
+                onClick={() => openEdit(selectedCamera.config)}
+              >
+                ✎
+              </button>
+              <button
+                type="button"
+                className="btn-icon btn-icon--danger"
+                title="Remove camera"
+                onClick={() => void handleRemove(selectedCamera.config.id)}
+              >
+                ✕
+              </button>
+            </>
+          )}
+        </div>
 
-        <section className="panel timeline-panel">
-          <div className="timeline-top">
-            <strong>Playback</strong>
-            <span className="muted">Local SD card aware</span>
-          </div>
-          <div className="scrub-track">
-            <div className="scrub-handle" />
-          </div>
-          <div className="timeline-marks">
-            {timelineMarks.map((mark) => (
-              <span key={mark}>{mark}</span>
+        <div className="header-actions">
+          <button type="button" className="btn-secondary" onClick={togglePreviews}>
+            {showPreviews ? 'Hide' : 'Show'} previews
+          </button>
+          <button type="button" className="btn-primary" onClick={openAdd}>
+            + Add camera
+          </button>
+        </div>
+      </header>
+
+      {/* ── Workspace ──────────────────────────────────── */}
+      <div className="workspace">
+        {/* Main viewer */}
+        <div
+          className="viewer-wrap"
+          onClick={() => {
+            if (!selectedCamera?.hlsUrl && selectedCamera) {
+              void startStream(selectedCamera.config.id);
+            }
+          }}
+        >
+          <CameraViewer camera={selectedCamera} playbackMode={playbackMode} />
+        </div>
+
+        {/* Preview strip */}
+        {showPreviews && cameras.length > 0 && (
+          <aside className="preview-strip">
+            {cameras.map((cam) => (
+              <CameraPreview
+                key={cam.config.id}
+                camera={cam}
+                isSelected={cam.config.id === selectedId}
+                onSelect={() => selectCamera(cam.config.id)}
+              />
             ))}
-          </div>
-        </section>
-      </aside>
+          </aside>
+        )}
 
-      <main className="workspace">
-        <section className="topbar panel">
-          <div>
-            <strong>Camera roster</strong>
-            <p className="muted">Preview refresh every few seconds or realtime later.</p>
+        {/* Empty state */}
+        {cameras.length === 0 && (
+          <div className="empty-state">
+            <p>No cameras yet.</p>
+            <button type="button" className="btn-primary" onClick={openAdd}>
+              + Add your first camera
+            </button>
           </div>
-          <div className="topbar-actions">
-            <button type="button">Refresh previews</button>
-            <button type="button" className="primary">Add camera</button>
-          </div>
-        </section>
+        )}
+      </div>
 
-        <section className="grid">
-          {cameras.map((camera) => (
-            <article key={camera.id} className="panel camera-card">
-              <div className="camera-card-header">
-                <div>
-                  <h2>{camera.name}</h2>
-                  <p>{camera.stream}</p>
-                </div>
-                <span className={`status status-${camera.status}`}>{camera.status}</span>
-              </div>
-              <div className="preview-box">Preview tile</div>
-              <div className="camera-meta">
-                <span>{camera.motion}</span>
-                <span>{camera.battery ?? 'N/A'}</span>
-              </div>
-            </article>
-          ))}
-        </section>
+      {/* ── Timeline ───────────────────────────────────── */}
+      <Timeline
+        recordings={recordings}
+        playbackMode={playbackMode}
+        playbackTime={playbackTime}
+        selectedCameraId={selectedId}
+        onSeek={(t) => void seekTo(t)}
+        onGoLive={goLive}
+        onLoadDate={(date) => {
+          if (selectedId) void loadRecordings(selectedId, date);
+        }}
+      />
 
-        <section className="panel footer-note">
-          <p>
-            Next step: wire live streams through a Tapo adapter and add timeline scrubbing from recorded SD-card events.
-          </p>
-        </section>
-      </main>
+      {/* ── Add / edit modal ───────────────────────────── */}
+      {showModal && (
+        <AddCameraModal
+          initial={editTarget}
+          onSave={(cfg) => void handleSave(cfg)}
+          onClose={() => setShowModal(false)}
+        />
+      )}
     </div>
   );
 }

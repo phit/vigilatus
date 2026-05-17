@@ -1,15 +1,18 @@
-import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron';
+import { app, BrowserWindow, nativeTheme } from 'electron';
 import path from 'node:path';
+import * as configStore from './config/store';
+import * as streamManager from './tapo/streamManager';
+import { registerHandlers } from './ipc/handlers';
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 
 function createWindow(): void {
-  const window = new BrowserWindow({
+  const win = new BrowserWindow({
     width: 1680,
     height: 1024,
     minWidth: 1200,
     minHeight: 800,
-    backgroundColor: '#0b1020',
+    backgroundColor: '#070b16',
     title: 'TapoStudio',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -20,29 +23,29 @@ function createWindow(): void {
   });
 
   if (isDevelopment && process.env.VITE_DEV_SERVER_URL) {
-    window.loadURL(process.env.VITE_DEV_SERVER_URL);
-    window.webContents.openDevTools({ mode: 'detach' });
+    win.loadURL(process.env.VITE_DEV_SERVER_URL);
+    win.webContents.openDevTools({ mode: 'detach' });
   } else {
-    window.loadFile(path.join(__dirname, '../renderer/index.html'));
+    win.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark';
 
-  ipcMain.handle('app:get-platform', () => process.platform);
+  configStore.init(app.getPath('userData'));
+  await streamManager.init();
+  registerHandlers();
 
   createWindow();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
+app.on('before-quit', () => streamManager.cleanup());
+
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  if (process.platform !== 'darwin') app.quit();
 });
