@@ -97,9 +97,10 @@ function aesDecrypt(b64: string, key: Buffer, iv: Buffer): string {
 export class TapoClient {
   private readonly host: string;
   private readonly username: string;
+  private readonly rawPassword: string;
   private readonly hashedMd5: string;
   private readonly hashedSha256: string;
-  private readonly cnonce: string;
+  private cnonce: string;
   private readonly agent: https.Agent;
   private preferredProtocol: 'https' | 'http' = 'https';
   private preferredPort = 443;
@@ -115,6 +116,7 @@ export class TapoClient {
   constructor(cfg: TapoClientConfig) {
     this.host = cfg.host;
     this.username = cfg.username || 'admin';
+    this.rawPassword = cfg.password;
     this.hashedMd5 = md5Upper(cfg.password);
     this.hashedSha256 = sha256Upper(cfg.password);
     this.cnonce = crypto.randomBytes(8).toString('hex').toUpperCase();
@@ -253,9 +255,11 @@ export class TapoClient {
   private async isSecureConnection(): Promise<boolean> {
     if (this.isSecureValue !== undefined) return this.isSecureValue;
 
+    const probeCnonce = crypto.randomBytes(8).toString('hex').toUpperCase();
+
     const resp = await this.post<ApiResponse>(`https://${this.host}`, {
       method: 'login',
-      params: { encrypt_type: '3', username: this.username },
+      params: { cnonce: probeCnonce, encrypt_type: '3', username: this.username },
     });
 
     this.isSecureValue =
@@ -296,6 +300,8 @@ export class TapoClient {
   }
 
   async refreshStok(retryCount = 0): Promise<void> {
+    // Match pytapo behavior: use a fresh cnonce for each login refresh sequence.
+    this.cnonce = crypto.randomBytes(8).toString('hex').toUpperCase();
     const secure = await this.isSecureConnection();
 
     if (!secure) {
@@ -313,7 +319,7 @@ export class TapoClient {
 
       const plainResp = await this.post<ApiResponse>(`https://${this.host}`, {
         method: 'login',
-        params: { username: this.username, password: this.hashedMd5 },
+        params: { username: this.username, password: this.rawPassword },
       });
 
       if (plainResp?.result?.stok) {
