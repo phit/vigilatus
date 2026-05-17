@@ -31,6 +31,11 @@ export function App() {
   const [editTarget, setEditTarget] = useState<CameraConfig | undefined>(undefined);
 
   const selectedCamera = cameras.find((c) => c.config.id === selectedId);
+  const timelineMessage = !selectedCamera
+    ? 'Select a camera to load recording availability.'
+    : recordings.length > 0
+    ? `${recordings.length} recording segment${recordings.length === 1 ? '' : 's'} found. Playback is not wired yet.`
+    : 'No recording segments reported for the selected day, or recordings are unavailable.';
 
   useEffect(() => {
     void loadCameras();
@@ -161,6 +166,8 @@ export function App() {
         recordings={recordings}
         playbackMode={playbackMode}
         playbackTime={playbackTime}
+        playbackEnabled={false}
+        statusMessage={timelineMessage}
         selectedCameraId={selectedId}
         onSeek={(t) => void seekTo(t)}
         onGoLive={goLive}

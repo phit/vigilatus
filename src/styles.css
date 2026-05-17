@@ -338,6 +338,14 @@ body {
   font-weight: 600;
 }
 
+.timeline-status {
+  font-size: 12px;
+  color: var(--text-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .btn-live {
   margin-left: auto;
   border: 1px solid var(--border);
@@ -363,6 +371,11 @@ body {
   cursor: pointer;
   user-select: none;
   overflow: visible;
+}
+
+.timeline-track--disabled {
+  cursor: default;
+  opacity: 0.8;
 }
 
 .timeline-track::before {
@@ -404,6 +417,10 @@ body {
 .timeline-handle:active {
   cursor: grabbing;
   box-shadow: 0 0 0 6px rgba(94, 234, 212, 0.25);
+}
+
+.timeline-track--disabled .timeline-handle {
+  cursor: default;
 }
 
 .timeline-needle {

@@ -85,7 +85,7 @@ export function startStream(cameraId: string, cfg: CameraConfig): Promise<string
     (proc as ffmpeg.FfmpegCommand & {
       on(event: 'error', listener: (err: Error, stdout: string, stderr: string) => void): ffmpeg.FfmpegCommand;
     }).on('error', (err: Error, _stdout: string, stderr: string) => {
-      const details = stderr?.trim() || stderrLines.join('\n').trim();
+      const details = summarizeFfmpegDetails(stderr?.trim() || stderrLines.join('\n').trim());
       const message = details ? `${err.message}: ${details}` : err.message;
       console.error(`[stream:${cameraId}] error:`, message);
       streams.delete(cameraId);
@@ -163,7 +163,7 @@ export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: 
     (proc as ffmpeg.FfmpegCommand & {
       on(event: 'error', listener: (err: Error, stdout: string, stderr: string) => void): ffmpeg.FfmpegCommand;
     }).on('error', (err: Error, _stdout: string, stderr: string) => {
-      const details = stderr?.trim() || stderrLines.join('\n').trim();
+      const details = summarizeFfmpegDetails(stderr?.trim() || stderrLines.join('\n').trim());
       const message = details ? `${err.message}: ${details}` : err.message;
       console.error(`[playback:${cameraId}] error:`, message);
       streams.delete(cameraId);
@@ -367,7 +367,7 @@ function waitForPlaylist(filePath: string, timeoutMs: number, stderrLines: strin
       }
 
       if (Date.now() - start >= timeoutMs) {
-        const details = stderrLines.join('\n').trim();
+        const details = summarizeFfmpegDetails(stderrLines.join('\n').trim());
         reject(new Error(details ? `Timed out waiting for HLS playlist: ${details}` : 'Timed out waiting for HLS playlist'));
         return;
       }
@@ -377,6 +377,28 @@ function waitForPlaylist(filePath: string, timeoutMs: number, stderrLines: strin
 
     check();
   });
+}
+
+function summarizeFfmpegDetails(details: string): string {
+  if (!details) return '';
+
+  const relevant = details
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => {
+      const lower = line.toLowerCase();
+      return !(
+        lower.startsWith('ffmpeg version') ||
+        lower.startsWith('built with') ||
+        lower.startsWith('configuration:') ||
+        lower.startsWith('libav') ||
+        lower.startsWith('libsw') ||
+        lower.startsWith('libpostproc')
+      );
+    });
+
+  return relevant.join('\n');
 }
 
 // ---------------------------------------------------------------------------

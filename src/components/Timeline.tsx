@@ -5,6 +5,8 @@ interface Props {
   recordings: Recording[];
   playbackMode: PlaybackMode;
   playbackTime: number | null;
+  playbackEnabled: boolean;
+  statusMessage?: string;
   /** Called when user scrubs to a specific time */
   onSeek(time: number): void;
   onGoLive(): void;
@@ -31,6 +33,8 @@ export function Timeline({
   recordings,
   playbackMode,
   playbackTime,
+  playbackEnabled,
+  statusMessage,
   onSeek,
   onGoLive,
   onLoadDate,
@@ -70,7 +74,7 @@ export function Timeline({
   );
 
   const handleTrackClick = (e: React.MouseEvent) => {
-    if (dragging) return;
+    if (dragging || !playbackEnabled) return;
     const t = clientXToTime(e.clientX);
     if (t >= Date.now() - 5000) { onGoLive(); return; }
     onSeek(t);
@@ -110,6 +114,7 @@ export function Timeline({
             {playbackTime ? formatTime(playbackTime) : '—'}
           </span>
         )}
+        {statusMessage && <span className="timeline-status">{statusMessage}</span>}
         <button
           type="button"
           className={`btn-live${playbackMode === 'live' ? ' btn-live--active' : ''}`}
@@ -122,7 +127,7 @@ export function Timeline({
       {/* Track */}
       <div
         ref={trackRef}
-        className="timeline-track"
+        className={`timeline-track${playbackEnabled ? '' : ' timeline-track--disabled'}`}
         onClick={handleTrackClick}
         role="slider"
         aria-label="Timeline scrubber"
@@ -148,7 +153,11 @@ export function Timeline({
         <div
           className={`timeline-handle${dragging ? ' timeline-handle--active' : ''}`}
           style={{ left: `${handlePos}%` }}
-          onMouseDown={(e) => { e.stopPropagation(); setDragging(true); }}
+          onMouseDown={(e) => {
+            if (!playbackEnabled) return;
+            e.stopPropagation();
+            setDragging(true);
+          }}
         >
           <div className="timeline-needle" />
         </div>
