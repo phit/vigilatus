@@ -276,15 +276,31 @@ export class TapoClient {
     const secure = await this.isSecureConnection();
 
     if (!secure) {
-      // ---- insecure path ----
-      const resp = await this.post<ApiResponse>(`https://${this.host}`, {
+      // ---- insecure path (firmware variants differ on password field expectations) ----
+      const hashedResp = await this.post<ApiResponse>(`https://${this.host}`, {
         method: 'login',
         params: { username: this.username, password: this.hashedMd5, hashed: true },
       });
-      if (!resp?.result?.stok) throw new Error('Login failed: no stok returned');
-      this.passwordMethod = 'md5';
-      this.stok = resp.result.stok;
-      return;
+
+      if (hashedResp?.result?.stok) {
+        this.passwordMethod = 'md5';
+        this.stok = hashedResp.result.stok;
+        return;
+      }
+
+      const plainResp = await this.post<ApiResponse>(`https://${this.host}`, {
+        method: 'login',
+        params: { username: this.username, password: this.hashedMd5 },
+      });
+
+      if (plainResp?.result?.stok) {
+        this.passwordMethod = 'md5';
+        this.stok = plainResp.result.stok;
+        return;
+      }
+
+      // If probe said insecure but insecure login still fails, attempt secure flow once.
+      this.isSecureValue = true;
     }
 
     // ---- secure path: step 1 — request nonce ----
