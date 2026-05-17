@@ -38,6 +38,7 @@ let hlsPort = 0;
 
 const STREAM_READY_TIMEOUT_MS = 15_000;
 const STREAM_READY_POLL_MS = 250;
+const STDERR_HISTORY_LIMIT = 24;
 
 // ---------------------------------------------------------------------------
 // Init / teardown
@@ -71,39 +72,20 @@ export function startStream(cameraId: string, cfg: CameraConfig): Promise<string
   const m3u8 = path.join(segDir, 'stream.m3u8');
   const hlsUrl = `http://127.0.0.1:${hlsPort}/${cameraId}/stream.m3u8`;
   const rtsp = buildRtspUrl(cfg, 'main');
+  const stderrLines: string[] = [];
+  const proc = createHlsCommand(rtsp, segDir, m3u8);
 
-  const proc = ffmpeg(rtsp)
-    .inputOptions([
-      '-rtsp_transport',
-      'tcp',
-      '-rw_timeout',
-      '10000000',
-      '-reconnect',
-      '1',
-      '-reconnect_at_eof',
-      '1',
-      '-reconnect_streamed',
-      '1',
-    ])
-    .videoCodec('copy')
-    .audioCodec('aac')
-    .outputOptions([
-      '-f hls',
-      '-hls_time 2',
-      '-hls_list_size 5',
-      '-hls_flags delete_segments+append_list',
-      '-start_number 0',
-    ]);
-
-  const ready = waitForPlaylist(m3u8, STREAM_READY_TIMEOUT_MS);
+  const ready = waitForPlaylist(m3u8, STREAM_READY_TIMEOUT_MS, stderrLines);
 
   const streamReady = new Promise<string>((resolve, reject) => {
     let settled = false;
 
+    attachFfmpegStderr(proc, stderrLines);
+
     (proc as ffmpeg.FfmpegCommand & {
       on(event: 'error', listener: (err: Error, stdout: string, stderr: string) => void): ffmpeg.FfmpegCommand;
     }).on('error', (err: Error, _stdout: string, stderr: string) => {
-      const details = stderr?.trim();
+      const details = stderr?.trim() || stderrLines.join('\n').trim();
       const message = details ? `${err.message}: ${details}` : err.message;
       console.error(`[stream:${cameraId}] error:`, message);
       streams.delete(cameraId);
@@ -136,7 +118,6 @@ export function startStream(cameraId: string, cfg: CameraConfig): Promise<string
       });
   });
 
-  proc.save(m3u8);
   streams.set(cameraId, { proc, hlsUrl });
   return streamReady;
 }
@@ -169,35 +150,20 @@ export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: 
   const m3u8 = path.join(segDir, 'stream.m3u8');
   const hlsUrl = `http://127.0.0.1:${hlsPort}/${cameraId}/stream.m3u8`;
   const rtsp = buildRtspUrl(cfg, 'main');
+  const stderrLines: string[] = [];
+  const proc = createHlsCommand(rtsp, segDir, m3u8, seekSeconds);
 
-  const proc = ffmpeg(rtsp)
-    .inputOptions([
-      '-rtsp_transport',
-      'tcp',
-      '-rw_timeout',
-      '10000000',
-      '-ss',
-      String(seekSeconds),
-    ])
-    .videoCodec('copy')
-    .audioCodec('aac')
-    .outputOptions([
-      '-f hls',
-      '-hls_time 2',
-      '-hls_list_size 5',
-      '-hls_flags delete_segments+append_list',
-      '-start_number 0',
-    ]);
-
-  const ready = waitForPlaylist(m3u8, STREAM_READY_TIMEOUT_MS);
+  const ready = waitForPlaylist(m3u8, STREAM_READY_TIMEOUT_MS, stderrLines);
 
   const streamReady = new Promise<string>((resolve, reject) => {
     let settled = false;
 
+    attachFfmpegStderr(proc, stderrLines);
+
     (proc as ffmpeg.FfmpegCommand & {
       on(event: 'error', listener: (err: Error, stdout: string, stderr: string) => void): ffmpeg.FfmpegCommand;
     }).on('error', (err: Error, _stdout: string, stderr: string) => {
-      const details = stderr?.trim();
+      const details = stderr?.trim() || stderrLines.join('\n').trim();
       const message = details ? `${err.message}: ${details}` : err.message;
       console.error(`[playback:${cameraId}] error:`, message);
       streams.delete(cameraId);
@@ -230,7 +196,6 @@ export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: 
       });
   });
 
-  proc.save(m3u8);
   streams.set(cameraId, { proc, hlsUrl });
   return streamReady;
 }
@@ -310,7 +275,81 @@ function withRtspAuth(url: string, username?: string, password?: string): string
   }
 }
 
-function waitForPlaylist(filePath: string, timeoutMs: number): Promise<void> {
+function createHlsCommand(
+  rtspUrl: string,
+  segDir: string,
+  m3u8Path: string,
+  seekSeconds?: number,
+): ffmpeg.FfmpegCommand {
+  const command = ffmpeg(rtspUrl).inputOptions([
+    '-rtsp_transport',
+    'tcp',
+    '-rw_timeout',
+    '10000000',
+    '-fflags',
+    'nobuffer',
+    '-flags',
+    'low_delay',
+  ]);
+
+  if (typeof seekSeconds === 'number' && seekSeconds > 0) {
+    command.inputOptions(['-ss', String(seekSeconds)]);
+  }
+
+  return command.outputOptions([
+    '-map',
+    '0:v:0',
+    '-map',
+    '0:a:0?',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'ultrafast',
+    '-tune',
+    'zerolatency',
+    '-pix_fmt',
+    'yuv420p',
+    '-g',
+    '50',
+    '-sc_threshold',
+    '0',
+    '-c:a',
+    'aac',
+    '-ac',
+    '1',
+    '-ar',
+    '44100',
+    '-b:a',
+    '128k',
+    '-f',
+    'hls',
+    '-hls_time',
+    '2',
+    '-hls_list_size',
+    '5',
+    '-hls_flags',
+    'delete_segments+append_list+independent_segments',
+    '-hls_segment_filename',
+    path.join(segDir, 'segment-%03d.ts'),
+    '-start_number',
+    '0',
+  ]).save(m3u8Path);
+}
+
+function attachFfmpegStderr(proc: ffmpeg.FfmpegCommand, stderrLines: string[]): void {
+  (proc as ffmpeg.FfmpegCommand & {
+    on(event: 'stderr', listener: (line: string) => void): ffmpeg.FfmpegCommand;
+  }).on('stderr', (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    stderrLines.push(trimmed);
+    if (stderrLines.length > STDERR_HISTORY_LIMIT) {
+      stderrLines.shift();
+    }
+  });
+}
+
+function waitForPlaylist(filePath: string, timeoutMs: number, stderrLines: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
 
@@ -328,7 +367,8 @@ function waitForPlaylist(filePath: string, timeoutMs: number): Promise<void> {
       }
 
       if (Date.now() - start >= timeoutMs) {
-        reject(new Error('Timed out waiting for HLS playlist'));
+        const details = stderrLines.join('\n').trim();
+        reject(new Error(details ? `Timed out waiting for HLS playlist: ${details}` : 'Timed out waiting for HLS playlist'));
         return;
       }
 
