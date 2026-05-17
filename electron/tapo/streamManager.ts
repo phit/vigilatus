@@ -75,7 +75,7 @@ export function startStream(cameraId: string, cfg: CameraConfig): Promise<string
   const stderrLines: string[] = [];
   const proc = createHlsCommand(rtsp, segDir, m3u8);
 
-  const ready = waitForPlaylist(m3u8, STREAM_READY_TIMEOUT_MS, stderrLines);
+  const ready = waitForHlsReady(m3u8, STREAM_READY_TIMEOUT_MS, stderrLines);
 
   const streamReady = new Promise<string>((resolve, reject) => {
     let settled = false;
@@ -153,7 +153,7 @@ export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: 
   const stderrLines: string[] = [];
   const proc = createHlsCommand(rtsp, segDir, m3u8, seekSeconds);
 
-  const ready = waitForPlaylist(m3u8, STREAM_READY_TIMEOUT_MS, stderrLines);
+  const ready = waitForHlsReady(m3u8, STREAM_READY_TIMEOUT_MS, stderrLines);
 
   const streamReady = new Promise<string>((resolve, reject) => {
     let settled = false;
@@ -349,7 +349,7 @@ function attachFfmpegStderr(proc: ffmpeg.FfmpegCommand, stderrLines: string[]): 
   });
 }
 
-function waitForPlaylist(filePath: string, timeoutMs: number, stderrLines: string[]): Promise<void> {
+function waitForHlsReady(filePath: string, timeoutMs: number, stderrLines: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
 
@@ -357,7 +357,13 @@ function waitForPlaylist(filePath: string, timeoutMs: number, stderrLines: strin
       try {
         if (fs.existsSync(filePath)) {
           const content = fs.readFileSync(filePath, 'utf8');
-          if (content.includes('#EXTM3U')) {
+          const firstSegment = getFirstHlsSegmentPath(filePath, content);
+          if (
+            content.includes('#EXTM3U') &&
+            firstSegment &&
+            fs.existsSync(firstSegment) &&
+            fs.statSync(firstSegment).size > 0
+          ) {
             resolve();
             return;
           }
@@ -377,6 +383,16 @@ function waitForPlaylist(filePath: string, timeoutMs: number, stderrLines: strin
 
     check();
   });
+}
+
+function getFirstHlsSegmentPath(playlistPath: string, content: string): string | null {
+  const segmentLine = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line && !line.startsWith('#'));
+
+  if (!segmentLine) return null;
+  return path.resolve(path.dirname(playlistPath), segmentLine);
 }
 
 function summarizeFfmpegDetails(details: string): string {
