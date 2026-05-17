@@ -16,7 +16,10 @@
 
 import crypto from 'node:crypto';
 import https from 'node:https';
+import os from 'node:os';
+import path from 'node:path';
 import type { Recording } from '../types';
+import { downloadRecordingToMp4 } from './recordingDownloader';
 
 const AES_BLOCK_SIZE = 16;
 const MAX_LOGIN_RETRIES = 2;
@@ -157,6 +160,41 @@ export class TapoClient {
       startTime: v.startTime * 1000,
       endTime: v.endTime * 1000,
     }));
+  }
+
+  async downloadRecording(startTimeMs: number, endTimeMs: number): Promise<string> {
+    const startTime = Math.floor(startTimeMs / 1000);
+    const endTime = Math.floor(endTimeMs / 1000);
+
+    if (endTime <= startTime) {
+      throw new Error('Invalid recording interval');
+    }
+
+    await this.getStok();
+    const userId = await this.getUserId();
+    const timeCorrection = await this.getTimeCorrection();
+
+    if (Math.floor(Date.now() / 1000) - 60 - timeCorrection < endTime) {
+      throw new Error('Recording is currently in progress');
+    }
+
+    const hostDir = this.host.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const outDir = path.join(os.tmpdir(), 'tapostudio-recordings', hostDir);
+    const outFile = path.join(outDir, `${startTime}-${endTime}.mp4`);
+
+    const encryptionMethod = this.passwordMethod ?? 'md5';
+    const hashedPassword = this.getHashedPassword();
+
+    return downloadRecordingToMp4({
+      host: this.host,
+      username: this.username,
+      hashedPassword,
+      encryptionMethod,
+      userId,
+      startTime,
+      endTime,
+      outputPath: outFile,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -362,6 +400,48 @@ export class TapoClient {
     }
 
     return responseData;
+  }
+
+  private async getUserId(): Promise<number> {
+    const resp = await this.apiRequest({
+      method: 'getUserID',
+      params: { system: { get_user_id: 'null' } },
+    });
+
+    const direct = (resp.result as { user_id?: unknown }).user_id;
+    if (typeof direct === 'number') return direct;
+
+    const nested = (resp.result.responses?.[0] as { result?: { user_id?: unknown } } | undefined)
+      ?.result?.user_id;
+    if (typeof nested === 'number') return nested;
+
+    throw new Error('Failed to retrieve recording user ID');
+  }
+
+  private async getTimeCorrection(): Promise<number> {
+    try {
+      const resp = await this.apiRequest({
+        method: 'getClockStatus',
+        params: { system: { name: 'clock_status' } },
+      });
+
+      const direct = (resp.result as { system?: { clock_status?: { seconds_from_1970?: unknown } } })
+        .system?.clock_status?.seconds_from_1970;
+      if (typeof direct === 'number') {
+        return Math.floor(Date.now() / 1000) - direct;
+      }
+
+      const nested = (resp.result.responses?.[0] as {
+        result?: { system?: { clock_status?: { seconds_from_1970?: unknown } } };
+      } | undefined)?.result?.system?.clock_status?.seconds_from_1970;
+      if (typeof nested === 'number') {
+        return Math.floor(Date.now() / 1000) - nested;
+      }
+    } catch {
+      // Some models/firmware variants don't expose this shape reliably.
+    }
+
+    return 0;
   }
 
   // -------------------------------------------------------------------------

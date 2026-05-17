@@ -134,22 +134,31 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   },
 
   async seekTo(time) {
-    const { selectedId } = get();
+    const { selectedId, recordings } = get();
     if (!selectedId) return;
 
+    const clip = recordings.find((r) => time >= r.startTime && time <= r.endTime);
+    if (!clip) {
+      set({ playbackMode: 'live', playbackTime: null });
+      return;
+    }
+
     set({ playbackMode: 'playback', playbackTime: time });
-    const now = Date.now();
-    const seekSeconds = Math.max(0, Math.floor((now - time) / 1000));
 
     try {
-      const hlsUrl = await window.tapoStudio.stream.startPlayback(selectedId, seekSeconds);
+      const playbackUrl = await window.tapoStudio.recordings.play(
+        selectedId,
+        clip.startTime,
+        clip.endTime,
+      );
       set((s) => ({
         cameras: s.cameras.map((c) =>
-          c.config.id === selectedId ? { ...c, hlsUrl, status: 'live' } : c,
+          c.config.id === selectedId ? { ...c, hlsUrl: playbackUrl, status: 'live' } : c,
         ),
       }));
-    } catch {
-      // Playback not supported for this camera — no-op, show live instead
+    } catch (e) {
+      const msg = (e as Error).message;
+      get().setStatus(selectedId, 'error', msg || 'Failed to start recording playback');
       set({ playbackMode: 'live', playbackTime: null });
     }
   },

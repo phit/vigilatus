@@ -76,4 +76,16 @@ export function registerHandlers(): void {
       return [];
     }
   });
+
+  ipcMain.handle('recordings:play', async (_e, cameraId: string, startTime: number, endTime: number) => {
+    const cam = configStore.getCameras().find((c) => c.id === cameraId);
+    if (!cam) throw new Error(`Camera ${cameraId} not found`);
+
+    const client = new TapoClient({ host: cam.host, username: cam.username, password: cam.password });
+    const localFile = await client.downloadRecording(startTime, endTime);
+
+    // Ensure live ffmpeg process is not holding this slot while playing back a local clip.
+    streamManager.stopStream(cameraId);
+    return streamManager.getPlaybackUrl(cameraId, localFile);
+  });
 }

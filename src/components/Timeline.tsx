@@ -41,6 +41,7 @@ export function Timeline({
   selectedCameraId,
 }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const dragTimeRef = useRef<number | null>(null);
   const [dragging, setDragging] = useState(false);
   const [windowEnd, setWindowEnd] = useState(() => Date.now());
   const windowStart = windowEnd - WINDOW_HOURS * 60 * 60 * 1000;
@@ -84,17 +85,26 @@ export function Timeline({
   useEffect(() => {
     if (!dragging) return;
     const onMove = (e: MouseEvent) => {
-      const t = clientXToTime(e.clientX);
+      dragTimeRef.current = clientXToTime(e.clientX);
+    };
+    const onUp = () => {
+      const t = dragTimeRef.current;
+      dragTimeRef.current = null;
+      setDragging(false);
+      if (!playbackEnabled || t == null) return;
+      if (t >= Date.now() - 5000) {
+        onGoLive();
+        return;
+      }
       onSeek(t);
     };
-    const onUp = () => setDragging(false);
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
     return () => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
     };
-  }, [dragging, clientXToTime, onSeek]);
+  }, [dragging, clientXToTime, onSeek, onGoLive, playbackEnabled]);
 
   const handlePos = timeToPercent(playbackMode === 'playback' && playbackTime ? playbackTime : Date.now());
 
@@ -156,6 +166,7 @@ export function Timeline({
           onMouseDown={(e) => {
             if (!playbackEnabled) return;
             e.stopPropagation();
+            dragTimeRef.current = clientXToTime(e.clientX);
             setDragging(true);
           }}
         >

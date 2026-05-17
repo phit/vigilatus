@@ -24,6 +24,7 @@ declare global {
       };
       recordings: {
         list(cameraId: string, date: string): Promise<Recording[]>;
+        play(cameraId: string, startTime: number, endTime: number): Promise<string>;
       };
     };
   }

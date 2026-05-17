@@ -13,6 +13,7 @@ export function CameraViewer({ camera, playbackMode }: Props) {
   const [playerError, setPlayerError] = useState<string | null>(null);
 
   const hlsUrl = camera?.hlsUrl;
+  const isHlsSource = Boolean(hlsUrl && hlsUrl.toLowerCase().includes('.m3u8'));
   const snapshot = camera?.snapshotDataUrl;
   const status = camera?.status ?? 'idle';
 
@@ -30,6 +31,14 @@ export function CameraViewer({ camera, playbackMode }: Props) {
     video.src = '';
 
     if (!hlsUrl) return;
+
+    if (!isHlsSource) {
+      video.src = hlsUrl;
+      video.play().catch(() => {
+        setPlayerError('Playback failed to start');
+      });
+      return;
+    }
 
     if (Hls.isSupported()) {
       const hls = new Hls({
@@ -84,7 +93,7 @@ export function CameraViewer({ camera, playbackMode }: Props) {
         setPlayerError('Native HLS playback failed');
       });
     }
-  }, [hlsUrl]);
+  }, [hlsUrl, isHlsSource]);
 
   const label = camera?.config.name ?? 'No camera selected';
 
@@ -99,6 +108,7 @@ export function CameraViewer({ camera, playbackMode }: Props) {
           autoPlay
           muted
           playsInline
+          controls={playbackMode === 'playback'}
         />
       ) : snapshot ? (
         <img src={snapshot} alt={label} className="viewer-snapshot" />

@@ -20,6 +20,7 @@ import type { CameraConfig } from '../types';
 
 const HLS_DIR = path.join(os.tmpdir(), 'tapostudio-hls');
 const SNAP_DIR = path.join(os.tmpdir(), 'tapostudio-snaps');
+const PLAYBACK_DIR = path.join(os.tmpdir(), 'tapostudio-playback');
 
 // ---------------------------------------------------------------------------
 // State
@@ -50,6 +51,7 @@ export async function init(): Promise<void> {
 
   fs.mkdirSync(HLS_DIR, { recursive: true });
   fs.mkdirSync(SNAP_DIR, { recursive: true });
+  fs.mkdirSync(PLAYBACK_DIR, { recursive: true });
 
   hlsPort = await startServer();
 }
@@ -139,6 +141,22 @@ export function stopStream(cameraId: string): void {
   } catch {
     /* ignore */
   }
+}
+
+export function getPlaybackUrl(cameraId: string, filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase() || '.mp4';
+  const destDir = path.join(PLAYBACK_DIR, cameraId);
+  fs.mkdirSync(destDir, { recursive: true });
+
+  const baseName = path.basename(filePath, path.extname(filePath));
+  const safeBase = baseName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const destFile = path.join(destDir, `${safeBase}${ext}`);
+
+  if (!fs.existsSync(destFile)) {
+    fs.copyFileSync(filePath, destFile);
+  }
+
+  return `http://127.0.0.1:${hlsPort}/playback/${cameraId}/${path.basename(destFile)}`;
 }
 
 /** Restart the stream with a time offset for recording playback.  Returns the HLS URL. */
@@ -424,11 +442,11 @@ function summarizeFfmpegDetails(details: string): string {
 function startServer(): Promise<number> {
   return new Promise((resolve, reject) => {
     server = http.createServer((req, res) => {
-      // Prevent path traversal
       const reqPath = decodeURIComponent((req.url ?? '/').replace(/\?.*$/, ''));
       const relativePath = reqPath.replace(/^\/+/, '');
-      const safe = path.resolve(HLS_DIR, relativePath);
-      if (!safe.startsWith(HLS_DIR)) {
+      const baseDir = relativePath.startsWith('playback/') ? PLAYBACK_DIR : HLS_DIR;
+      const safe = path.resolve(baseDir, relativePath);
+      if (!safe.startsWith(baseDir)) {
         res.writeHead(403).end('Forbidden');
         return;
       }
@@ -439,7 +457,10 @@ function startServer(): Promise<number> {
           return;
         }
         const ext = path.extname(safe);
-        const mime = ext === '.m3u8' ? 'application/vnd.apple.mpegurl' : 'video/MP2T';
+        let mime = 'application/octet-stream';
+        if (ext === '.m3u8') mime = 'application/vnd.apple.mpegurl';
+        else if (ext === '.ts') mime = 'video/MP2T';
+        else if (ext === '.mp4') mime = 'video/mp4';
         res.writeHead(200, {
           'Content-Type': mime,
           'Access-Control-Allow-Origin': '*',
