@@ -14,6 +14,7 @@ export function App() {
     playbackMode,
     playbackTime,
     recordings,
+    recordingsError,
     loadCameras,
     addCamera,
     updateCamera,
@@ -34,6 +35,8 @@ export function App() {
   const playbackEnabled = Boolean(selectedCamera);
   const timelineMessage = !selectedCamera
     ? 'Select a camera to load recording availability.'
+    : recordingsError
+    ? `Recording query failed: ${recordingsError}`
     : recordings.length > 0
     ? `${recordings.length} recording segment${recordings.length === 1 ? '' : 's'} found. Drag or click the timeline to open a clip.`
     : 'No recording segments reported for the selected day. You can still drag the timeline, but only highlighted segments can start playback.';

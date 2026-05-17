@@ -182,6 +182,21 @@ export class TapoClient {
       return direct;
     }
 
+    // pytapo-compatible shape used by several firmware variants.
+    const legacyResp = await this.apiRequest({
+      method: 'searchVideoOfDay',
+      params: {
+        playback: {
+          search_video_utility: daySearchParams,
+        },
+      },
+    });
+
+    const legacyParsed = this.extractRecordingsFromResponse(legacyResp);
+    if (legacyParsed.length > 0) {
+      return legacyParsed;
+    }
+
     // Some firmware/timezone combinations return empty day results but work with UTC range search.
     const utcFallback = await this.searchRecordingsWithUtcRange(date, userId);
     return utcFallback;
@@ -536,13 +551,30 @@ export class TapoClient {
             video?: { video_info?: Array<{ startTime?: number; endTime?: number }> };
             playback?: {
               search_video_results?: Array<Record<string, { startTime?: number; endTime?: number }>>;
+              search_video_with_utc?: {
+                search_video_results?: Array<Record<string, { startTime?: number; endTime?: number }>>;
+              };
             };
             search_video_results?: Array<Record<string, { startTime?: number; endTime?: number }>>;
           };
         }
       | undefined;
 
-    const byVideoInfo = sub?.result?.video?.video_info ?? [];
+    const topResult = (resp.result ?? {}) as {
+      video?: { video_info?: Array<{ startTime?: number; endTime?: number }> };
+      playback?: {
+        search_video_results?: Array<Record<string, { startTime?: number; endTime?: number }>>;
+        search_video_with_utc?: {
+          search_video_results?: Array<Record<string, { startTime?: number; endTime?: number }>>;
+        };
+      };
+      search_video_results?: Array<Record<string, { startTime?: number; endTime?: number }>>;
+    };
+
+    const byVideoInfo = [
+      ...(topResult.video?.video_info ?? []),
+      ...(sub?.result?.video?.video_info ?? []),
+    ];
     const fromVideoInfo = byVideoInfo
       .filter((v): v is { startTime: number; endTime: number } =>
         typeof v.startTime === 'number' && typeof v.endTime === 'number')
@@ -550,7 +582,11 @@ export class TapoClient {
 
     if (fromVideoInfo.length > 0) return fromVideoInfo;
 
-    const nestedSearch = sub?.result?.playback?.search_video_results
+    const nestedSearch = topResult.playback?.search_video_results
+      ?? topResult.playback?.search_video_with_utc?.search_video_results
+      ?? topResult.search_video_results
+      ?? sub?.result?.playback?.search_video_results
+      ?? sub?.result?.playback?.search_video_with_utc?.search_video_results
       ?? sub?.result?.search_video_results
       ?? [];
 
@@ -610,8 +646,22 @@ export class TapoClient {
         ],
       },
     });
+    const parsed = this.extractRecordingsFromResponse(resp);
+    if (parsed.length > 0) {
+      return parsed;
+    }
 
-    return this.extractRecordingsFromResponse(resp);
+    // pytapo-compatible UTC search shape.
+    const legacyUtcResp = await this.apiRequest({
+      method: 'searchVideoWithUTC',
+      params: {
+        playback: {
+          search_video_with_utc: utcSearchParams,
+        },
+      },
+    });
+
+    return this.extractRecordingsFromResponse(legacyUtcResp);
   }
 
   // -------------------------------------------------------------------------

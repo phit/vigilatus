@@ -103,7 +103,9 @@ export function registerHandlers(): void {
     }
 
     console.warn(`[recordings:list:${cameraId}] failed for ${date}:`, (lastError as Error)?.message ?? lastError);
-    return [];
+    throw (lastError instanceof Error
+      ? lastError
+      : new Error('Failed to load recording segments from camera'));
   });
 
   ipcMain.handle('recordings:play', async (_e, cameraId: string, startTime: number, endTime: number) => {

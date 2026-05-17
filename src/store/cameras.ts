@@ -8,6 +8,7 @@ interface CamerasStore {
   playbackMode: PlaybackMode;
   playbackTime: number | null;
   recordings: Recording[];
+  recordingsError: string | null;
 
   loadCameras(): Promise<void>;
   addCamera(cfg: CameraConfig): Promise<void>;
@@ -33,6 +34,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   playbackMode: 'live',
   playbackTime: null,
   recordings: [],
+  recordingsError: null,
 
   // ------------------------------------------------------------------
   // Config operations
@@ -69,7 +71,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   // ------------------------------------------------------------------
 
   selectCamera(id) {
-    set({ selectedId: id, playbackMode: 'live', playbackTime: null, recordings: [] });
+    set({ selectedId: id, playbackMode: 'live', playbackTime: null, recordings: [], recordingsError: null });
     void get().startStream(id);
   },
 
@@ -127,9 +129,9 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   async loadRecordings(cameraId, date) {
     try {
       const recs = await window.tapoStudio.recordings.list(cameraId, date);
-      set({ recordings: recs });
-    } catch {
-      set({ recordings: [] });
+      set({ recordings: recs, recordingsError: null });
+    } catch (e) {
+      set({ recordings: [], recordingsError: (e as Error)?.message ?? 'Failed to load recordings' });
     }
   },
 
@@ -165,7 +167,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
 
   goLive() {
     const { selectedId } = get();
-    set({ playbackMode: 'live', playbackTime: null, recordings: [] });
+    set({ playbackMode: 'live', playbackTime: null, recordings: [], recordingsError: null });
     if (selectedId) void get().startStream(selectedId);
   },
 }));
