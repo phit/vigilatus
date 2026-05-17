@@ -5,6 +5,7 @@ import * as streamManager from './tapo/streamManager';
 import { registerHandlers } from './ipc/handlers';
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
+const shouldOpenDevTools = process.env.TAPOSTUDIO_OPEN_DEVTOOLS === '1';
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -24,7 +25,9 @@ function createWindow(): void {
 
   if (isDevelopment && process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL);
-    win.webContents.openDevTools({ mode: 'detach' });
+    if (shouldOpenDevTools) {
+      win.webContents.openDevTools({ mode: 'detach' });
+    }
   } else {
     win.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
