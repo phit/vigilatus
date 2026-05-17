@@ -36,6 +36,9 @@ const snapshotLocks = new Map<string, Promise<string | null>>();
 let server: http.Server | null = null;
 let hlsPort = 0;
 
+const STREAM_READY_TIMEOUT_MS = 15_000;
+const STREAM_READY_POLL_MS = 250;
+
 // ---------------------------------------------------------------------------
 // Init / teardown
 // ---------------------------------------------------------------------------
@@ -59,9 +62,9 @@ export function cleanup(): void {
 // Live stream
 // ---------------------------------------------------------------------------
 
-export function startStream(cameraId: string, cfg: CameraConfig): string {
+export function startStream(cameraId: string, cfg: CameraConfig): Promise<string> {
   const existing = streams.get(cameraId);
-  if (existing) return existing.hlsUrl;
+  if (existing) return Promise.resolve(existing.hlsUrl);
 
   const segDir = path.join(HLS_DIR, cameraId);
   fs.mkdirSync(segDir, { recursive: true });
@@ -90,16 +93,52 @@ export function startStream(cameraId: string, cfg: CameraConfig): string {
       '-hls_list_size 5',
       '-hls_flags delete_segments+append_list',
       '-start_number 0',
-    ])
-    .on('error', (err: Error) => {
-      console.error(`[stream:${cameraId}] error:`, err.message);
+    ]);
+
+  const ready = waitForPlaylist(m3u8, STREAM_READY_TIMEOUT_MS);
+
+  const streamReady = new Promise<string>((resolve, reject) => {
+    let settled = false;
+
+    (proc as ffmpeg.FfmpegCommand & {
+      on(event: 'error', listener: (err: Error, stdout: string, stderr: string) => void): ffmpeg.FfmpegCommand;
+    }).on('error', (err: Error, _stdout: string, stderr: string) => {
+      const details = stderr?.trim();
+      const message = details ? `${err.message}: ${details}` : err.message;
+      console.error(`[stream:${cameraId}] error:`, message);
       streams.delete(cameraId);
-    })
-    .on('end', () => streams.delete(cameraId));
+      if (!settled) {
+        settled = true;
+        reject(new Error(message));
+      }
+    });
+
+    proc.on('end', () => streams.delete(cameraId));
+
+    void ready
+      .then(() => {
+        if (!settled) {
+          settled = true;
+          resolve(hlsUrl);
+        }
+      })
+      .catch((err: Error) => {
+        streams.delete(cameraId);
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          /* ignore */
+        }
+        if (!settled) {
+          settled = true;
+          reject(err);
+        }
+      });
+  });
 
   proc.save(m3u8);
   streams.set(cameraId, { proc, hlsUrl });
-  return hlsUrl;
+  return streamReady;
 }
 
 export function stopStream(cameraId: string): void {
@@ -122,7 +161,7 @@ export function stopStream(cameraId: string): void {
 }
 
 /** Restart the stream with a time offset for recording playback.  Returns the HLS URL. */
-export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: number): string {
+export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: number): Promise<string> {
   stopStream(cameraId);
 
   const segDir = path.join(HLS_DIR, cameraId);
@@ -148,16 +187,52 @@ export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: 
       '-hls_list_size 5',
       '-hls_flags delete_segments+append_list',
       '-start_number 0',
-    ])
-    .on('error', (err: Error) => {
-      console.error(`[playback:${cameraId}] error:`, err.message);
+    ]);
+
+  const ready = waitForPlaylist(m3u8, STREAM_READY_TIMEOUT_MS);
+
+  const streamReady = new Promise<string>((resolve, reject) => {
+    let settled = false;
+
+    (proc as ffmpeg.FfmpegCommand & {
+      on(event: 'error', listener: (err: Error, stdout: string, stderr: string) => void): ffmpeg.FfmpegCommand;
+    }).on('error', (err: Error, _stdout: string, stderr: string) => {
+      const details = stderr?.trim();
+      const message = details ? `${err.message}: ${details}` : err.message;
+      console.error(`[playback:${cameraId}] error:`, message);
       streams.delete(cameraId);
-    })
-    .on('end', () => streams.delete(cameraId));
+      if (!settled) {
+        settled = true;
+        reject(new Error(message));
+      }
+    });
+
+    proc.on('end', () => streams.delete(cameraId));
+
+    void ready
+      .then(() => {
+        if (!settled) {
+          settled = true;
+          resolve(hlsUrl);
+        }
+      })
+      .catch((err: Error) => {
+        streams.delete(cameraId);
+        try {
+          proc.kill('SIGKILL');
+        } catch {
+          /* ignore */
+        }
+        if (!settled) {
+          settled = true;
+          reject(err);
+        }
+      });
+  });
 
   proc.save(m3u8);
   streams.set(cameraId, { proc, hlsUrl });
-  return hlsUrl;
+  return streamReady;
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +308,35 @@ function withRtspAuth(url: string, username?: string, password?: string): string
   } catch {
     return url;
   }
+}
+
+function waitForPlaylist(filePath: string, timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+
+    const check = () => {
+      try {
+        if (fs.existsSync(filePath)) {
+          const content = fs.readFileSync(filePath, 'utf8');
+          if (content.includes('#EXTM3U')) {
+            resolve();
+            return;
+          }
+        }
+      } catch {
+        /* keep polling */
+      }
+
+      if (Date.now() - start >= timeoutMs) {
+        reject(new Error('Timed out waiting for HLS playlist'));
+        return;
+      }
+
+      setTimeout(check, STREAM_READY_POLL_MS);
+    };
+
+    check();
+  });
 }
 
 // ---------------------------------------------------------------------------
