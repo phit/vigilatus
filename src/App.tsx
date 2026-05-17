@@ -85,6 +85,7 @@ export function App() {
                 type="button"
                 className="btn-icon"
                 title={`${selectedCamera.hlsUrl ? 'Stop' : 'Start'} stream`}
+                disabled={selectedCamera.status === 'connecting'}
                 onClick={() =>
                   selectedCamera.hlsUrl
                     ? stopStream(selectedCamera.config.id)
@@ -129,7 +130,7 @@ export function App() {
         <div
           className="viewer-wrap"
           onClick={() => {
-            if (!selectedCamera?.hlsUrl && selectedCamera) {
+            if (!selectedCamera?.hlsUrl && selectedCamera && selectedCamera.status !== 'connecting') {
               void startStream(selectedCamera.config.id);
             }
           }}

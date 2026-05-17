@@ -29,6 +29,7 @@ const PLAYBACK_DIR = path.join(os.tmpdir(), 'tapostudio-playback');
 interface StreamEntry {
   proc: ffmpeg.FfmpegCommand;
   hlsUrl: string;
+  ready: Promise<string>;
 }
 
 const streams = new Map<string, StreamEntry>();
@@ -67,7 +68,7 @@ export function cleanup(): void {
 
 export function startStream(cameraId: string, cfg: CameraConfig): Promise<string> {
   const existing = streams.get(cameraId);
-  if (existing) return Promise.resolve(existing.hlsUrl);
+  if (existing) return existing.ready;
 
   const segDir = path.join(HLS_DIR, cameraId);
   fs.mkdirSync(segDir, { recursive: true });
@@ -120,7 +121,7 @@ export function startStream(cameraId: string, cfg: CameraConfig): Promise<string
       });
   });
 
-  streams.set(cameraId, { proc, hlsUrl });
+  streams.set(cameraId, { proc, hlsUrl, ready: streamReady });
   return streamReady;
 }
 
@@ -214,7 +215,7 @@ export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: 
       });
   });
 
-  streams.set(cameraId, { proc, hlsUrl });
+  streams.set(cameraId, { proc, hlsUrl, ready: streamReady });
   return streamReady;
 }
 

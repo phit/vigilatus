@@ -389,9 +389,14 @@ export class TapoClient {
         const decrypted = aesDecrypt(raw.result.response, this.lsk!, this.ivb!);
         responseData = JSON.parse(decrypted) as ApiResponse;
       } catch {
-        this.clearSession();
-        if (retryCount < MAX_LOGIN_RETRIES) return this.apiRequest(req, retryCount + 1);
-        throw new Error('Failed to decrypt API response');
+        try {
+          // Some firmware revisions return plain JSON text in response instead of AES payload.
+          responseData = JSON.parse(raw.result.response) as ApiResponse;
+        } catch {
+          this.clearSession();
+          if (retryCount < MAX_LOGIN_RETRIES) return this.apiRequest(req, retryCount + 1);
+          throw new Error('Failed to decrypt API response');
+        }
       }
     } else if (!secure) {
       responseData = raw;
@@ -583,10 +588,22 @@ export class TapoClient {
       );
     };
 
-    return makeRequest(this.preferredProtocol, this.preferredPort)
-      .then((result) => result)
-      .catch((err) => {
-        if (this.preferredProtocol === 'https' && shouldFallbackToHttp(err)) {
+    const shouldFallbackToHttps = (error: unknown): boolean => {
+      const msg = String((error as Error)?.message ?? error ?? '');
+      return (
+        msg.includes('ECONNREFUSED') ||
+        msg.includes('EHOSTUNREACH') ||
+        msg.includes('ETIMEDOUT') ||
+        msg.includes('socket hang up') ||
+        msg.includes('Expected HTTP/') ||
+        msg.includes('wrong version number') ||
+        msg.includes('EPROTO')
+      );
+    };
+
+    if (this.preferredProtocol === 'https') {
+      return makeRequest('https', 443).catch((err) => {
+        if (shouldFallbackToHttp(err)) {
           return makeRequest('http', 80).then((result) => {
             this.preferredProtocol = 'http';
             this.preferredPort = 80;
@@ -595,5 +612,17 @@ export class TapoClient {
         }
         throw err;
       });
+    }
+
+    return makeRequest('http', 80).catch((err) => {
+      if (shouldFallbackToHttps(err)) {
+        return makeRequest('https', 443).then((result) => {
+          this.preferredProtocol = 'https';
+          this.preferredPort = 443;
+          return result;
+        });
+      }
+      throw err;
+    });
   }
 }
