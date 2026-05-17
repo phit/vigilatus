@@ -243,8 +243,9 @@ function startServer(): Promise<number> {
   return new Promise((resolve, reject) => {
     server = http.createServer((req, res) => {
       // Prevent path traversal
-      const reqPath = (req.url ?? '/').replace(/\?.*$/, '');
-      const safe = path.resolve(path.join(HLS_DIR, path.normalize(reqPath)));
+      const reqPath = decodeURIComponent((req.url ?? '/').replace(/\?.*$/, ''));
+      const relativePath = reqPath.replace(/^\/+/, '');
+      const safe = path.resolve(HLS_DIR, relativePath);
       if (!safe.startsWith(HLS_DIR)) {
         res.writeHead(403).end('Forbidden');
         return;
