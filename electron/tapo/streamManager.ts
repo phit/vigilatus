@@ -253,7 +253,9 @@ async function captureSnapshot(cameraId: string, cfg: CameraConfig): Promise<str
 
 function buildRtspUrl(cfg: CameraConfig, stream: 'main' | 'sub'): string {
   if (cfg.rtspUrl) {
-    return withRtspAuth(cfg.rtspUrl, cfg.rtspUsername, cfg.rtspPassword);
+    const username = cfg.rtspUsername || cfg.streamUser || cfg.username;
+    const password = cfg.rtspPassword || cfg.streamPassword || cfg.password;
+    return withRtspAuth(cfg.rtspUrl, username, password);
   }
 
   const user = encodeURIComponent(cfg.streamUser || cfg.username);
