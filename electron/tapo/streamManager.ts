@@ -71,11 +71,16 @@ export function startStream(cameraId: string, cfg: CameraConfig): string {
 
   const proc = ffmpeg(rtsp)
     .inputOptions([
-      '-rtsp_transport tcp',
-      '-stimeout 10000000',
-      '-reconnect 1',
-      '-reconnect_at_eof 1',
-      '-reconnect_streamed 1',
+      '-rtsp_transport',
+      'tcp',
+      '-rw_timeout',
+      '10000000',
+      '-reconnect',
+      '1',
+      '-reconnect_at_eof',
+      '1',
+      '-reconnect_streamed',
+      '1',
     ])
     .videoCodec('copy')
     .audioCodec('aac')
@@ -128,9 +133,12 @@ export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: 
 
   const proc = ffmpeg(rtsp)
     .inputOptions([
-      '-rtsp_transport tcp',
-      '-stimeout 10000000',
-      `-ss ${seekSeconds}`,
+      '-rtsp_transport',
+      'tcp',
+      '-rw_timeout',
+      '10000000',
+      '-ss',
+      String(seekSeconds),
     ])
     .videoCodec('copy')
     .audioCodec('aac')
@@ -177,7 +185,7 @@ async function captureSnapshot(cameraId: string, cfg: CameraConfig): Promise<str
     }, 8000);
 
     const proc = ffmpeg(rtsp)
-      .inputOptions(['-rtsp_transport tcp', '-stimeout 5000000'])
+      .inputOptions(['-rtsp_transport', 'tcp', '-rw_timeout', '5000000'])
       .frames(1)
       .outputOptions(['-q:v 5'])
       .on('error', () => {

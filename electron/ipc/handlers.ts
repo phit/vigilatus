@@ -69,7 +69,11 @@ export function registerHandlers(): void {
   ipcMain.handle('recordings:list', async (_e, cameraId: string, date: string) => {
     const cam = configStore.getCameras().find((c) => c.id === cameraId);
     if (!cam) return [];
-    const client = new TapoClient({ host: cam.host, username: cam.username, password: cam.password });
-    return client.getRecordingsForDate(date);
+    try {
+      const client = new TapoClient({ host: cam.host, username: cam.username, password: cam.password });
+      return await client.getRecordingsForDate(date);
+    } catch {
+      return [];
+    }
   });
 }

@@ -172,6 +172,13 @@ export class TapoClient {
     this.passwordMethod = undefined;
   }
 
+  private clearSession(): void {
+    this.stok = undefined;
+    this.lsk = undefined;
+    this.ivb = undefined;
+    this.seq = undefined;
+  }
+
   private getHashedPassword(): string {
     return this.passwordMethod === 'sha256' ? this.hashedSha256 : this.hashedMd5;
   }
@@ -321,6 +328,7 @@ export class TapoClient {
     }
 
     const raw = await this.post<ApiResponse>(url, fetchBody, extraHeaders);
+    let responseData: ApiResponse | null = null;
 
     // Token expired
     if (
@@ -328,7 +336,7 @@ export class TapoClient {
       raw.error_code === -40401 ||
       raw.error_code === -1
     ) {
-      this.stok = undefined;
+      this.clearSession();
       if (retryCount < MAX_LOGIN_RETRIES) return this.apiRequest(req, retryCount + 1);
       throw new Error(`API request failed: error_code ${raw?.error_code}`);
     }
@@ -337,13 +345,23 @@ export class TapoClient {
     if (secure && raw.result?.response) {
       try {
         const decrypted = aesDecrypt(raw.result.response, this.lsk!, this.ivb!);
-        return JSON.parse(decrypted) as ApiResponse;
+        responseData = JSON.parse(decrypted) as ApiResponse;
       } catch {
+        this.clearSession();
+        if (retryCount < MAX_LOGIN_RETRIES) return this.apiRequest(req, retryCount + 1);
         throw new Error('Failed to decrypt API response');
       }
+    } else if (!secure) {
+      responseData = raw;
     }
 
-    return raw;
+    if (!responseData) {
+      this.clearSession();
+      if (retryCount < MAX_LOGIN_RETRIES) return this.apiRequest(req, retryCount + 1);
+      throw new Error('API request returned no usable response');
+    }
+
+    return responseData;
   }
 
   // -------------------------------------------------------------------------
