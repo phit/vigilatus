@@ -22,7 +22,6 @@ import path from 'node:path';
 import type { Recording } from '../types';
 import { downloadRecordingToMp4 } from './recordingDownloader';
 
-const AES_BLOCK_SIZE = 16;
 const MAX_LOGIN_RETRIES = 2;
 
 interface TapoClientConfig {
@@ -66,28 +65,24 @@ function sha256Upper(text: string): string {
   return crypto.createHash('sha256').update(text).digest('hex').toUpperCase();
 }
 
-function encryptPad(text: string, blockSize: number): string {
-  const padSize = blockSize - (text.length % blockSize);
-  return text + String.fromCharCode(padSize).repeat(padSize);
-}
-
-function encryptUnpad(text: string, blockSize: number): string {
-  const padLen = text.charCodeAt(text.length - 1);
-  if (padLen > blockSize || padLen > text.length) throw new Error('Invalid AES padding');
-  return text.slice(0, text.length - padLen);
-}
-
 function aesEncrypt(data: string, key: Buffer, iv: Buffer): Buffer {
   const cipher = crypto.createCipheriv('aes-128-cbc', key, iv);
-  const padded = encryptPad(data, AES_BLOCK_SIZE);
-  const hex = cipher.update(padded, 'utf-8', 'hex') + cipher.final('hex');
-  return Buffer.from(hex, 'hex');
+  const encrypted = Buffer.concat([cipher.update(Buffer.from(data, 'utf8')), cipher.final()]);
+  return encrypted;
 }
 
 function aesDecrypt(b64: string, key: Buffer, iv: Buffer): string {
   const decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
-  const raw = decipher.update(b64, 'base64', 'utf-8') + decipher.final('utf-8');
-  return encryptUnpad(raw, AES_BLOCK_SIZE);
+  const ciphertext = Buffer.from(b64, 'base64');
+  const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  return decrypted.toString('utf8');
+}
+
+function normalizeBase64(input: string): string {
+  const normalized = input.replace(/-/g, '+').replace(/_/g, '/');
+  const remainder = normalized.length % 4;
+  if (remainder === 0) return normalized;
+  return normalized + '='.repeat(4 - remainder);
 }
 
 // ---------------------------------------------------------------------------
@@ -433,8 +428,9 @@ export class TapoClient {
     // Decrypt if secure
     if (secure && raw.result?.response) {
       const secureResponse = raw.result.response;
+      const normalizedSecureResponse = normalizeBase64(secureResponse);
       try {
-        const decrypted = aesDecrypt(secureResponse, this.lsk!, this.ivb!);
+        const decrypted = aesDecrypt(normalizedSecureResponse, this.lsk!, this.ivb!);
         responseData = JSON.parse(decrypted) as ApiResponse;
       } catch {
         try {
@@ -443,7 +439,7 @@ export class TapoClient {
         } catch {
           try {
             // Some variants return base64-encoded plain JSON payloads.
-            const decoded = Buffer.from(secureResponse, 'base64').toString('utf8');
+            const decoded = Buffer.from(normalizedSecureResponse, 'base64').toString('utf8');
             responseData = JSON.parse(decoded) as ApiResponse;
           } catch {
             this.clearSession();
