@@ -31,12 +31,12 @@ export function App() {
   const [editTarget, setEditTarget] = useState<CameraConfig | undefined>(undefined);
 
   const selectedCamera = cameras.find((c) => c.config.id === selectedId);
-  const playbackEnabled = Boolean(selectedCamera && recordings.length > 0);
+  const playbackEnabled = Boolean(selectedCamera);
   const timelineMessage = !selectedCamera
     ? 'Select a camera to load recording availability.'
     : recordings.length > 0
-    ? `${recordings.length} recording segment${recordings.length === 1 ? '' : 's'} found. Click the timeline to open a clip.`
-    : 'No recording segments reported for the selected day, or recordings are unavailable.';
+    ? `${recordings.length} recording segment${recordings.length === 1 ? '' : 's'} found. Drag or click the timeline to open a clip.`
+    : 'No recording segments reported for the selected day. You can still drag the timeline, but only highlighted segments can start playback.';
 
   useEffect(() => {
     void loadCameras();
