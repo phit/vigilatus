@@ -41,6 +41,7 @@ export function Timeline({
   selectedCameraId,
 }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const activePointerRef = useRef<number | null>(null);
   const dragTimeRef = useRef<number | null>(null);
   const suppressClickRef = useRef(false);
   const [dragging, setDragging] = useState(false);
@@ -96,33 +97,23 @@ export function Timeline({
     setDragging(true);
   };
 
-  // Drag logic
-  useEffect(() => {
-    if (!dragging) return;
-    const onMove = (e: MouseEvent) => {
-      const t = clientXToTime(e.clientX);
-      dragTimeRef.current = t;
-      setDragPreviewTime(t);
-    };
-    const onUp = () => {
-      const t = dragTimeRef.current;
-      dragTimeRef.current = null;
-      setDragPreviewTime(null);
-      setDragging(false);
-      if (!playbackEnabled || t == null) return;
-      if (t >= Date.now() - 5000) {
-        onGoLive();
-        return;
-      }
-      onSeek(t);
-    };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    return () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-    };
-  }, [dragging, clientXToTime, onSeek, onGoLive, playbackEnabled]);
+  const finalizeDrag = useCallback(() => {
+    const t = dragTimeRef.current;
+    dragTimeRef.current = null;
+    activePointerRef.current = null;
+    setDragPreviewTime(null);
+    setDragging(false);
+    if (!playbackEnabled || t == null) return;
+    if (t >= Date.now() - 5000) {
+      onGoLive();
+      return;
+    }
+    onSeek(t);
+  }, [onGoLive, onSeek, playbackEnabled]);
+
+  useEffect(() => () => {
+    activePointerRef.current = null;
+  }, []);
 
   const handleTime = dragging && dragPreviewTime != null
     ? dragPreviewTime
@@ -162,9 +153,28 @@ export function Timeline({
         ref={trackRef}
         className={`timeline-track${playbackEnabled ? '' : ' timeline-track--disabled'}`}
         onClick={handleTrackClick}
-        onMouseDown={(e) => {
+        onPointerDown={(e) => {
           if (!playbackEnabled) return;
+          activePointerRef.current = e.pointerId;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          e.preventDefault();
           beginDrag(e.clientX);
+        }}
+        onPointerMove={(e) => {
+          if (!dragging || activePointerRef.current !== e.pointerId) return;
+          const t = clientXToTime(e.clientX);
+          dragTimeRef.current = t;
+          setDragPreviewTime(t);
+        }}
+        onPointerUp={(e) => {
+          if (activePointerRef.current !== e.pointerId) return;
+          e.currentTarget.releasePointerCapture(e.pointerId);
+          finalizeDrag();
+        }}
+        onPointerCancel={(e) => {
+          if (activePointerRef.current !== e.pointerId) return;
+          e.currentTarget.releasePointerCapture(e.pointerId);
+          finalizeDrag();
         }}
         role="slider"
         aria-label="Timeline scrubber"
@@ -190,10 +200,12 @@ export function Timeline({
         <div
           className={`timeline-handle${dragging ? ' timeline-handle--active' : ''}`}
           style={{ left: `${handlePos}%` }}
-          onMouseDown={(e) => {
+          onPointerDown={(e) => {
             if (!playbackEnabled) return;
             e.preventDefault();
             e.stopPropagation();
+            activePointerRef.current = e.pointerId;
+            trackRef.current?.setPointerCapture(e.pointerId);
             beginDrag(e.clientX);
           }}
         >

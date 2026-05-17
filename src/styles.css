@@ -370,6 +370,7 @@ body {
   border-radius: 999px;
   cursor: pointer;
   user-select: none;
+  touch-action: none;
   overflow: visible;
 }
 
