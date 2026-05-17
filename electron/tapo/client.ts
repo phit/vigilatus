@@ -110,6 +110,7 @@ export class TapoClient {
   private seq?: number;
   private isSecureValue?: boolean;
   private passwordMethod?: 'md5' | 'sha256';
+  private triedSecureDowngrade = false;
 
   constructor(cfg: TapoClientConfig) {
     this.host = cfg.host;
@@ -212,6 +213,7 @@ export class TapoClient {
     this.seq = undefined;
     this.isSecureValue = undefined;
     this.passwordMethod = undefined;
+    this.triedSecureDowngrade = false;
   }
 
   private clearSession(): void {
@@ -385,17 +387,32 @@ export class TapoClient {
 
     // Decrypt if secure
     if (secure && raw.result?.response) {
+      const secureResponse = raw.result.response;
       try {
-        const decrypted = aesDecrypt(raw.result.response, this.lsk!, this.ivb!);
+        const decrypted = aesDecrypt(secureResponse, this.lsk!, this.ivb!);
         responseData = JSON.parse(decrypted) as ApiResponse;
       } catch {
         try {
           // Some firmware revisions return plain JSON text in response instead of AES payload.
-          responseData = JSON.parse(raw.result.response) as ApiResponse;
+          responseData = JSON.parse(secureResponse) as ApiResponse;
         } catch {
-          this.clearSession();
-          if (retryCount < MAX_LOGIN_RETRIES) return this.apiRequest(req, retryCount + 1);
-          throw new Error('Failed to decrypt API response');
+          try {
+            // Some variants return base64-encoded plain JSON payloads.
+            const decoded = Buffer.from(secureResponse, 'base64').toString('utf8');
+            responseData = JSON.parse(decoded) as ApiResponse;
+          } catch {
+            this.clearSession();
+            if (retryCount < MAX_LOGIN_RETRIES) return this.apiRequest(req, retryCount + 1);
+
+            if (!this.triedSecureDowngrade) {
+              this.triedSecureDowngrade = true;
+              this.isSecureValue = false;
+              this.passwordMethod = 'md5';
+              return this.apiRequest(req, 0);
+            }
+
+            throw new Error('Failed to decrypt API response');
+          }
         }
       }
     } else if (!secure) {
