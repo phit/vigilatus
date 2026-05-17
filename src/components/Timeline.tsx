@@ -42,7 +42,9 @@ export function Timeline({
 }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
   const dragTimeRef = useRef<number | null>(null);
+  const suppressClickRef = useRef(false);
   const [dragging, setDragging] = useState(false);
+  const [dragPreviewTime, setDragPreviewTime] = useState<number | null>(null);
   const [windowEnd, setWindowEnd] = useState(() => Date.now());
   const windowStart = windowEnd - WINDOW_HOURS * 60 * 60 * 1000;
 
@@ -75,21 +77,37 @@ export function Timeline({
   );
 
   const handleTrackClick = (e: React.MouseEvent) => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
     if (dragging || !playbackEnabled) return;
     const t = clientXToTime(e.clientX);
     if (t >= Date.now() - 5000) { onGoLive(); return; }
     onSeek(t);
   };
 
+  const beginDrag = (clientX: number) => {
+    if (!playbackEnabled) return;
+    const t = clientXToTime(clientX);
+    dragTimeRef.current = t;
+    setDragPreviewTime(t);
+    suppressClickRef.current = true;
+    setDragging(true);
+  };
+
   // Drag logic
   useEffect(() => {
     if (!dragging) return;
     const onMove = (e: MouseEvent) => {
-      dragTimeRef.current = clientXToTime(e.clientX);
+      const t = clientXToTime(e.clientX);
+      dragTimeRef.current = t;
+      setDragPreviewTime(t);
     };
     const onUp = () => {
       const t = dragTimeRef.current;
       dragTimeRef.current = null;
+      setDragPreviewTime(null);
       setDragging(false);
       if (!playbackEnabled || t == null) return;
       if (t >= Date.now() - 5000) {
@@ -106,7 +124,12 @@ export function Timeline({
     };
   }, [dragging, clientXToTime, onSeek, onGoLive, playbackEnabled]);
 
-  const handlePos = timeToPercent(playbackMode === 'playback' && playbackTime ? playbackTime : Date.now());
+  const handleTime = dragging && dragPreviewTime != null
+    ? dragPreviewTime
+    : playbackMode === 'playback' && playbackTime
+    ? playbackTime
+    : Date.now();
+  const handlePos = timeToPercent(handleTime);
 
   // Time axis marks (every 4h)
   const marks: number[] = [];
@@ -139,6 +162,10 @@ export function Timeline({
         ref={trackRef}
         className={`timeline-track${playbackEnabled ? '' : ' timeline-track--disabled'}`}
         onClick={handleTrackClick}
+        onMouseDown={(e) => {
+          if (!playbackEnabled) return;
+          beginDrag(e.clientX);
+        }}
         role="slider"
         aria-label="Timeline scrubber"
         aria-valuemin={windowStart}
@@ -165,9 +192,9 @@ export function Timeline({
           style={{ left: `${handlePos}%` }}
           onMouseDown={(e) => {
             if (!playbackEnabled) return;
+            e.preventDefault();
             e.stopPropagation();
-            dragTimeRef.current = clientXToTime(e.clientX);
-            setDragging(true);
+            beginDrag(e.clientX);
           }}
         >
           <div className="timeline-needle" />

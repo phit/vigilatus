@@ -15,6 +15,7 @@
  */
 
 import crypto from 'node:crypto';
+import http from 'node:http';
 import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
@@ -100,6 +101,8 @@ export class TapoClient {
   private readonly hashedSha256: string;
   private readonly cnonce: string;
   private readonly agent: https.Agent;
+  private preferredProtocol: 'https' | 'http' = 'https';
+  private preferredPort = 443;
 
   private stok?: string;
   private lsk?: Buffer;
@@ -139,27 +142,28 @@ export class TapoClient {
    * @param date YYYYMMDD string
    */
   async getRecordingsForDate(date: string): Promise<Recording[]> {
+    const userId = await this.getUserId();
+
     const resp = await this.apiRequest({
       method: 'multipleRequest',
       params: {
         requests: [
           {
             method: 'searchVideoOfDay',
-            params: { channel: 0, date, end_index: 200, start_index: 0 },
+            params: { channel: 0, date, id: userId, end_index: 9999, start_index: 0 },
           },
         ],
       },
     });
 
-    const sub = (resp.result?.responses ?? [])[0];
-    const videoResult = (sub as { result?: { video?: { video_info?: unknown[] } } } | undefined)
-      ?.result?.video;
-    const list = (videoResult as { video_info?: Array<{ startTime: number; endTime: number }> })
-      ?.video_info ?? [];
-    return list.map((v) => ({
-      startTime: v.startTime * 1000,
-      endTime: v.endTime * 1000,
-    }));
+    const direct = this.extractRecordingsFromResponse(resp);
+    if (direct.length > 0) {
+      return direct;
+    }
+
+    // Some firmware/timezone combinations return empty day results but work with UTC range search.
+    const utcFallback = await this.searchRecordingsWithUtcRange(date, userId);
+    return utcFallback;
   }
 
   async downloadRecording(startTimeMs: number, endTimeMs: number): Promise<string> {
@@ -444,50 +448,152 @@ export class TapoClient {
     return 0;
   }
 
+  private extractRecordingsFromResponse(resp: ApiResponse): Recording[] {
+    const sub = (resp.result?.responses ?? [])[0] as
+      | {
+          result?: {
+            video?: { video_info?: Array<{ startTime?: number; endTime?: number }> };
+            playback?: {
+              search_video_results?: Array<Record<string, { startTime?: number; endTime?: number }>>;
+            };
+            search_video_results?: Array<Record<string, { startTime?: number; endTime?: number }>>;
+          };
+        }
+      | undefined;
+
+    const byVideoInfo = sub?.result?.video?.video_info ?? [];
+    const fromVideoInfo = byVideoInfo
+      .filter((v): v is { startTime: number; endTime: number } =>
+        typeof v.startTime === 'number' && typeof v.endTime === 'number')
+      .map((v) => ({ startTime: v.startTime * 1000, endTime: v.endTime * 1000 }));
+
+    if (fromVideoInfo.length > 0) return fromVideoInfo;
+
+    const nestedSearch = sub?.result?.playback?.search_video_results
+      ?? sub?.result?.search_video_results
+      ?? [];
+
+    const flattened: Recording[] = [];
+    for (const item of nestedSearch) {
+      for (const value of Object.values(item)) {
+        if (typeof value?.startTime === 'number' && typeof value?.endTime === 'number') {
+          flattened.push({
+            startTime: value.startTime * 1000,
+            endTime: value.endTime * 1000,
+          });
+        }
+      }
+    }
+
+    return flattened;
+  }
+
+  private async searchRecordingsWithUtcRange(date: string, userId: number): Promise<Recording[]> {
+    const year = Number(date.slice(0, 4));
+    const month = Number(date.slice(4, 6));
+    const day = Number(date.slice(6, 8));
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+      return [];
+    }
+
+    const startUtcSec = Math.floor(Date.UTC(year, month - 1, day, 0, 0, 0) / 1000);
+    const endUtcSec = Math.floor(Date.UTC(year, month - 1, day, 23, 59, 59) / 1000);
+
+    const resp = await this.apiRequest({
+      method: 'multipleRequest',
+      params: {
+        requests: [
+          {
+            method: 'searchVideoWithUTC',
+            params: {
+              channel: 0,
+              start_time: startUtcSec,
+              end_time: endUtcSec,
+              start_index: 0,
+              end_index: 9999,
+              id: userId,
+            },
+          },
+        ],
+      },
+    });
+
+    return this.extractRecordingsFromResponse(resp);
+  }
+
   // -------------------------------------------------------------------------
   // HTTP
   // -------------------------------------------------------------------------
 
   private post<T>(url: string, body: object, extraHeaders?: Record<string, string>): Promise<T> {
-    return new Promise((resolve, reject) => {
-      const data = Buffer.from(JSON.stringify(body), 'utf-8');
-      const parsed = new URL(url);
+    const parsed = new URL(url);
+    const pathName = parsed.pathname + parsed.search;
 
-      const req = https.request(
-        {
-          hostname: parsed.hostname,
-          port: Number(parsed.port || 443),
-          path: parsed.pathname + parsed.search,
-          method: 'POST',
-          agent: this.agent,
-          headers: {
-            Host: `https://${this.host}`,
-            Referer: `https://${this.host}`,
-            Accept: 'application/json',
-            'Accept-Encoding': 'gzip, deflate',
-            'User-Agent': 'Tapo CameraClient Android',
-            Connection: 'close',
-            requestByApp: 'true',
-            'Content-Type': 'application/json; charset=UTF-8',
-            'Content-Length': data.length,
-            ...extraHeaders,
+    const makeRequest = (protocol: 'https' | 'http', port: number): Promise<T> =>
+      new Promise((resolve, reject) => {
+        const data = Buffer.from(JSON.stringify(body), 'utf-8');
+        const isHttps = protocol === 'https';
+        const requestImpl = isHttps ? https.request : http.request;
+
+        const req = requestImpl(
+          {
+            hostname: this.host,
+            port,
+            path: pathName,
+            method: 'POST',
+            ...(isHttps ? { agent: this.agent } : {}),
+            headers: {
+              Host: `${protocol}://${this.host}`,
+              Referer: `${protocol}://${this.host}`,
+              Accept: 'application/json',
+              'Accept-Encoding': 'gzip, deflate',
+              'User-Agent': 'Tapo CameraClient Android',
+              Connection: 'close',
+              requestByApp: 'true',
+              'Content-Type': 'application/json; charset=UTF-8',
+              'Content-Length': data.length,
+              ...extraHeaders,
+            },
           },
-        },
-        (res) => {
-          const chunks: Buffer[] = [];
-          res.on('data', (c: Buffer) => chunks.push(c));
-          res.on('end', () => {
-            try {
-              resolve(JSON.parse(Buffer.concat(chunks).toString('utf-8')) as T);
-            } catch {
-              reject(new Error('Invalid JSON from camera'));
-            }
-          });
-        },
+          (res) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (c: Buffer) => chunks.push(c));
+            res.on('end', () => {
+              try {
+                resolve(JSON.parse(Buffer.concat(chunks).toString('utf-8')) as T);
+              } catch {
+                reject(new Error('Invalid JSON from camera'));
+              }
+            });
+          },
+        );
+
+        req.on('error', reject);
+        req.write(data);
+        req.end();
+      });
+
+    const shouldFallbackToHttp = (error: unknown): boolean => {
+      const msg = String((error as Error)?.message ?? error ?? '');
+      return (
+        msg.includes('Expected HTTP/') ||
+        msg.includes('wrong version number') ||
+        msg.includes('EPROTO') ||
+        msg.includes('socket hang up')
       );
-      req.on('error', reject);
-      req.write(data);
-      req.end();
-    });
+    };
+
+    return makeRequest(this.preferredProtocol, this.preferredPort)
+      .then((result) => result)
+      .catch((err) => {
+        if (this.preferredProtocol === 'https' && shouldFallbackToHttp(err)) {
+          return makeRequest('http', 80).then((result) => {
+            this.preferredProtocol = 'http';
+            this.preferredPort = 80;
+            return result;
+          });
+        }
+        throw err;
+      });
   }
 }

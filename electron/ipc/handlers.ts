@@ -4,6 +4,25 @@ import * as streamManager from '../tapo/streamManager';
 import { TapoClient } from '../tapo/client';
 import type { CameraConfig } from '../types';
 
+function buildCredentialCandidates(cam: CameraConfig): Array<Pick<CameraConfig, 'host' | 'username' | 'password'>> {
+  const candidates: Array<Pick<CameraConfig, 'host' | 'username' | 'password'>> = [
+    { host: cam.host, username: cam.username, password: cam.password },
+  ];
+
+  if (cam.streamUser && cam.streamPassword) {
+    const sameAsPrimary = cam.streamUser === cam.username && cam.streamPassword === cam.password;
+    if (!sameAsPrimary) {
+      candidates.push({ host: cam.host, username: cam.streamUser, password: cam.streamPassword });
+    }
+  }
+
+  if (cam.password && cam.username !== 'admin') {
+    candidates.push({ host: cam.host, username: 'admin', password: cam.password });
+  }
+
+  return candidates;
+}
+
 export function registerHandlers(): void {
   // ------------------------------------------------------------------
   // Camera config
@@ -69,20 +88,47 @@ export function registerHandlers(): void {
   ipcMain.handle('recordings:list', async (_e, cameraId: string, date: string) => {
     const cam = configStore.getCameras().find((c) => c.id === cameraId);
     if (!cam) return [];
-    try {
-      const client = new TapoClient({ host: cam.host, username: cam.username, password: cam.password });
-      return await client.getRecordingsForDate(date);
-    } catch {
-      return [];
+
+    const candidates = buildCredentialCandidates(cam);
+    let lastError: unknown = null;
+
+    for (const candidate of candidates) {
+      try {
+        const client = new TapoClient(candidate);
+        const recordings = await client.getRecordingsForDate(date);
+        return recordings;
+      } catch (e) {
+        lastError = e;
+      }
     }
+
+    console.warn(`[recordings:list:${cameraId}] failed for ${date}:`, (lastError as Error)?.message ?? lastError);
+    return [];
   });
 
   ipcMain.handle('recordings:play', async (_e, cameraId: string, startTime: number, endTime: number) => {
     const cam = configStore.getCameras().find((c) => c.id === cameraId);
     if (!cam) throw new Error(`Camera ${cameraId} not found`);
 
-    const client = new TapoClient({ host: cam.host, username: cam.username, password: cam.password });
-    const localFile = await client.downloadRecording(startTime, endTime);
+    const candidates = buildCredentialCandidates(cam);
+    let lastError: unknown = null;
+    let localFile = '';
+
+    for (const candidate of candidates) {
+      try {
+        const client = new TapoClient(candidate);
+        localFile = await client.downloadRecording(startTime, endTime);
+        break;
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    if (!localFile) {
+      throw (lastError instanceof Error
+        ? lastError
+        : new Error('Unable to authenticate for recording playback'));
+    }
 
     // Ensure live ffmpeg process is not holding this slot while playing back a local clip.
     streamManager.stopStream(cameraId);
