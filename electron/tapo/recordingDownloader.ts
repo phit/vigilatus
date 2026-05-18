@@ -10,6 +10,11 @@ import { resolveFfmpegBinaryPath } from './ffmpegPath';
 
 type EncryptionMethod = 'md5' | 'sha256';
 
+export interface RecordingAudioOptions {
+  codec: 'pcma' | 'pcmu';
+  sampleRate: number;
+}
+
 interface DownloadRecordingOptions {
   host: string;
   username: string;
@@ -19,6 +24,7 @@ interface DownloadRecordingOptions {
   startTime: number;
   endTime: number;
   outputPath: string;
+  audio?: RecordingAudioOptions;
   windowSize?: number;
 }
 
@@ -38,6 +44,8 @@ interface MediaPart {
   encrypted: boolean;
   headers: Record<string, string>;
   plaintext: Buffer;
+  audioPayload?: Buffer;
+  audioPayloadType?: RecordingAudioOptions['codec'];
   seq?: number;
   sessionId?: number;
   json?: Record<string, unknown>;
@@ -49,6 +57,191 @@ const NO_DATA_TIMEOUT_MS = 20_000;
 const PLAYBACK_READY_TIMEOUT_MS = 15_000;
 const MIN_PLAYBACK_READY_BYTES = 512_000;
 const FALLBACK_WINDOW_SIZE = 50;
+
+class PesPacketReader {
+  private payload: Buffer | null = null;
+  private size = 0;
+
+  constructor(private readonly streamType: number) {}
+
+  setBuffer(size: number, buffer: Buffer): void {
+    if (size === 0) {
+      this.payload = null;
+      this.size = 0;
+      return;
+    }
+
+    this.size = size;
+    this.payload = Buffer.from(buffer);
+  }
+
+  appendBuffer(buffer: Buffer): void {
+    this.payload = this.payload ? Buffer.concat([this.payload, buffer]) : Buffer.from(buffer);
+  }
+
+  takeAudioPacket(): { codec: RecordingAudioOptions['codec']; payload: Buffer } | null {
+    if (!this.payload) {
+      return null;
+    }
+
+    const left = this.size - this.payload.length;
+    if (left > 0) {
+      return null;
+    }
+
+    if (left < 0) {
+      this.payload = null;
+      return null;
+    }
+
+    const optionalSize = this.payload[2] ?? 0;
+    const audioPayload = Buffer.from(this.payload.subarray(3 + optionalSize));
+    this.payload = null;
+
+    if (this.streamType === 0x90) {
+      return { codec: 'pcma', payload: audioPayload };
+    }
+    if (this.streamType === 0x91) {
+      return { codec: 'pcmu', payload: audioPayload };
+    }
+
+    return null;
+  }
+}
+
+class TsAudioReader {
+  private buffer = Buffer.alloc(0);
+  private pmtPid = 0;
+  private pesReaders = new Map<number, PesPacketReader>();
+
+  extractAudio(chunk: Buffer): { codec: RecordingAudioOptions['codec']; payload: Buffer } | null {
+    this.buffer = Buffer.concat([this.buffer, chunk]);
+
+    let codec: RecordingAudioOptions['codec'] | null = null;
+    const payloads: Buffer[] = [];
+
+    while (this.buffer.length >= 188) {
+      if (this.buffer[0] !== 0x47) {
+        const syncIndex = this.buffer.indexOf(0x47, 1);
+        if (syncIndex === -1) {
+          this.buffer = Buffer.alloc(0);
+          break;
+        }
+        this.buffer = this.buffer.subarray(syncIndex);
+        continue;
+      }
+
+      const packet = this.buffer.subarray(0, 188);
+      this.buffer = this.buffer.subarray(188);
+      const extracted = this.processPacket(packet);
+      if (!extracted) {
+        continue;
+      }
+      if (codec === null) {
+        codec = extracted.codec;
+      }
+      if (extracted.codec === codec) {
+        payloads.push(extracted.payload);
+      }
+    }
+
+    if (!codec || payloads.length === 0) {
+      return null;
+    }
+
+    return { codec, payload: Buffer.concat(payloads) };
+  }
+
+  private processPacket(packet: Buffer): { codec: RecordingAudioOptions['codec']; payload: Buffer } | null {
+    let offset = 1;
+    const pid = ((packet[offset] & 0x1f) << 8) | packet[offset + 1];
+    offset += 2;
+    const flags = packet[offset];
+    offset += 1;
+
+    if (pid === 0x1fff) {
+      return null;
+    }
+
+    if ((flags & 0x20) !== 0) {
+      const adaptationLength = packet[offset] ?? 0;
+      offset += 1 + adaptationLength;
+      if (offset >= 188) {
+        return null;
+      }
+    }
+
+    const payload = packet.subarray(offset);
+    if (pid === 0) {
+      this.readPat(payload);
+      return null;
+    }
+
+    if (pid === this.pmtPid) {
+      this.readPmt(payload);
+      return null;
+    }
+
+    const reader = this.pesReaders.get(pid);
+    if (!reader) {
+      return null;
+    }
+
+    if ((payload[0] ?? -1) === 0 && (payload[1] ?? -1) === 0 && (payload[2] ?? -1) === 1) {
+      const size = payload.readUInt16BE(4);
+      reader.setBuffer(size, payload.subarray(6));
+    } else {
+      reader.appendBuffer(payload);
+    }
+
+    return reader.takeAudioPacket();
+  }
+
+  private readPat(payload: Buffer): void {
+    let offset = (payload[0] ?? 0) + 1;
+    offset += 1;
+    const sectionLength = payload.readUInt16BE(offset) & 0x03ff;
+    offset += 2;
+    const end = offset + sectionLength;
+    offset += 5;
+
+    while (offset + 4 <= end - 4) {
+      const programNumber = payload.readUInt16BE(offset);
+      offset += 2;
+      const programPid = payload.readUInt16BE(offset) & 0x1fff;
+      offset += 2;
+      if (programNumber !== 0) {
+        this.pmtPid = programPid;
+      }
+    }
+  }
+
+  private readPmt(payload: Buffer): void {
+    let offset = (payload[0] ?? 0) + 1;
+    offset += 1;
+    const sectionLength = payload.readUInt16BE(offset) & 0x03ff;
+    offset += 2;
+    const end = offset + sectionLength;
+    offset += 5;
+    offset += 2;
+    const programInfoLength = payload.readUInt16BE(offset) & 0x03ff;
+    offset += 2 + programInfoLength;
+
+    this.pesReaders.clear();
+    while (offset + 5 <= end - 4) {
+      const streamType = payload[offset];
+      offset += 1;
+      const elementaryPid = payload.readUInt16BE(offset) & 0x1fff;
+      offset += 2;
+      const infoLength = payload.readUInt16BE(offset) & 0x03ff;
+      offset += 2 + infoLength;
+
+      if (streamType === 0x90 || streamType === 0x91) {
+        this.pesReaders.set(elementaryPid, new PesPacketReader(streamType));
+      }
+    }
+  }
+}
 
 class BufferedSocketReader {
   private buffer = Buffer.alloc(0);
@@ -169,6 +362,7 @@ class MediaSession {
   private deviceBoundary = DEFAULT_DEVICE_BOUNDARY;
   private cipher: MediaCipher | null = null;
   private readonly windowSize: number;
+  private readonly tsAudioReader = new TsAudioReader();
 
   constructor(
     private readonly host: string,
@@ -241,7 +435,7 @@ class MediaSession {
     userId: number,
     startTime: number,
     endTime: number,
-    onVideoData: (chunk: Buffer) => Promise<void>,
+    onPart: (part: MediaPart) => Promise<void>,
   ): Promise<void> {
     const payload = JSON.stringify({
       type: 'request',
@@ -292,7 +486,7 @@ class MediaSession {
 
       if (part.mimetype === 'video/mp2t') {
         receivedVideo = true;
-        await onVideoData(part.plaintext);
+        await onPart(part);
         continue;
       }
 
@@ -360,6 +554,8 @@ class MediaSession {
     }
 
     let json: Record<string, unknown> | undefined;
+    let audioPayload: Buffer | undefined;
+    let audioPayloadType: RecordingAudioOptions['codec'] | undefined;
     const seqHeader = getHeader(headers, 'x-data-sequence');
     const sessionHeader = getHeader(headers, 'x-session-id');
     let seq = seqHeader ? Number(seqHeader) : undefined;
@@ -376,6 +572,12 @@ class MediaSession {
       } catch {
         /* ignore malformed control json */
       }
+    } else if (mimetype === 'video/mp2t') {
+      const extractedAudio = this.tsAudioReader.extractAudio(plaintext);
+      if (extractedAudio) {
+        audioPayload = extractedAudio.payload;
+        audioPayloadType = extractedAudio.codec;
+      }
     }
 
     return {
@@ -383,6 +585,8 @@ class MediaSession {
       encrypted,
       headers,
       plaintext,
+      audioPayload,
+      audioPayloadType,
       seq,
       sessionId,
       json,
@@ -448,25 +652,18 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
     await session.start();
     console.info(`${logPrefix} media session connected, starting stream...`);
 
-    const ffmpegProc = spawn(ffmpegBinary, [
-      '-loglevel',
-      'error',
-      '-y',
-      '-f',
-      'mpegts',
-      '-i',
-      'pipe:0',
-      '-c',
-      'copy',
-      '-movflags',
-      '+faststart',
-      partialOutputPath,
-    ], {
-      stdio: ['pipe', 'ignore', 'pipe'],
+    const ffmpegProc = spawn(ffmpegBinary, buildDownloadFfmpegArgs(partialOutputPath, options.audio), {
+      stdio: options.audio ? ['pipe', 'ignore', 'pipe', 'pipe'] : ['pipe', 'ignore', 'pipe'],
     });
+    const ffmpegStdin = ffmpegProc.stdin!;
+    const audioInput = options.audio ? ffmpegProc.stdio[3] as Writable | undefined : undefined;
+    const ffmpegStderr = ffmpegProc.stderr!;
+    if (!ffmpegStdin) {
+      throw new Error('ffmpeg stdin is not available for recording download');
+    }
 
     const stderrChunks: Buffer[] = [];
-    ffmpegProc.stderr.on('data', (chunk: Buffer) => {
+    ffmpegStderr?.on('data', (chunk: Buffer) => {
       stderrChunks.push(chunk);
       const message = chunk.toString('utf8').trim();
       if (message) {
@@ -480,17 +677,23 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
 
     try {
       console.info(`${logPrefix} starting media stream for userId=${options.userId}`);
-      await session.streamRecording(options.userId, options.startTime, options.endTime, async (chunk) => {
+      await session.streamRecording(options.userId, options.startTime, options.endTime, async (part) => {
         totalDataChunks++;
-        totalBytes += chunk.length;
+        totalBytes += part.plaintext.length;
         if (totalDataChunks % 50 === 0) {
           console.info(`${logPrefix} received ${totalDataChunks} chunks, ${totalBytes} bytes`);
         }
-        tsBuffer = await writeAlignedTsPackets(tsBuffer, chunk, ffmpegProc.stdin);
+        tsBuffer = await writeAlignedTsPackets(tsBuffer, part.plaintext, ffmpegStdin);
+        if (audioInput && part.audioPayload) {
+          await writeToWritable(audioInput, part.audioPayload);
+        }
       });
 
       console.info(`${logPrefix} media stream ended, received ${totalDataChunks} chunks (${totalBytes} bytes)`);
-      ffmpegProc.stdin.end();
+      if (audioInput && !audioInput.destroyed) {
+        audioInput.end();
+      }
+      ffmpegStdin.end();
       console.info(`${logPrefix} waiting for ffmpeg to finish...`);
       const [exitCode] = (await once(ffmpegProc, 'close')) as [number | null];
       if (exitCode !== 0) {
@@ -598,61 +801,21 @@ export async function startRecordingDownloadToHls(
     await session.start();
     console.info(`${logPrefix} media session connected, starting progressive MP4 stream (${modeLabel})...`);
 
-    const ffmpegArgs = [
-      '-loglevel',
-      'error',
-      '-y',
-      '-fflags',
-      '+genpts+discardcorrupt',
-      '-err_detect',
-      'ignore_err',
-      '-analyzeduration',
-      '1000000',
-      '-probesize',
-      '1000000',
-      '-f',
-      'mpegts',
-      '-i',
-      'pipe:0',
-      '-map',
-      '0:v:0',
-      '-c:v',
-      'libx264',
-      '-preset',
-      'ultrafast',
-      '-tune',
-      'zerolatency',
-      '-pix_fmt',
-      'yuv420p',
-      '-g',
-      '50',
-      '-sc_threshold',
-      '0',
-    ];
-
-    if (withAudio) {
-      ffmpegArgs.push('-map', '0:a:0?', '-c:a', 'copy');
-    }
-
-    ffmpegArgs.push(
-      '-f',
-      'mp4',
-      '-movflags',
-      'frag_keyframe+empty_moov+default_base_moof',
-      assetPath,
-    );
+    const ffmpegArgs = buildPlaybackFfmpegArgs(assetPath, withAudio ? options.audio : undefined);
 
     const ffmpegProc = spawn(ffmpegBinary, ffmpegArgs, {
-      stdio: ['pipe', 'ignore', 'pipe'],
+      stdio: withAudio && options.audio ? ['pipe', 'ignore', 'pipe', 'pipe'] : ['pipe', 'ignore', 'pipe'],
     });
     activeFfmpegProc = ffmpegProc;
-    const ffmpegStdin = ffmpegProc.stdin;
+    const ffmpegStdin = ffmpegProc.stdin!;
+    const audioInput = withAudio && options.audio ? ffmpegProc.stdio[3] as Writable | undefined : undefined;
+    const ffmpegStderr = ffmpegProc.stderr!;
     if (!ffmpegStdin) {
       throw new Error('ffmpeg stdin is not available for recording playback');
     }
 
     const stderrChunks: Buffer[] = [];
-    ffmpegProc.stderr.on('data', (chunk: Buffer) => {
+    ffmpegStderr?.on('data', (chunk: Buffer) => {
       stderrChunks.push(chunk);
       const message = chunk.toString('utf8').trim();
       if (message) {
@@ -666,18 +829,21 @@ export async function startRecordingDownloadToHls(
 
     try {
       console.info(`${logPrefix} starting media stream for userId=${options.userId} (${modeLabel})`);
-      await session.streamRecording(options.userId, options.startTime, options.endTime, async (chunk) => {
+      await session.streamRecording(options.userId, options.startTime, options.endTime, async (part) => {
         if (ffmpegProc.exitCode !== null || ffmpegStdin.destroyed) {
           throw new Error('ffmpeg exited early during progressive playback');
         }
 
         totalDataChunks += 1;
-        totalBytes += chunk.length;
+        totalBytes += part.plaintext.length;
         if (totalDataChunks % 50 === 0) {
           console.info(`${logPrefix} received ${totalDataChunks} chunks, ${totalBytes} bytes`);
         }
 
-        tsBuffer = await writeAlignedTsPackets(tsBuffer, chunk, ffmpegStdin);
+        tsBuffer = await writeAlignedTsPackets(tsBuffer, part.plaintext, ffmpegStdin);
+        if (audioInput && part.audioPayload) {
+          await writeToWritable(audioInput, part.audioPayload);
+        }
       });
 
       if (tsBuffer.length >= 188 && !ffmpegStdin.destroyed) {
@@ -685,6 +851,9 @@ export async function startRecordingDownloadToHls(
       }
 
       console.info(`${logPrefix} media stream ended, received ${totalDataChunks} chunks (${totalBytes} bytes) (${modeLabel})`);
+      if (audioInput && !audioInput.destroyed) {
+        audioInput.end();
+      }
       if (!ffmpegStdin.destroyed) {
         ffmpegStdin.end();
       }
@@ -831,6 +1000,134 @@ function waitForPlaybackFileReady(filePath: string, timeoutMs: number, logPrefix
     };
 
     check();
+  });
+}
+
+function buildDownloadFfmpegArgs(outputPath: string, audio?: RecordingAudioOptions): string[] {
+  const args = [
+    '-loglevel',
+    'error',
+    '-y',
+    '-f',
+    'mpegts',
+    '-i',
+    'pipe:0',
+  ];
+
+  if (audio) {
+    args.push(
+      '-f',
+      audio.codec === 'pcmu' ? 'mulaw' : 'alaw',
+      '-ar',
+      String(audio.sampleRate),
+      '-i',
+      'pipe:3',
+      '-map',
+      '0:v:0',
+      '-map',
+      '1:a:0',
+      '-c:v',
+      'copy',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '128k',
+    );
+  } else {
+    args.push('-c', 'copy');
+  }
+
+  args.push('-movflags', '+faststart', outputPath);
+  return args;
+}
+
+function buildPlaybackFfmpegArgs(outputPath: string, audio?: RecordingAudioOptions): string[] {
+  const args = [
+    '-loglevel',
+    'error',
+    '-y',
+    '-fflags',
+    '+genpts+discardcorrupt',
+    '-err_detect',
+    'ignore_err',
+    '-analyzeduration',
+    '1000000',
+    '-probesize',
+    '1000000',
+    '-f',
+    'mpegts',
+    '-i',
+    'pipe:0',
+    '-map',
+    '0:v:0',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'ultrafast',
+    '-tune',
+    'zerolatency',
+    '-pix_fmt',
+    'yuv420p',
+    '-g',
+    '50',
+    '-sc_threshold',
+    '0',
+  ];
+
+  if (audio) {
+    args.push(
+      '-f',
+      audio.codec === 'pcmu' ? 'mulaw' : 'alaw',
+      '-ar',
+      String(audio.sampleRate),
+      '-i',
+      'pipe:3',
+      '-map',
+      '1:a:0',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '128k',
+    );
+  }
+
+  args.push(
+    '-f',
+    'mp4',
+    '-movflags',
+    'frag_keyframe+empty_moov+default_base_moof',
+    outputPath,
+  );
+  return args;
+}
+
+async function writeToWritable(writable: Writable, chunk: Buffer): Promise<void> {
+  if (chunk.length === 0 || writable.destroyed) {
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => {
+      cleanup();
+      reject(error);
+    };
+    const onDrain = () => {
+      cleanup();
+      resolve();
+    };
+    const cleanup = () => {
+      writable.off('error', onError);
+      writable.off('drain', onDrain);
+    };
+
+    writable.on('error', onError);
+    const accepted = writable.write(chunk);
+    if (accepted) {
+      cleanup();
+      resolve();
+      return;
+    }
+    writable.on('drain', onDrain);
   });
 }
 

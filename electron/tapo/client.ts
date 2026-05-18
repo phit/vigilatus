@@ -24,6 +24,7 @@ import type { Recording } from '../types';
 import {
   downloadRecordingToMp4,
   startRecordingDownloadToHls,
+  type RecordingAudioOptions,
   type RecordingPlaybackJob,
 } from './recordingDownloader';
 
@@ -396,6 +397,7 @@ export class TapoClient {
 
     const encryptionMethod = this.passwordMethod ?? 'md5';
     const hashedPassword = this.getHashedPassword();
+    const audio = await this.getRecordingAudioConfig();
 
     const candidateUserIds = await this.resolvePlaybackUserIdCandidates(userIdOverride, startTime, endTime);
 
@@ -413,6 +415,7 @@ export class TapoClient {
           username: this.username,
           hashedPassword,
           encryptionMethod,
+          audio,
           userId: candidateUserId,
           startTime,
           endTime: paddedEndTime,
@@ -456,6 +459,7 @@ export class TapoClient {
 
     const encryptionMethod = this.passwordMethod ?? 'md5';
     const hashedPassword = this.getHashedPassword();
+    const audio = await this.getRecordingAudioConfig();
 
     const candidateUserIds = await this.resolvePlaybackUserIdCandidates(userIdOverride, startTime, endTime);
 
@@ -473,6 +477,7 @@ export class TapoClient {
           username: this.username,
           hashedPassword,
           encryptionMethod,
+          audio,
           userId: candidateUserId,
           startTime,
           endTime: paddedEndTime,
@@ -936,6 +941,42 @@ export class TapoClient {
     }
 
     return 0;
+  }
+
+  private async getRecordingAudioConfig(): Promise<RecordingAudioOptions | undefined> {
+    try {
+      const resp = await this.apiRequest({
+        method: 'multipleRequest',
+        params: {
+          requests: [
+            {
+              method: 'getAudioConfig',
+              params: {
+                method: 'get',
+                audio_config: { name: ['speaker', 'microphone', 'record_audio'] },
+              },
+            },
+          ],
+        },
+      });
+
+      const subResult = (resp.result.responses?.[0] as {
+        result?: { audio_config?: { microphone?: { encode_type?: unknown; sampling_rate?: unknown } } };
+      } | undefined)?.result?.audio_config?.microphone;
+
+      const encodeType = String(subResult?.encode_type ?? '').toLowerCase();
+      const sampleRateValue = subResult?.sampling_rate;
+      const sampleRate = typeof sampleRateValue === 'number'
+        ? sampleRateValue * 1000
+        : typeof sampleRateValue === 'string' && /^\d+$/.test(sampleRateValue)
+          ? Number(sampleRateValue) * 1000
+          : 8000;
+
+      const codec: RecordingAudioOptions['codec'] = encodeType.includes('ulaw') ? 'pcmu' : 'pcma';
+      return { codec, sampleRate };
+    } catch {
+      return undefined;
+    }
   }
 
   private extractRecordingsFromResponse(resp: ApiResponse): Recording[] {
