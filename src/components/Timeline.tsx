@@ -13,6 +13,7 @@ interface Props {
   /** Load recordings for a given YYYYMMDD date string */
   onLoadDate(date: string): void;
   selectedCameraId: string | null;
+  'data-testid'?: string;
 }
 
 const WINDOW_HOURS = 24;
@@ -39,6 +40,7 @@ export function Timeline({
   onGoLive,
   onLoadDate,
   selectedCameraId,
+  'data-testid': testId,
 }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
   const activePointerRef = useRef<number | null>(null);
@@ -129,7 +131,7 @@ export function Timeline({
   }
 
   return (
-    <div className="timeline">
+    <div className="timeline" data-testid={testId}>
       <div className="timeline-header">
         <span className="timeline-title">Timeline</span>
         <span className="timeline-date">{new Date(windowEnd).toLocaleDateString()}</span>

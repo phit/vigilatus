@@ -20,3 +20,10 @@ export interface Recording {
 }
 
 export type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';
+
+export interface RuntimeInfo {
+  userData: string;
+  logPath: string | null;
+  isDevelopment: boolean;
+  isPackaged: boolean;
+}

@@ -81,6 +81,7 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
   return (
     <div
       className="modal-backdrop"
+      data-testid="add-camera-modal"
       onMouseDown={handleBackdropMouseDown}
       onClick={handleBackdropClick}
       onContextMenu={handleBackdropContextMenu}
@@ -88,7 +89,7 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{initial ? 'Edit Camera' : 'Add Camera'}</h2>
-          <button type="button" className="modal-close" onClick={onClose}>✕</button>
+          <button type="button" className="modal-close" onClick={onClose} data-testid="add-camera-close">✕</button>
         </div>
 
         <p className="modal-hint">
@@ -140,6 +141,7 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
             type="button"
             className="btn-secondary"
             onClick={() => setShowAdvanced((v) => !v)}
+            data-testid="add-camera-toggle-advanced"
           >
             {showAdvanced ? '▲' : '▼'} Stream settings
           </button>
@@ -215,10 +217,10 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
           )}
 
           <div className="modal-actions">
-            <button type="button" className="btn-secondary" onClick={handleTest} disabled={testing || !form.host || !form.password}>
+            <button type="button" className="btn-secondary" onClick={handleTest} disabled={testing || !form.host || !form.password} data-testid="add-camera-test-connection">
               {testing ? 'Testing…' : 'Test connection'}
             </button>
-            <button type="submit" className="btn-primary" disabled={!form.name || !form.host || !form.password}>
+            <button type="submit" className="btn-primary" disabled={!form.name || !form.host || !form.password} data-testid="add-camera-save">
               {initial ? 'Save changes' : 'Add camera'}
             </button>
           </div>

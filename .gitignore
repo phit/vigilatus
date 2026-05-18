@@ -5,3 +5,4 @@ out/
 *.log
 pytapo/
 release/
+test-results/

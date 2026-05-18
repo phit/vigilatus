@@ -1,6 +1,7 @@
 # TapoStudio
 
-Desktop app scaffold for monitoring multiple Tapo cameras on Windows and Linux.
+Desktop app scaffold for monitoring multiple Tapo cameras on Windows and Linux.  
+Note: this app was basically fully written with the help of AI, while I did fully oversee all code changes, this is my first Electron application.
 
 ## Legal disclaimer
 
@@ -31,6 +32,22 @@ Install dependencies, then run the dev shell:
 npm install
 npm run dev
 ```
+
+## Testing
+
+Run the unit tests with:
+
+```bash
+npm run test:unit
+```
+
+Run the real Electron smoke test, which builds the app and launches it against an isolated temp profile:
+
+```bash
+npm run test:e2e
+```
+
+For manual automation runs, set `TAPOSTUDIO_USER_DATA_DIR` to isolate config and logs from your normal profile. The main process writes a `tapostudio.log` file inside that directory and exposes the active runtime paths through `window.tapoStudio.diagnostics.getRuntimeInfo()`.
 
 ## Releases
 

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { CameraConfig, Recording } from './types';
+import type { CameraConfig, Recording, RuntimeInfo } from './types';
 
 type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';
 
@@ -28,6 +28,9 @@ contextBridge.exposeInMainWorld('tapoStudio', {
       ipcRenderer.invoke('recordings:list', cameraId, date),
     play: (cameraId: string, startTime: number, endTime: number, requestedTime: number): Promise<string> =>
       ipcRenderer.invoke('recordings:play', cameraId, startTime, endTime, requestedTime),
+  },
+  diagnostics: {
+    getRuntimeInfo: (): Promise<RuntimeInfo> => ipcRenderer.invoke('diagnostics:getRuntimeInfo'),
   },
   ui: {
     onOpenAddCamera: (callback: () => void): (() => void) => {

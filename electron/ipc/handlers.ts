@@ -4,7 +4,8 @@ import os from 'node:os';
 import * as configStore from '../config/store';
 import * as streamManager from '../tapo/streamManager';
 import { TapoClient } from '../tapo/client';
-import type { CameraConfig } from '../types';
+import type { CameraConfig, Recording } from '../types';
+import type { TestFixtures } from '../testing/fixtures';
 
 type ActiveRecordingPlaybackJob = {
   assetPath?: string;
@@ -18,6 +19,8 @@ const recordingsUserIdCache = new Map<string, number>();
 const activeRecordingPlaybackJobs = new Map<string, ActiveRecordingPlaybackJob>();
 const MIN_PLAYBACK_WINDOW_MS = 15_000;
 const MAX_PLAYBACK_WINDOW_MS = 120_000;
+
+let testFixtures: TestFixtures | null = null;
 
 function formatDateYYYYMMDD(d: Date): string {
   const y = d.getFullYear();
@@ -69,7 +72,9 @@ function normalizePlaybackWindow(startTime: number, endTime: number, requestedTi
   return { startTime: normalizedStartTime, endTime: normalizedEndTime };
 }
 
-export function registerHandlers(): void {
+export function registerHandlers(fixtures: TestFixtures | null = null): void {
+  testFixtures = fixtures;
+
   // ------------------------------------------------------------------
   // Camera config
   // ------------------------------------------------------------------
@@ -110,6 +115,9 @@ export function registerHandlers(): void {
   // ------------------------------------------------------------------
 
   ipcMain.handle('stream:start', async (_e, cameraId: string) => {
+    if (testFixtures?.streams) {
+      return testFixtures.streams[cameraId] ?? null;
+    }
     stopRecordingPlayback(cameraId);
     const cam = configStore.getCameras().find((c) => c.id === cameraId);
     if (!cam) throw new Error(`Camera ${cameraId} not found`);
@@ -142,6 +150,9 @@ export function registerHandlers(): void {
   // ------------------------------------------------------------------
 
   ipcMain.handle('snapshot:get', (_e, cameraId: string) => {
+    if (testFixtures?.snapshots) {
+      return testFixtures.snapshots[cameraId] ?? null;
+    }
     const cam = configStore.getCameras().find((c) => c.id === cameraId);
     if (!cam) return null;
     return streamManager.getSnapshot(cameraId, cam);
@@ -152,6 +163,9 @@ export function registerHandlers(): void {
   // ------------------------------------------------------------------
 
   ipcMain.handle('recordings:list', async (_e, cameraId: string, date: string) => {
+    if (testFixtures?.recordings) {
+      return testFixtures.recordings[cameraId] ?? [];
+    }
     const cam = configStore.getCameras().find((c) => c.id === cameraId);
     if (!cam) return [];
 
@@ -188,6 +202,10 @@ export function registerHandlers(): void {
   });
 
   ipcMain.handle('recordings:play', async (_e, cameraId: string, startTime: number, endTime: number, requestedTime?: number) => {
+    if (testFixtures?.playbackUrls) {
+      return testFixtures.playbackUrls[cameraId] ?? 'about:blank';
+    }
+
     const cam = configStore.getCameras().find((c) => c.id === cameraId);
     if (!cam) throw new Error(`Camera ${cameraId} not found`);
 

@@ -111,14 +111,17 @@ export function App() {
   };
 
   return (
-    <div className={`app${showTimeline ? '' : ' app--no-timeline'}`}>
+    <div className={`app${showTimeline ? '' : ' app--no-timeline'}`} data-testid="app-shell">
       {/* ── Header ─────────────────────────────────────── */}
       <header className="header">
         <div className="header-cam-info">
           {selectedCamera && (
             <>
               <span className="header-cam-name">{selectedCamera.config.name}</span>
-              <span className={`badge badge-${playbackMode === 'playback' ? 'playback' : selectedCamera.status}`}>
+              <span
+                className={`badge badge-${playbackMode === 'playback' ? 'playback' : selectedCamera.status}`}
+                data-testid="header-mode-badge"
+              >
                 {headerStatusLabel}
               </span>
               <button
@@ -160,6 +163,7 @@ export function App() {
         {/* Main viewer */}
         <div
           className="viewer-wrap"
+          data-testid="viewer-shell"
           onClick={() => {
             if (
               playbackMode === 'live'
@@ -176,7 +180,7 @@ export function App() {
 
         {/* Preview strip */}
         {showPreviews && cameras.length > 0 && (
-          <aside className="preview-strip">
+          <aside className="preview-strip" data-testid="preview-strip">
             {cameras.map((cam) => (
               <CameraPreview
                 key={cam.config.id}
@@ -191,9 +195,9 @@ export function App() {
 
         {/* Empty state */}
         {cameras.length === 0 && (
-          <div className="empty-state">
+          <div className="empty-state" data-testid="empty-state">
             <p>No cameras yet.</p>
-            <button type="button" className="btn-primary" onClick={openAdd}>
+            <button type="button" className="btn-primary" onClick={openAdd} data-testid="empty-state-add-camera">
               + Add your first camera
             </button>
           </div>
@@ -203,6 +207,7 @@ export function App() {
       {/* ── Timeline ───────────────────────────────────── */}
       {showTimeline && (
         <Timeline
+          data-testid="timeline"
           recordings={recordings}
           playbackMode={playbackMode}
           playbackTime={playbackTime}

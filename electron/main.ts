@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  ipcMain,
   Menu,
   type MenuItemConstructorOptions,
   nativeTheme,
@@ -11,13 +12,19 @@ import fs from 'node:fs';
 import * as configStore from './config/store';
 import * as streamManager from './tapo/streamManager';
 import { registerHandlers } from './ipc/handlers';
+import { loadTestFixtures } from './testing/fixtures';
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const shouldOpenDevTools = process.env.TAPOSTUDIO_OPEN_DEVTOOLS === '1' || !isDevelopment;
 const projectGithubUrl = 'https://github.com/phit/tapo-studio';
+const automationUserDataDir = process.env.TAPOSTUDIO_USER_DATA_DIR?.trim();
+
+if (automationUserDataDir) {
+  app.setPath('userData', path.resolve(automationUserDataDir));
+}
 
 // Setup logging
-let logPath: string;
+let logPath: string | null = null;
 function setupLogging(): void {
   try {
     logPath = path.join(app.getPath('userData'), 'tapostudio.log');
@@ -314,6 +321,13 @@ function createWindow(): void {
   mainWindow = win;
 }
 
+ipcMain.handle('diagnostics:getRuntimeInfo', () => ({
+  userData: app.getPath('userData'),
+  logPath,
+  isDevelopment,
+  isPackaged: app.isPackaged,
+}));
+
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark';
 
@@ -331,8 +345,9 @@ app.whenReady().then(async () => {
   } catch (err) {
     console.error('Failed to initialize streamManager:', err);
   }
-  
-  registerHandlers();
+
+  const testFixtures = loadTestFixtures();
+  registerHandlers(testFixtures);
   setApplicationMenu();
 
   createWindow();
