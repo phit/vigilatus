@@ -57,8 +57,16 @@ function isExpectedStopError(cameraId: string, err: Error): boolean {
 // ---------------------------------------------------------------------------
 
 export async function init(): Promise<void> {
-  const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
-  ffmpeg.setFfmpegPath(ffmpegBinary);
+  console.log('[streamManager.init] ffmpegStatic value:', ffmpegStatic);
+  try {
+    const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
+    console.log('[streamManager.init] Resolved ffmpeg path:', ffmpegBinary);
+    ffmpeg.setFfmpegPath(ffmpegBinary);
+    console.log('[streamManager.init] ffmpeg path set successfully');
+  } catch (err) {
+    console.error('[streamManager.init] Failed to resolve ffmpeg path:', err);
+    throw err;
+  }
 
   fs.mkdirSync(HLS_DIR, { recursive: true });
   fs.mkdirSync(SNAP_DIR, { recursive: true });

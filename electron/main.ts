@@ -7,13 +7,45 @@ import {
   shell,
 } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
 import * as configStore from './config/store';
 import * as streamManager from './tapo/streamManager';
 import { registerHandlers } from './ipc/handlers';
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const shouldOpenDevTools = process.env.TAPOSTUDIO_OPEN_DEVTOOLS === '1';
+const shouldOpenDevTools = process.env.TAPOSTUDIO_OPEN_DEVTOOLS === '1' || !isDevelopment;
 const projectGithubUrl = 'https://github.com/phit/tapo-studio';
+
+// Setup logging
+let logPath: string;
+function setupLogging(): void {
+  try {
+    logPath = path.join(app.getPath('userData'), 'tapostudio.log');
+    const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+    const originalLog = console.log;
+    const originalError = console.error;
+    const timestamp = () => new Date().toISOString();
+    
+    console.log = (...args: unknown[]) => {
+      const msg = `[${timestamp()}] ${args.join(' ')}\n`;
+      logStream.write(msg);
+      originalLog(...args);
+    };
+    
+    console.error = (...args: unknown[]) => {
+      const msg = `[${timestamp()}] ERROR: ${args.join(' ')}\n`;
+      logStream.write(msg);
+      originalError(...args);
+    };
+
+    console.log('=== TapoStudio Started ===');
+    console.log('isDevelopment:', isDevelopment);
+    console.log('app.isPackaged:', app.isPackaged);
+    console.log('userData:', app.getPath('userData'));
+  } catch (err) {
+    console.error('Failed to setup logging:', err);
+  }
+}
 
 type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';
 
@@ -226,13 +258,10 @@ function setApplicationMenu(): void {
       label: 'Licenses and Credits',
       click: () => openLicensesWindow(),
     },
-    { type: 'separator' },
     {
-      label: 'FFmpeg Legal Page',
-      click: () => {
-        void shell.openExternal('https://ffmpeg.org/legal.html');
-      },
-    },
+      label: 'Issues and Feedback',
+      click: () => void shell.openExternal(projectGithubUrl + '/issues'),
+    }
   ];
 
   const template: MenuItemConstructorOptions[] = [
@@ -293,7 +322,16 @@ app.whenReady().then(async () => {
   uiDisplayState.previews = persistedUiDisplay.previews;
   uiDisplayState.timeline = persistedUiDisplay.timeline;
   uiDisplayState.previewPosition = persistedUiDisplay.previewPosition;
-  await streamManager.init();
+  
+  setupLogging();
+  
+  try {
+    await streamManager.init();
+    console.log('streamManager initialized successfully');
+  } catch (err) {
+    console.error('Failed to initialize streamManager:', err);
+  }
+  
   registerHandlers();
   setApplicationMenu();
 
