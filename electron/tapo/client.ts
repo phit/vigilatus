@@ -17,12 +17,21 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import type { Recording } from '../types';
-import { downloadRecordingToMp4 } from './recordingDownloader';
+import {
+  downloadRecordingToMp4,
+  startRecordingDownloadToHls,
+  type RecordingPlaybackJob,
+} from './recordingDownloader';
 
 const MAX_LOGIN_RETRIES = 2;
+const PLAYBACK_PADDING_SECONDS = 5;
+const DEFAULT_PLAYBACK_USER_IDS = [1, 0] as const;
+const STALE_USER_ID_ERROR_CODES = new Set([-71103, -71105]);
+const CONTROL_CONNECT_TIMEOUT_MS = 3_000;
 
 interface TapoClientConfig {
   host: string;
@@ -90,6 +99,8 @@ function normalizeBase64(input: string): string {
 // ---------------------------------------------------------------------------
 
 export class TapoClient {
+  private static readonly userIdCache = new Map<string, number>();
+
   private readonly host: string;
   private readonly username: string;
   private readonly rawPassword: string;
@@ -98,7 +109,6 @@ export class TapoClient {
   private cnonce: string;
   private readonly agent: https.Agent;
   private preferredProtocol: 'https' | 'http' = 'https';
-  private preferredPort = 443;
 
   private stok?: string;
   private lsk?: Buffer;
@@ -107,6 +117,7 @@ export class TapoClient {
   private isSecureValue?: boolean;
   private passwordMethod?: 'md5' | 'sha256';
   private triedSecureDowngrade = false;
+  private cachedUserId?: number;
 
   constructor(cfg: TapoClientConfig) {
     this.host = cfg.host;
@@ -119,6 +130,21 @@ export class TapoClient {
       rejectUnauthorized: false,
       ciphers: 'AES256-SHA:AES128-GCM-SHA256',
     });
+
+    const cachedUserId = TapoClient.userIdCache.get(this.userIdCacheKey());
+    if (typeof cachedUserId === 'number') {
+      this.cachedUserId = cachedUserId;
+    }
+  }
+
+  private userIdCacheKey(): string {
+    return `${this.host}\u0000${this.username}\u0000${this.hashedMd5}`;
+  }
+
+  private rememberUserId(userId: number): number {
+    this.cachedUserId = userId;
+    TapoClient.userIdCache.set(this.userIdCacheKey(), userId);
+    return userId;
   }
 
   // -------------------------------------------------------------------------
@@ -135,18 +161,96 @@ export class TapoClient {
     }
   }
 
+  getCachedUserId(): number | undefined {
+    return this.cachedUserId;
+  }
+
+  private logUserIdProbe(stage: string, extra: Record<string, unknown>): void {
+    console.info('[recordings:probe]', JSON.stringify({ stage, ...extra }));
+  }
+
   /**
    * Return recordings for a given day.
    * @param date YYYYMMDD string
    */
   async getRecordingsForDate(date: string): Promise<Recording[]> {
-    let userId: number | undefined;
-    try {
-      userId = await this.getUserId();
-    } catch {
-      // Some firmware variants do not expose user ID but still allow recording search.
-      userId = undefined;
+    const primary = await this.queryRecordingsForDateWithFallbacks(date);
+    if (primary.length > 0) {
+      return primary;
     }
+
+    const nearbyDates = await this.searchDatesWithVideo(date);
+    console.info('[recordings:probe]', JSON.stringify({ stage: 'searchDateWithVideo', date, nearbyDates }));
+
+    for (const candidateDate of nearbyDates) {
+      if (candidateDate === date) continue;
+      const fromCandidate = await this.queryRecordingsForDateWithFallbacks(candidateDate);
+      if (fromCandidate.length > 0) {
+        console.info('[recordings:probe]', JSON.stringify({
+          stage: 'dateFallbackSelected',
+          requestedDate: date,
+          selectedDate: candidateDate,
+          count: fromCandidate.length,
+        }));
+        return fromCandidate;
+      }
+    }
+
+    if (nearbyDates.length > 0) {
+      throw new Error(
+        'Camera reports recording dates, but segment detail queries are denied/empty. Try owner admin credentials for camera API access.',
+      );
+    }
+
+    return [];
+  }
+
+  private async queryRecordingsForDateWithFallbacks(date: string): Promise<Recording[]> {
+    const attemptedUserIds = new Set<string>();
+    const candidateUserIds: Array<number | undefined> = [];
+    const pushCandidateUserId = (value: number | undefined): void => {
+      const key = value === undefined ? 'none' : String(value);
+      if (attemptedUserIds.has(key)) {
+        return;
+      }
+      attemptedUserIds.add(key);
+      candidateUserIds.push(value);
+    };
+
+    if (typeof this.cachedUserId === 'number') {
+      pushCandidateUserId(this.cachedUserId);
+    }
+    pushCandidateUserId(undefined);
+
+    for (const candidateUserId of candidateUserIds) {
+      const recordings = await this.queryRecordingsForDate(date, candidateUserId);
+      this.logUserIdProbe('queryRecordingsAttempt', {
+        date,
+        userId: candidateUserId,
+        source: candidateUserId === undefined ? 'noUserId' : 'cachedUserId',
+        count: recordings.length,
+      });
+      if (recordings.length > 0) {
+        return recordings;
+      }
+    }
+
+    const resolvedUserId = await this.tryResolvePlaybackUserId(date, false);
+    if (typeof resolvedUserId === 'number' && !attemptedUserIds.has(String(resolvedUserId))) {
+      const recordings = await this.queryRecordingsForDate(date, resolvedUserId);
+      this.logUserIdProbe('queryRecordingsAttempt', {
+        date,
+        userId: resolvedUserId,
+        source: 'resolvedUserId',
+        count: recordings.length,
+      });
+      return recordings;
+    }
+
+    return [];
+  }
+
+  private async queryRecordingsForDate(date: string, userId?: number): Promise<Recording[]> {
 
     const daySearchParams: {
       channel: number;
@@ -178,23 +282,44 @@ export class TapoClient {
     });
 
     const direct = this.extractRecordingsFromResponse(resp);
+    this.logRecordingProbe('multipleRequest:searchVideoOfDay', date, resp, direct.length);
     if (direct.length > 0) {
       return direct;
+    }
+    if (typeof userId === 'number' && STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(resp) ?? Number.NaN)) {
+      const refreshedUserId = await this.tryResolvePlaybackUserId(date, true);
+      if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
+        return this.queryRecordingsForDate(date, refreshedUserId);
+      }
     }
 
     // pytapo-compatible shape used by several firmware variants.
     const legacyResp = await this.apiRequest({
-      method: 'searchVideoOfDay',
+      method: 'multipleRequest',
       params: {
-        playback: {
-          search_video_utility: daySearchParams,
-        },
+        requests: [
+          {
+            method: 'searchVideoOfDay',
+            params: {
+              playback: {
+                search_video_utility: daySearchParams,
+              },
+            },
+          },
+        ],
       },
     });
 
     const legacyParsed = this.extractRecordingsFromResponse(legacyResp);
+    this.logRecordingProbe('legacy:searchVideoOfDay', date, legacyResp, legacyParsed.length);
     if (legacyParsed.length > 0) {
       return legacyParsed;
+    }
+    if (typeof userId === 'number' && STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(legacyResp) ?? Number.NaN)) {
+      const refreshedUserId = await this.tryResolvePlaybackUserId(date, true);
+      if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
+        return this.queryRecordingsForDate(date, refreshedUserId);
+      }
     }
 
     // Some firmware/timezone combinations return empty day results but work with UTC range search.
@@ -202,19 +327,66 @@ export class TapoClient {
     return utcFallback;
   }
 
-  async downloadRecording(startTimeMs: number, endTimeMs: number): Promise<string> {
+  private async searchDatesWithVideo(date: string): Promise<string[]> {
+    const resp = await this.apiRequest({
+      method: 'multipleRequest',
+      params: {
+        requests: [
+          {
+            method: 'searchDateWithVideo',
+            params: {
+              playback: {
+                search_year_utility: {
+                  channel: [0],
+                  start_date: date,
+                  end_date: date,
+                },
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    const sub = (resp.result?.responses?.[0] as {
+      result?: { playback?: { search_results?: Array<Record<string, unknown>> } };
+    } | undefined)?.result?.playback?.search_results ?? [];
+
+    const dates = new Set<string>();
+    for (const item of sub) {
+      for (const value of Object.values(item)) {
+        if (typeof value === 'string' && /^\d{8}$/.test(value)) {
+          dates.add(value);
+          continue;
+        }
+        if (value && typeof value === 'object') {
+          const obj = value as Record<string, unknown>;
+          for (const nested of Object.values(obj)) {
+            if (typeof nested === 'string' && /^\d{8}$/.test(nested)) {
+              dates.add(nested);
+            }
+          }
+        }
+      }
+    }
+
+    return Array.from(dates).sort();
+  }
+
+  async downloadRecording(startTimeMs: number, endTimeMs: number, userIdOverride?: number): Promise<string> {
     const startTime = Math.floor(startTimeMs / 1000);
     const endTime = Math.floor(endTimeMs / 1000);
+    const paddedEndTime = endTime + PLAYBACK_PADDING_SECONDS;
 
     if (endTime <= startTime) {
       throw new Error('Invalid recording interval');
     }
 
-    await this.getStok();
-    const userId = await this.getUserId();
-    const timeCorrection = await this.getTimeCorrection();
+    if (typeof userIdOverride === 'number') {
+      this.rememberUserId(userIdOverride);
+    }
 
-    if (Math.floor(Date.now() / 1000) - 60 - timeCorrection < endTime) {
+    if (Math.floor(Date.now() / 1000) - 60 < endTime) {
       throw new Error('Recording is currently in progress');
     }
 
@@ -225,16 +397,99 @@ export class TapoClient {
     const encryptionMethod = this.passwordMethod ?? 'md5';
     const hashedPassword = this.getHashedPassword();
 
-    return downloadRecordingToMp4({
-      host: this.host,
-      username: this.username,
-      hashedPassword,
-      encryptionMethod,
-      userId,
-      startTime,
-      endTime,
-      outputPath: outFile,
-    });
+    const candidateUserIds = await this.resolvePlaybackUserIdCandidates(userIdOverride, startTime, endTime);
+
+    if (candidateUserIds.length === 0) {
+      throw new Error('Failed to resolve playback user ID');
+    }
+
+    let lastError: unknown = null;
+    for (let i = 0; i < candidateUserIds.length; i += 1) {
+      const candidateUserId = candidateUserIds[i];
+      const isRetry = i > 0;
+      try {
+        return await downloadRecordingToMp4({
+          host: this.host,
+          username: this.username,
+          hashedPassword,
+          encryptionMethod,
+          userId: candidateUserId,
+          startTime,
+          endTime: paddedEndTime,
+          outputPath: outFile,
+          windowSize: isRetry ? 50 : 200,
+        });
+      } catch (e) {
+        lastError = e;
+        const msg = String((e as Error)?.message ?? e ?? '');
+        const shouldTryNextUserId = this.isRetryablePlaybackStreamError(msg) && i < candidateUserIds.length - 1;
+        if (!shouldTryNextUserId) {
+          throw e;
+        }
+      }
+    }
+
+    throw (lastError instanceof Error ? lastError : new Error('Unable to download recording stream'));
+  }
+
+  async startRecordingPlayback(
+    startTimeMs: number,
+    endTimeMs: number,
+    outputDir: string,
+    userIdOverride?: number,
+  ): Promise<RecordingPlaybackJob> {
+    const startTime = Math.floor(startTimeMs / 1000);
+    const endTime = Math.floor(endTimeMs / 1000);
+    const paddedEndTime = endTime + PLAYBACK_PADDING_SECONDS;
+
+    if (endTime <= startTime) {
+      throw new Error('Invalid recording interval');
+    }
+
+    if (typeof userIdOverride === 'number') {
+      this.rememberUserId(userIdOverride);
+    }
+
+    if (Math.floor(Date.now() / 1000) - 60 < endTime) {
+      throw new Error('Recording is currently in progress');
+    }
+
+    const encryptionMethod = this.passwordMethod ?? 'md5';
+    const hashedPassword = this.getHashedPassword();
+
+    const candidateUserIds = await this.resolvePlaybackUserIdCandidates(userIdOverride, startTime, endTime);
+
+    if (candidateUserIds.length === 0) {
+      throw new Error('Failed to resolve playback user ID');
+    }
+
+    let lastError: unknown = null;
+    for (let i = 0; i < candidateUserIds.length; i += 1) {
+      const candidateUserId = candidateUserIds[i];
+      const isRetry = i > 0;
+      try {
+        return await startRecordingDownloadToHls({
+          host: this.host,
+          username: this.username,
+          hashedPassword,
+          encryptionMethod,
+          userId: candidateUserId,
+          startTime,
+          endTime: paddedEndTime,
+          outputDir,
+          windowSize: isRetry ? 50 : 200,
+        });
+      } catch (e) {
+        lastError = e;
+        const msg = String((e as Error)?.message ?? e ?? '');
+        const shouldTryNextUserId = this.isRetryablePlaybackStreamError(msg) && i < candidateUserIds.length - 1;
+        if (!shouldTryNextUserId) {
+          throw e;
+        }
+      }
+    }
+
+    throw (lastError instanceof Error ? lastError : new Error('Unable to start recording playback stream'));
   }
 
   // -------------------------------------------------------------------------
@@ -264,6 +519,8 @@ export class TapoClient {
 
   private async isSecureConnection(): Promise<boolean> {
     if (this.isSecureValue !== undefined) return this.isSecureValue;
+
+    await this.ensureControlPortReachable();
 
     const probeCnonce = crypto.randomBytes(8).toString('hex').toUpperCase();
 
@@ -484,11 +741,30 @@ export class TapoClient {
     return responseData;
   }
 
-  private async getUserId(): Promise<number> {
+  private async getUserId(retryCount = 0): Promise<number> {
+    if (retryCount === 0 && this.cachedUserId !== undefined) {
+      return this.cachedUserId;
+    }
     const resp = await this.apiRequest({
-      method: 'getUserID',
-      params: { system: { get_user_id: 'null' } },
+      method: 'multipleRequest',
+      params: {
+        requests: [
+          {
+            method: 'getUserID',
+            params: { system: { get_user_id: 'null' } },
+          },
+        ],
+      },
     });
+
+    const firstResponseErrorCode = (resp.result.responses?.[0] as { error_code?: unknown } | undefined)?.error_code;
+    if (
+      (firstResponseErrorCode === -1 || firstResponseErrorCode === -40401)
+      && retryCount < MAX_LOGIN_RETRIES
+    ) {
+      this.clearSession();
+      return this.getUserId(retryCount + 1);
+    }
 
     const asNumber = (v: unknown): number | null => {
       if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -498,24 +774,142 @@ export class TapoClient {
 
     const direct = (resp.result as { user_id?: unknown }).user_id;
     const directNum = asNumber(direct);
-    if (directNum != null) return directNum;
+    if (directNum != null) {
+      return this.rememberUserId(directNum);
+    }
 
     const nested = (resp.result.responses?.[0] as { result?: { user_id?: unknown } } | undefined)
       ?.result?.user_id;
     const nestedNum = asNumber(nested);
-    if (nestedNum != null) return nestedNum;
+    if (nestedNum != null) {
+      return this.rememberUserId(nestedNum);
+    }
 
     const systemNested = (resp.result.responses?.[0] as {
       result?: { system?: { get_user_id?: { id?: unknown; user_id?: unknown } } };
     } | undefined)?.result?.system?.get_user_id;
 
-    const systemId = asNumber(systemNested?.id);
-    if (systemId != null) return systemId;
-
     const systemUserId = asNumber(systemNested?.user_id);
-    if (systemUserId != null) return systemUserId;
+    if (systemUserId != null) {
+      return this.rememberUserId(systemUserId);
+    }
+
+    const systemId = asNumber(systemNested?.id);
+    if (systemId != null) {
+      return this.rememberUserId(systemId);
+    }
+
+    const multiResponseUserId = (resp.result.responses?.[0] as {
+      result?: { user_id?: unknown };
+    } | undefined)?.result?.user_id;
+    const multiResponseUserIdNum = asNumber(multiResponseUserId);
+    if (multiResponseUserIdNum != null) {
+      return this.rememberUserId(multiResponseUserIdNum);
+    }
+
+    const resultPreview = JSON.stringify(resp?.result ?? {}).slice(0, 500);
+    console.warn('[recordings:getUserId] unparsed response', resultPreview);
+
+    if (retryCount < MAX_LOGIN_RETRIES) {
+      this.clearSession();
+      return this.getUserId(retryCount + 1);
+    }
 
     throw new Error('Failed to retrieve recording user ID');
+  }
+
+  private async tryResolvePlaybackUserId(dateOrContext: string, forceReload: boolean): Promise<number | undefined> {
+    try {
+      const userId = forceReload ? await this.getUserId(1) : await this.getUserId();
+      this.logUserIdProbe('resolvedUserId', { date: dateOrContext, userId, forceReload });
+      return userId;
+    } catch (error) {
+      this.logUserIdProbe('resolvedUserIdFailed', {
+        date: dateOrContext,
+        forceReload,
+        error: (error as Error)?.message ?? String(error),
+      });
+      return undefined;
+    }
+  }
+
+  private appendPlaybackUserIdCandidate(
+    candidateUserIds: number[],
+    seenUserIds: Set<number>,
+    value: unknown,
+  ): void {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+      return;
+    }
+    if (seenUserIds.has(value)) {
+      return;
+    }
+    seenUserIds.add(value);
+    candidateUserIds.push(value);
+  }
+
+  private appendNearbyPlaybackUserIds(
+    candidateUserIds: number[],
+    seenUserIds: Set<number>,
+    seed: number,
+  ): void {
+    this.appendPlaybackUserIdCandidate(candidateUserIds, seenUserIds, seed + 1);
+    if (seed > 0) {
+      this.appendPlaybackUserIdCandidate(candidateUserIds, seenUserIds, seed - 1);
+    }
+    this.appendPlaybackUserIdCandidate(candidateUserIds, seenUserIds, seed + 2);
+    if (seed > 1) {
+      this.appendPlaybackUserIdCandidate(candidateUserIds, seenUserIds, seed - 2);
+    }
+  }
+
+  private async resolvePlaybackUserIdCandidates(
+    userIdOverride: number | undefined,
+    startTime: number,
+    endTime: number,
+  ): Promise<number[]> {
+    const candidateUserIds: number[] = [];
+    const seenUserIds = new Set<number>();
+    const appendCandidate = (value: unknown): void => {
+      this.appendPlaybackUserIdCandidate(candidateUserIds, seenUserIds, value);
+    };
+    const appendNearbyCandidates = (seed: number): void => {
+      this.appendNearbyPlaybackUserIds(candidateUserIds, seenUserIds, seed);
+    };
+
+    appendCandidate(userIdOverride);
+    appendCandidate(this.cachedUserId);
+
+    const initialSeeds = [...candidateUserIds];
+    for (const seed of initialSeeds) {
+      appendNearbyCandidates(seed);
+    }
+
+    for (const fallbackUserId of DEFAULT_PLAYBACK_USER_IDS) {
+      appendCandidate(fallbackUserId);
+    }
+
+    const context = `${startTime}-${endTime}`;
+    const resolvedUserId = await this.tryResolvePlaybackUserId(context, false);
+    if (typeof resolvedUserId === 'number') {
+      appendCandidate(resolvedUserId);
+      appendNearbyCandidates(resolvedUserId);
+    }
+
+    if (candidateUserIds.length === 0) {
+      throw new Error('Failed to resolve playback user ID');
+    }
+
+    this.logUserIdProbe('playbackUserIdCandidates', { context, candidateUserIds });
+    return candidateUserIds;
+  }
+
+  private isRetryablePlaybackStreamError(message: string): boolean {
+    return (
+      message.includes('Camera closed the recording stream unexpectedly') ||
+      message.includes('Timed out waiting for recording data from camera') ||
+      message.includes('ffmpeg created an empty recording file')
+    );
   }
 
   private async getTimeCorrection(): Promise<number> {
@@ -545,6 +939,54 @@ export class TapoClient {
   }
 
   private extractRecordingsFromResponse(resp: ApiResponse): Recording[] {
+    const toMsRange = (value: unknown): Recording | null => {
+      if (!value || typeof value !== 'object') return null;
+
+      const rec = value as {
+        startTime?: unknown;
+        endTime?: unknown;
+        start_time?: unknown;
+        end_time?: unknown;
+      };
+
+      const startRaw = rec.startTime ?? rec.start_time;
+      const endRaw = rec.endTime ?? rec.end_time;
+      if (typeof startRaw !== 'number' || typeof endRaw !== 'number') {
+        return null;
+      }
+
+      // Camera APIs return seconds for playback windows; normalize to ms.
+      const startMs = startRaw < 10_000_000_000 ? startRaw * 1000 : startRaw;
+      const endMs = endRaw < 10_000_000_000 ? endRaw * 1000 : endRaw;
+
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        return null;
+      }
+
+      return { startTime: startMs, endTime: endMs };
+    };
+
+    const collectRanges = (items: unknown[]): Recording[] => {
+      const ranges: Recording[] = [];
+      for (const item of items) {
+        const direct = toMsRange(item);
+        if (direct) {
+          ranges.push(direct);
+          continue;
+        }
+
+        if (item && typeof item === 'object') {
+          for (const value of Object.values(item)) {
+            const nested = toMsRange(value);
+            if (nested) {
+              ranges.push(nested);
+            }
+          }
+        }
+      }
+      return ranges;
+    };
+
     const sub = (resp.result?.responses ?? [])[0] as
       | {
           result?: {
@@ -575,10 +1017,7 @@ export class TapoClient {
       ...(topResult.video?.video_info ?? []),
       ...(sub?.result?.video?.video_info ?? []),
     ];
-    const fromVideoInfo = byVideoInfo
-      .filter((v): v is { startTime: number; endTime: number } =>
-        typeof v.startTime === 'number' && typeof v.endTime === 'number')
-      .map((v) => ({ startTime: v.startTime * 1000, endTime: v.endTime * 1000 }));
+    const fromVideoInfo = collectRanges(byVideoInfo);
 
     if (fromVideoInfo.length > 0) return fromVideoInfo;
 
@@ -590,19 +1029,19 @@ export class TapoClient {
       ?? sub?.result?.search_video_results
       ?? [];
 
-    const flattened: Recording[] = [];
-    for (const item of nestedSearch) {
-      for (const value of Object.values(item)) {
-        if (typeof value?.startTime === 'number' && typeof value?.endTime === 'number') {
-          flattened.push({
-            startTime: value.startTime * 1000,
-            endTime: value.endTime * 1000,
-          });
-        }
-      }
+    const flattened = collectRanges(nestedSearch);
+    if (flattened.length > 0) {
+      return flattened;
     }
 
-    return flattened;
+    // Last-chance parse from top-level result object values when firmware omits expected wrappers.
+    const fromTopLevelValues = collectRanges(Object.values(topResult));
+    return fromTopLevelValues;
+  }
+
+  private firstResponseErrorCode(resp: ApiResponse): number | undefined {
+    const firstResponse = resp.result?.responses?.[0] as { error_code?: unknown } | undefined;
+    return typeof firstResponse?.error_code === 'number' ? firstResponse.error_code : undefined;
   }
 
   private async searchRecordingsWithUtcRange(date: string, userId?: number): Promise<Recording[]> {
@@ -613,71 +1052,158 @@ export class TapoClient {
       return [];
     }
 
-    const startUtcSec = Math.floor(Date.UTC(year, month - 1, day, 0, 0, 0) / 1000);
-    const endUtcSec = Math.floor(Date.UTC(year, month - 1, day, 23, 59, 59) / 1000);
-
-    const utcSearchParams: {
+    const buildSearchParams = (startSec: number, endSec: number): {
       channel: number;
       start_time: number;
       end_time: number;
       start_index: number;
       end_index: number;
       id?: number;
-    } = {
+    } => ({
       channel: 0,
-      start_time: startUtcSec,
-      end_time: endUtcSec,
+      start_time: startSec,
+      end_time: endSec,
       start_index: 0,
       end_index: 9999,
+    });
+
+    const queryRange = async (startSec: number, endSec: number, stagePrefix: string): Promise<Recording[]> => {
+      const searchParams = buildSearchParams(startSec, endSec);
+      if (typeof userId === 'number') {
+        searchParams.id = userId;
+      }
+
+      const resp = await this.apiRequest({
+        method: 'multipleRequest',
+        params: {
+          requests: [
+            {
+              method: 'searchVideoWithUTC',
+              params: searchParams,
+            },
+          ],
+        },
+      });
+      const parsed = this.extractRecordingsFromResponse(resp);
+      this.logRecordingProbe(`${stagePrefix}:multipleRequest:searchVideoWithUTC`, date, resp, parsed.length);
+      if (parsed.length > 0) {
+        return parsed;
+      }
+      if (typeof userId === 'number' && STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(resp) ?? Number.NaN)) {
+        const refreshedUserId = await this.tryResolvePlaybackUserId(date, true);
+        if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
+          return this.searchRecordingsWithUtcRange(date, refreshedUserId);
+        }
+      }
+
+      const legacyUtcResp = await this.apiRequest({
+        method: 'multipleRequest',
+        params: {
+          requests: [
+            {
+              method: 'searchVideoWithUTC',
+              params: {
+                playback: {
+                  search_video_with_utc: searchParams,
+                },
+              },
+            },
+          ],
+        },
+      });
+      const legacyParsed = this.extractRecordingsFromResponse(legacyUtcResp);
+      this.logRecordingProbe(`${stagePrefix}:legacy:searchVideoWithUTC`, date, legacyUtcResp, legacyParsed.length);
+      if (legacyParsed.length === 0 && typeof userId === 'number' && STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(legacyUtcResp) ?? Number.NaN)) {
+        const refreshedUserId = await this.tryResolvePlaybackUserId(date, true);
+        if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
+          return this.searchRecordingsWithUtcRange(date, refreshedUserId);
+        }
+      }
+      return legacyParsed;
     };
 
-    if (typeof userId === 'number') {
-      utcSearchParams.id = userId;
+    // pytapo-compatible local day epoch (device/local time) first.
+    const localStartSec = Math.floor(new Date(year, month - 1, day, 0, 0, 0).getTime() / 1000);
+    const localEndSec = Math.floor(new Date(year, month - 1, day, 23, 59, 59).getTime() / 1000);
+    const localResult = await queryRange(localStartSec, localEndSec, 'localRange');
+    if (localResult.length > 0) {
+      return localResult;
     }
 
-    const resp = await this.apiRequest({
-      method: 'multipleRequest',
-      params: {
-        requests: [
-          {
-            method: 'searchVideoWithUTC',
-            params: utcSearchParams,
-          },
-        ],
-      },
-    });
-    const parsed = this.extractRecordingsFromResponse(resp);
-    if (parsed.length > 0) {
-      return parsed;
-    }
+    // UTC day range fallback for firmware expecting UTC boundaries.
+    const startUtcSec = Math.floor(Date.UTC(year, month - 1, day, 0, 0, 0) / 1000);
+    const endUtcSec = Math.floor(Date.UTC(year, month - 1, day, 23, 59, 59) / 1000);
+    return queryRange(startUtcSec, endUtcSec, 'utcRange');
+  }
 
-    // pytapo-compatible UTC search shape.
-    const legacyUtcResp = await this.apiRequest({
-      method: 'searchVideoWithUTC',
-      params: {
-        playback: {
-          search_video_with_utc: utcSearchParams,
-        },
-      },
-    });
+  private logRecordingProbe(stage: string, date: string, resp: ApiResponse, parsedCount: number): void {
+    const result = (resp?.result ?? {}) as Record<string, unknown>;
+    const responses = Array.isArray(result.responses) ? result.responses : [];
+    const first = (responses[0] as { method?: unknown; result?: unknown } | undefined) ?? {};
+    const firstResult = (first.result ?? {}) as Record<string, unknown>;
 
-    return this.extractRecordingsFromResponse(legacyUtcResp);
+    const firstErrorCode = (responses[0] as { error_code?: unknown } | undefined)?.error_code;
+    const firstJson = responses.length > 0 ? JSON.stringify(responses[0]) : '';
+
+    const shape = {
+      stage,
+      date,
+      parsedCount,
+      errorCode: resp?.error_code,
+      topKeys: Object.keys(result),
+      responsesCount: responses.length,
+      firstMethod: first.method,
+      firstErrorCode,
+      firstResultKeys: Object.keys(firstResult),
+      playbackKeys: firstResult.playback && typeof firstResult.playback === 'object'
+        ? Object.keys(firstResult.playback as Record<string, unknown>)
+        : [],
+      firstResponsePreview: firstJson.slice(0, 500),
+    };
+
+    console.info('[recordings:probe]', JSON.stringify(shape));
   }
 
   // -------------------------------------------------------------------------
   // HTTP
   // -------------------------------------------------------------------------
 
+  private async ensureControlPortReachable(port = 443): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      const socket = net.createConnection({ host: this.host, port });
+
+      const cleanup = () => {
+        socket.removeAllListeners();
+        socket.destroy();
+      };
+
+      socket.setTimeout(CONTROL_CONNECT_TIMEOUT_MS);
+      socket.once('connect', () => {
+        cleanup();
+        resolve();
+      });
+      socket.once('timeout', () => {
+        cleanup();
+        reject(new Error(`Camera control port is unreachable (${this.host}:${port})`));
+      });
+      socket.once('error', (error) => {
+        const message = (error as Error)?.message ?? String(error);
+        cleanup();
+        reject(new Error(`Camera control port is unreachable (${this.host}:${port}): ${message}`));
+      });
+    });
+  }
+
   private post<T>(url: string, body: object, extraHeaders?: Record<string, string>): Promise<T> {
     const parsed = new URL(url);
     const pathName = parsed.pathname + parsed.search;
+    const controlPort = parsed.port ? Number(parsed.port) : 443;
 
     const makeRequest = (protocol: 'https' | 'http', port: number): Promise<T> =>
       new Promise((resolve, reject) => {
         const data = Buffer.from(JSON.stringify(body), 'utf-8');
         const isHttps = protocol === 'https';
         const requestImpl = isHttps ? https.request : http.request;
-
         const req = requestImpl(
           {
             hostname: this.host,
@@ -711,6 +1237,9 @@ export class TapoClient {
           },
         );
 
+        req.setTimeout(10_000, () => {
+          req.destroy(new Error(`Request timed out (${protocol.toUpperCase()} ${this.host}:${port})`));
+        });
         req.on('error', reject);
         req.write(data);
         req.end();
@@ -722,7 +1251,11 @@ export class TapoClient {
         msg.includes('Expected HTTP/') ||
         msg.includes('wrong version number') ||
         msg.includes('EPROTO') ||
-        msg.includes('socket hang up')
+        msg.includes('socket hang up') ||
+        msg.includes('Request timed out') ||
+        msg.includes('ETIMEDOUT') ||
+        msg.includes('ECONNREFUSED') ||
+        msg.includes('ENOTFOUND')
       );
     };
 
@@ -731,6 +1264,7 @@ export class TapoClient {
       return (
         msg.includes('ECONNREFUSED') ||
         msg.includes('EHOSTUNREACH') ||
+        msg.includes('Request timed out') ||
         msg.includes('ETIMEDOUT') ||
         msg.includes('socket hang up') ||
         msg.includes('Expected HTTP/') ||
@@ -740,11 +1274,10 @@ export class TapoClient {
     };
 
     if (this.preferredProtocol === 'https') {
-      return makeRequest('https', 443).catch((err) => {
+      return makeRequest('https', controlPort).catch((err) => {
         if (shouldFallbackToHttp(err)) {
-          return makeRequest('http', 80).then((result) => {
+          return makeRequest('http', controlPort).then((result) => {
             this.preferredProtocol = 'http';
-            this.preferredPort = 80;
             return result;
           });
         }
@@ -752,11 +1285,10 @@ export class TapoClient {
       });
     }
 
-    return makeRequest('http', 80).catch((err) => {
+    return makeRequest('http', controlPort).catch((err) => {
       if (shouldFallbackToHttps(err)) {
-        return makeRequest('https', 443).then((result) => {
+        return makeRequest('https', controlPort).then((result) => {
           this.preferredProtocol = 'https';
-          this.preferredPort = 443;
           return result;
         });
       }

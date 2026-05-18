@@ -7,12 +7,14 @@
 
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegStatic from 'ffmpeg-static';
+import { once } from 'node:events';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import type { CameraConfig } from '../types';
+import { resolveFfmpegBinaryPath } from './ffmpegPath';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -33,22 +35,30 @@ interface StreamEntry {
 }
 
 const streams = new Map<string, StreamEntry>();
+const expectedStops = new Set<string>();
 /** Per-camera in-progress snapshot promise (prevents parallel captures) */
 const snapshotLocks = new Map<string, Promise<string | null>>();
+const activePlaybackAssets = new Map<string, Promise<unknown>>();
 let server: http.Server | null = null;
 let hlsPort = 0;
 
 const STREAM_READY_TIMEOUT_MS = 15_000;
 const STREAM_READY_POLL_MS = 250;
 const STDERR_HISTORY_LIMIT = 24;
+const MIN_PLAYBACK_FILE_BYTES = 512_000;
+
+function isExpectedStopError(cameraId: string, err: Error): boolean {
+  const message = String(err?.message ?? '');
+  return expectedStops.has(cameraId) && message.includes('killed with signal SIGKILL');
+}
 
 // ---------------------------------------------------------------------------
 // Init / teardown
 // ---------------------------------------------------------------------------
 
 export async function init(): Promise<void> {
-  if (!ffmpegStatic) throw new Error('ffmpeg-static not available on this platform');
-  ffmpeg.setFfmpegPath(ffmpegStatic);
+  const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
+  ffmpeg.setFfmpegPath(ffmpegBinary);
 
   fs.mkdirSync(HLS_DIR, { recursive: true });
   fs.mkdirSync(SNAP_DIR, { recursive: true });
@@ -60,6 +70,20 @@ export async function init(): Promise<void> {
 export function cleanup(): void {
   for (const id of streams.keys()) stopStream(id);
   server?.close();
+}
+
+export function registerActivePlaybackAsset(filePath: string, completed: Promise<unknown>): void {
+  const resolvedPath = path.resolve(filePath);
+  const tracked = completed.finally(() => {
+    if (activePlaybackAssets.get(resolvedPath) === tracked) {
+      activePlaybackAssets.delete(resolvedPath);
+    }
+  });
+  activePlaybackAssets.set(resolvedPath, tracked);
+}
+
+export function unregisterActivePlaybackAsset(filePath: string): void {
+  activePlaybackAssets.delete(path.resolve(filePath));
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +112,16 @@ export function startStream(cameraId: string, cfg: CameraConfig): Promise<string
     (proc as ffmpeg.FfmpegCommand & {
       on(event: 'error', listener: (err: Error, stdout: string, stderr: string) => void): ffmpeg.FfmpegCommand;
     }).on('error', (err: Error, _stdout: string, stderr: string) => {
+      if (isExpectedStopError(cameraId, err)) {
+        expectedStops.delete(cameraId);
+        streams.delete(cameraId);
+        if (!settled) {
+          settled = true;
+          reject(new Error('Stream start cancelled'));
+        }
+        return;
+      }
+
       const details = summarizeFfmpegDetails(stderr?.trim() || stderrLines.join('\n').trim());
       const message = details ? `${err.message}: ${details}` : err.message;
       console.error(`[stream:${cameraId}] error:`, message);
@@ -98,7 +132,10 @@ export function startStream(cameraId: string, cfg: CameraConfig): Promise<string
       }
     });
 
-    proc.on('end', () => streams.delete(cameraId));
+    proc.on('end', () => {
+      expectedStops.delete(cameraId);
+      streams.delete(cameraId);
+    });
 
     void ready
       .then(() => {
@@ -128,6 +165,7 @@ export function startStream(cameraId: string, cfg: CameraConfig): Promise<string
 export function stopStream(cameraId: string): void {
   const entry = streams.get(cameraId);
   if (!entry) return;
+  expectedStops.add(cameraId);
   try {
     entry.proc.kill('SIGKILL');
   } catch {
@@ -144,20 +182,37 @@ export function stopStream(cameraId: string): void {
   }
 }
 
-export function getPlaybackUrl(cameraId: string, filePath: string): string {
+export function getPlaybackUrl(cameraId: string, filePath: string, hostDir?: string): string {
   const ext = path.extname(filePath).toLowerCase() || '.mp4';
-  const destDir = path.join(PLAYBACK_DIR, cameraId);
-  fs.mkdirSync(destDir, { recursive: true });
-
   const baseName = path.basename(filePath, path.extname(filePath));
   const safeBase = baseName.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const destFile = path.join(destDir, `${safeBase}${ext}`);
 
-  if (!fs.existsSync(destFile)) {
-    fs.copyFileSync(filePath, destFile);
+  // If file exists, copy it to playback directory for immediate availability
+  if (fs.existsSync(filePath)) {
+    console.info(`[getPlaybackUrl:${cameraId}] file exists, copying to playback dir: ${filePath}`);
+    const destDir = path.join(PLAYBACK_DIR, cameraId);
+    fs.mkdirSync(destDir, { recursive: true });
+    const destFile = path.join(destDir, `${safeBase}${ext}`);
+    if (!fs.existsSync(destFile)) {
+      fs.copyFileSync(filePath, destFile);
+    }
+    const url = `http://127.0.0.1:${hlsPort}/playback/${cameraId}/${path.basename(destFile)}`;
+    console.info(`[getPlaybackUrl:${cameraId}] serving from playback dir: ${url}`);
+    return url;
   }
 
-  return `http://127.0.0.1:${hlsPort}/playback/${cameraId}/${path.basename(destFile)}`;
+  // File doesn't exist yet (background download in progress).
+  // Serve directly from recordings directory as it's being written.
+  // Use hostDir in the URL path to match where the file is actually stored.
+  const urlPath = hostDir ? `${hostDir}/${safeBase}${ext}` : `${cameraId}/${safeBase}${ext}`;
+  const url = `http://127.0.0.1:${hlsPort}/recording/${urlPath}`;
+  console.info(`[getPlaybackUrl:${cameraId}] file not yet exists, serving from recordings dir: ${url}`);
+  return url;
+}
+
+export function getPlaybackAssetUrl(relativePath: string): string {
+  const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+  return `http://127.0.0.1:${hlsPort}/playback/${normalized}`;
 }
 
 /** Restart the stream with a time offset for recording playback.  Returns the HLS URL. */
@@ -182,6 +237,16 @@ export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: 
     (proc as ffmpeg.FfmpegCommand & {
       on(event: 'error', listener: (err: Error, stdout: string, stderr: string) => void): ffmpeg.FfmpegCommand;
     }).on('error', (err: Error, _stdout: string, stderr: string) => {
+      if (isExpectedStopError(cameraId, err)) {
+        expectedStops.delete(cameraId);
+        streams.delete(cameraId);
+        if (!settled) {
+          settled = true;
+          reject(new Error('Playback start cancelled'));
+        }
+        return;
+      }
+
       const details = summarizeFfmpegDetails(stderr?.trim() || stderrLines.join('\n').trim());
       const message = details ? `${err.message}: ${details}` : err.message;
       console.error(`[playback:${cameraId}] error:`, message);
@@ -192,7 +257,10 @@ export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: 
       }
     });
 
-    proc.on('end', () => streams.delete(cameraId));
+    proc.on('end', () => {
+      expectedStops.delete(cameraId);
+      streams.delete(cameraId);
+    });
 
     void ready
       .then(() => {
@@ -436,6 +504,58 @@ function summarizeFfmpegDetails(details: string): string {
   return relevant.join('\n');
 }
 
+async function streamGrowingMp4(filePath: string, res: http.ServerResponse, completed: Promise<unknown>): Promise<void> {
+  let position = 0;
+  const waitForCompletion = completed.then(
+    () => true,
+    () => true,
+  );
+
+  res.writeHead(200, {
+    'Content-Type': 'video/mp4',
+    'Access-Control-Allow-Origin': '*',
+    'Cache-Control': 'no-cache',
+    'Transfer-Encoding': 'chunked',
+  });
+
+  while (!res.writableEnded) {
+    let stats: fs.Stats | null = null;
+    try {
+      stats = fs.statSync(filePath);
+    } catch {
+      stats = null;
+    }
+
+    if (stats && stats.size > position) {
+      const stream = fs.createReadStream(filePath, { start: position, end: stats.size - 1 });
+      stream.pipe(res, { end: false });
+      await once(stream, 'end');
+      position = stats.size;
+      continue;
+    }
+
+    const completedNow = await Promise.race([
+      waitForCompletion,
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 150)),
+    ]);
+
+    if (completedNow) {
+      try {
+        const finalStats = fs.statSync(filePath);
+        if (finalStats.size > position) {
+          const stream = fs.createReadStream(filePath, { start: position, end: finalStats.size - 1 });
+          stream.pipe(res, { end: false });
+          await once(stream, 'end');
+        }
+      } catch {
+        /* ignore */
+      }
+      res.end();
+      return;
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // HLS HTTP server
 // ---------------------------------------------------------------------------
@@ -445,30 +565,168 @@ function startServer(): Promise<number> {
     server = http.createServer((req, res) => {
       const reqPath = decodeURIComponent((req.url ?? '/').replace(/\?.*$/, ''));
       const relativePath = reqPath.replace(/^\/+/, '');
-      const baseDir = relativePath.startsWith('playback/') ? PLAYBACK_DIR : HLS_DIR;
-      const safe = path.resolve(baseDir, relativePath);
+      let baseDir: string;
+      let filePath: string;
+      
+      if (relativePath.startsWith('playback/')) {
+        baseDir = PLAYBACK_DIR;
+        filePath = relativePath.replace(/^playback\//, '');
+      } else if (relativePath.startsWith('recording/')) {
+        // Serve from recordings directory (for in-progress downloads)
+        // The path includes the host directory, e.g., /recording/192.168.100.141/timestamp.mp4
+        baseDir = path.join(os.tmpdir(), 'tapostudio-recordings');
+        filePath = relativePath.replace(/^recording\//, '');
+      } else {
+        baseDir = HLS_DIR;
+        filePath = relativePath;
+      }
+      
+      const safe = path.resolve(baseDir, filePath);
       if (!safe.startsWith(baseDir)) {
+        console.error(`[http:server] 403 Forbidden for ${reqPath}`);
         res.writeHead(403).end('Forbidden');
         return;
       }
 
-      fs.readFile(safe, (err, data) => {
-        if (err) {
-          res.writeHead(404).end('Not found');
-          return;
-        }
-        const ext = path.extname(safe);
-        let mime = 'application/octet-stream';
-        if (ext === '.m3u8') mime = 'application/vnd.apple.mpegurl';
-        else if (ext === '.ts') mime = 'video/MP2T';
-        else if (ext === '.mp4') mime = 'video/mp4';
-        res.writeHead(200, {
-          'Content-Type': mime,
-          'Access-Control-Allow-Origin': '*',
-          'Cache-Control': 'no-cache',
+      console.info(`[http:server] serving ${reqPath} from ${safe}`);
+      
+      // Retry logic: wait for background-created playback assets and recordings to appear.
+      const isRecording = reqPath.includes('/recording/');
+      const isPlayback = reqPath.includes('/playback/');
+      const isDeferredAsset = isRecording || isPlayback;
+      const maxRetries = isDeferredAsset ? 300 : 2;
+      const retryDelayMs = 200;
+      let retryCount = 0;
+      
+      const tryRead = () => {
+        fs.stat(safe, (statErr, stats) => {
+          if (statErr) {
+            if (retryCount < maxRetries && isDeferredAsset) {
+              retryCount++;
+              if (retryCount % 5 === 0) {
+                console.info(`[http:server] file not found, retrying (${retryCount}/${maxRetries})...`);
+              }
+              setTimeout(tryRead, retryDelayMs);
+              return;
+            }
+            
+            console.error(`[http:server] 404 Not found after ${retryCount} retries: ${safe}`);
+            res.writeHead(404).end('Not found');
+            return;
+          }
+
+          if (isDeferredAsset && stats.size <= 0) {
+            if (retryCount < maxRetries) {
+              retryCount++;
+              if (retryCount % 5 === 0) {
+                console.info(`[http:server] file empty, retrying (${retryCount}/${maxRetries})...`);
+              }
+              setTimeout(tryRead, retryDelayMs);
+              return;
+            }
+
+            console.error(`[http:server] 404 Empty file after ${retryCount} retries: ${safe}`);
+            res.writeHead(404).end('Not found');
+            return;
+          }
+
+          if (isPlayback && path.extname(safe).toLowerCase() === '.mp4' && stats.size < MIN_PLAYBACK_FILE_BYTES) {
+            if (retryCount < maxRetries) {
+              retryCount++;
+              if (retryCount % 5 === 0) {
+                console.info(`[http:server] playback file too small, retrying (${retryCount}/${maxRetries})...`);
+              }
+              setTimeout(tryRead, retryDelayMs);
+              return;
+            }
+
+            console.error(`[http:server] 404 Playback file too small after ${retryCount} retries: ${safe}`);
+            res.writeHead(404).end('Not found');
+            return;
+          }
+
+          const ext = path.extname(safe);
+          let mime = 'application/octet-stream';
+          if (ext === '.m3u8') mime = 'application/vnd.apple.mpegurl';
+          else if (ext === '.ts') mime = 'video/MP2T';
+          else if (ext === '.mp4') mime = 'video/mp4';
+
+          const fileSize = stats.size;
+          const rangeHeader = req.headers.range;
+          const activePlayback = isPlayback ? activePlaybackAssets.get(safe) : undefined;
+
+          if (activePlayback && ext === '.mp4') {
+            void streamGrowingMp4(safe, res, activePlayback).catch((error) => {
+              console.error(`[http:server] failed growing playback stream ${safe}:`, (error as Error)?.message ?? error);
+              if (!res.headersSent) {
+                res.writeHead(500).end('Streaming failed');
+              } else if (!res.writableEnded) {
+                res.end();
+              }
+            });
+            return;
+          }
+
+          // Handle Range requests for streaming (206 Partial Content)
+          if (rangeHeader && ext === '.mp4') {
+            const rangeMatch = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+            if (rangeMatch) {
+              const start = Number(rangeMatch[1]);
+              const end = rangeMatch[2] ? Number(rangeMatch[2]) : fileSize - 1;
+              
+              // For empty/growing files, allow reading 0 bytes and let player retry
+              if (start >= fileSize && fileSize > 0) {
+                console.error(`[http:server] 416 Range Not Satisfiable: start=${start} >= fileSize=${fileSize}`);
+                res.writeHead(416, {
+                  'Content-Range': `bytes */${fileSize}`,
+                }).end();
+                return;
+              }
+              
+              const rangeEnd = Math.min(end, Math.max(0, fileSize - 1));
+              const length = Math.max(0, rangeEnd - start + 1);
+
+              console.info(`[http:server] 206 Partial ${safe} (bytes ${start}-${rangeEnd}/${fileSize})`);
+              res.writeHead(206, {
+                'Content-Type': mime,
+                'Content-Length': length,
+                'Content-Range': `bytes ${start}-${rangeEnd}/${fileSize}`,
+                'Access-Control-Allow-Origin': '*',
+                'Cache-Control': 'no-cache',
+                'Accept-Ranges': 'bytes',
+              });
+
+                if (length > 0) {
+                  const stream = fs.createReadStream(safe, { start, end: rangeEnd });
+                  stream.pipe(res);
+                } else {
+                  res.end();
+                }
+              return;
+            }
+          }
+
+          // Standard full file read
+          fs.readFile(safe, (readErr, data) => {
+            if (readErr) {
+              console.error(`[http:server] 404 Not found: ${safe} - ${readErr.message}`);
+              res.writeHead(404).end('Not found');
+              return;
+            }
+            console.info(`[http:server] 200 OK ${safe} (${data.length} bytes)`);
+            res.writeHead(200, {
+              'Content-Type': mime,
+              'Content-Length': data.length,
+              'Access-Control-Allow-Origin': '*',
+              'Cache-Control': 'no-cache',
+              'Accept-Ranges': 'bytes',
+            });
+            res.end(data);
+          });
         });
-        res.end(data);
-      });
+      };
+      
+      tryRead();
     });
 
     server.on('error', reject);

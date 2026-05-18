@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import type { CameraConfig, Recording } from './types';
+import type { CameraConfig, PreviewPosition, Recording } from './types';
 
 declare global {
   interface Window {
@@ -15,7 +15,7 @@ declare global {
         ): Promise<{ success: boolean; error?: string }>;
       };
       stream: {
-        start(cameraId: string): Promise<string>;
+        start(cameraId: string): Promise<string | null>;
         stop(cameraId: string): Promise<void>;
         startPlayback(cameraId: string, seekSeconds: number): Promise<string>;
       };
@@ -24,7 +24,13 @@ declare global {
       };
       recordings: {
         list(cameraId: string, date: string): Promise<Recording[]>;
-        play(cameraId: string, startTime: number, endTime: number): Promise<string>;
+        play(cameraId: string, startTime: number, endTime: number, requestedTime: number): Promise<string>;
+      };
+      ui: {
+        onOpenAddCamera(callback: () => void): () => void;
+        onSetPreviewsVisible(callback: (visible: boolean) => void): () => void;
+        onSetTimelineVisible(callback: (visible: boolean) => void): () => void;
+        onSetPreviewPosition(callback: (position: PreviewPosition) => void): () => void;
       };
     };
   }

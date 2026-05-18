@@ -1,4 +1,11 @@
-import { app, BrowserWindow, nativeTheme } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  type MenuItemConstructorOptions,
+  nativeTheme,
+  shell,
+} from 'electron';
 import path from 'node:path';
 import * as configStore from './config/store';
 import * as streamManager from './tapo/streamManager';
@@ -6,6 +13,237 @@ import { registerHandlers } from './ipc/handlers';
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const shouldOpenDevTools = process.env.TAPOSTUDIO_OPEN_DEVTOOLS === '1';
+const projectGithubUrl = 'https://github.com/phit/tapo-studio';
+
+type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';
+
+let mainWindow: BrowserWindow | null = null;
+let aboutWindow: BrowserWindow | null = null;
+let licensesWindow: BrowserWindow | null = null;
+const uiDisplayState = {
+  previews: true,
+  timeline: true,
+  previewPosition: 'right' as PreviewPosition,
+};
+
+function sendUiEvent(channel: string, ...args: unknown[]): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send(channel, ...args);
+}
+
+function applyUiDisplayStateToRenderer(): void {
+  sendUiEvent('ui:setPreviewsVisible', uiDisplayState.previews);
+  sendUiEvent('ui:setTimelineVisible', uiDisplayState.timeline);
+  sendUiEvent('ui:setPreviewPosition', uiDisplayState.previewPosition);
+}
+
+function wireExternalLinks(win: BrowserWindow): void {
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) {
+      void shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+
+  win.webContents.on('will-navigate', (event, url) => {
+    if (/^https?:\/\//i.test(url)) {
+      event.preventDefault();
+      void shell.openExternal(url);
+    }
+  });
+}
+
+function loadDialogPage(win: BrowserWindow, fileName: string, query: Record<string, string>): void {
+  if (isDevelopment && process.env.VITE_DEV_SERVER_URL) {
+    const baseUrl = process.env.VITE_DEV_SERVER_URL.replace(/\/$/, '');
+    const search = new URLSearchParams(query).toString();
+    void win.loadURL(`${baseUrl}/system/${fileName}?${search}`);
+    return;
+  }
+
+  void win.loadFile(path.join(__dirname, '../renderer/system', fileName), { query });
+}
+
+function openAboutWindow(): void {
+  if (aboutWindow && !aboutWindow.isDestroyed()) {
+    aboutWindow.focus();
+    return;
+  }
+
+  aboutWindow = new BrowserWindow({
+    width: 620,
+    height: 420,
+    minWidth: 520,
+    minHeight: 360,
+    title: 'About Tapo Studio',
+    autoHideMenuBar: true,
+    backgroundColor: '#0a1020',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  aboutWindow.on('closed', () => {
+    aboutWindow = null;
+  });
+
+  wireExternalLinks(aboutWindow);
+  loadDialogPage(aboutWindow, 'about.html', {
+    version: app.getVersion(),
+    github: projectGithubUrl,
+  });
+}
+
+function openLicensesWindow(): void {
+  if (licensesWindow && !licensesWindow.isDestroyed()) {
+    licensesWindow.focus();
+    return;
+  }
+
+  licensesWindow = new BrowserWindow({
+    width: 780,
+    height: 680,
+    minWidth: 640,
+    minHeight: 480,
+    title: 'Licenses and Credits',
+    autoHideMenuBar: true,
+    backgroundColor: '#0a1020',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  licensesWindow.on('closed', () => {
+    licensesWindow = null;
+  });
+
+  wireExternalLinks(licensesWindow);
+  loadDialogPage(licensesWindow, 'licenses.html', {
+    version: app.getVersion(),
+  });
+}
+
+function setApplicationMenu(): void {
+  const appSubmenu: MenuItemConstructorOptions[] = [
+    {
+      label: 'Add Camera',
+      click: () => sendUiEvent('ui:openAddCamera'),
+    },
+    { type: 'separator' },
+    {
+      label: 'About Tapo Studio',
+      click: () => openAboutWindow(),
+    },
+    { type: 'separator' },
+    { role: 'quit' },
+  ];
+
+  const viewSubmenu: MenuItemConstructorOptions[] = [
+    {
+      label: 'Previews',
+      type: 'checkbox',
+      checked: uiDisplayState.previews,
+      click: (menuItem) => {
+        uiDisplayState.previews = menuItem.checked;
+        configStore.setUiDisplayPreferences({ previews: menuItem.checked });
+        sendUiEvent('ui:setPreviewsVisible', menuItem.checked);
+      },
+    },
+    {
+      label: 'Timeline',
+      type: 'checkbox',
+      checked: uiDisplayState.timeline,
+      click: (menuItem) => {
+        uiDisplayState.timeline = menuItem.checked;
+        configStore.setUiDisplayPreferences({ timeline: menuItem.checked });
+        sendUiEvent('ui:setTimelineVisible', menuItem.checked);
+      },
+    },
+    {
+      label: 'Preview Position',
+      submenu: [
+        {
+          label: 'Left',
+          type: 'radio',
+          checked: uiDisplayState.previewPosition === 'left',
+          click: () => {
+            uiDisplayState.previewPosition = 'left';
+            configStore.setUiDisplayPreferences({ previewPosition: 'left' });
+            sendUiEvent('ui:setPreviewPosition', 'left');
+          },
+        },
+        {
+          label: 'Right',
+          type: 'radio',
+          checked: uiDisplayState.previewPosition === 'right',
+          click: () => {
+            uiDisplayState.previewPosition = 'right';
+            configStore.setUiDisplayPreferences({ previewPosition: 'right' });
+            sendUiEvent('ui:setPreviewPosition', 'right');
+          },
+        },
+        {
+          label: 'Top',
+          type: 'radio',
+          checked: uiDisplayState.previewPosition === 'top',
+          click: () => {
+            uiDisplayState.previewPosition = 'top';
+            configStore.setUiDisplayPreferences({ previewPosition: 'top' });
+            sendUiEvent('ui:setPreviewPosition', 'top');
+          },
+        },
+        {
+          label: 'Bottom',
+          type: 'radio',
+          checked: uiDisplayState.previewPosition === 'bottom',
+          click: () => {
+            uiDisplayState.previewPosition = 'bottom';
+            configStore.setUiDisplayPreferences({ previewPosition: 'bottom' });
+            sendUiEvent('ui:setPreviewPosition', 'bottom');
+          },
+        },
+      ],
+    },
+    { type: 'separator' },
+    { role: 'reload' },
+    { type: 'separator' },
+    { role: 'resetZoom' },
+    { role: 'zoomIn' },
+    { role: 'zoomOut' },
+  ];
+
+  const helpSubmenu: MenuItemConstructorOptions[] = [
+    {
+      label: 'About Tapo Studio',
+      click: () => openAboutWindow(),
+    },
+    { type: 'separator' },
+    {
+      label: 'Licenses and Credits',
+      click: () => openLicensesWindow(),
+    },
+    { type: 'separator' },
+    {
+      label: 'FFmpeg Legal Page',
+      click: () => {
+        void shell.openExternal('https://ffmpeg.org/legal.html');
+      },
+    },
+  ];
+
+  const template: MenuItemConstructorOptions[] = [
+    ...(process.platform === 'darwin' ? ([{ role: 'appMenu' }] as MenuItemConstructorOptions[]) : []),
+    { label: 'Tapo Studio', submenu: appSubmenu },
+    { label: 'View', submenu: viewSubmenu },
+    { role: 'help', submenu: helpSubmenu },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -31,14 +269,33 @@ function createWindow(): void {
   } else {
     win.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
+
+  win.webContents.on('did-finish-load', () => {
+    if (mainWindow === win) {
+      applyUiDisplayStateToRenderer();
+    }
+  });
+
+  win.on('closed', () => {
+    if (mainWindow === win) {
+      mainWindow = null;
+    }
+  });
+
+  mainWindow = win;
 }
 
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark';
 
   configStore.init(app.getPath('userData'));
+  const persistedUiDisplay = configStore.getUiDisplayPreferences();
+  uiDisplayState.previews = persistedUiDisplay.previews;
+  uiDisplayState.timeline = persistedUiDisplay.timeline;
+  uiDisplayState.previewPosition = persistedUiDisplay.previewPosition;
   await streamManager.init();
   registerHandlers();
+  setApplicationMenu();
 
   createWindow();
 

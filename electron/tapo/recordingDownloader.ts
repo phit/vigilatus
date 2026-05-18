@@ -4,7 +4,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
+import type { Writable } from 'node:stream';
 import ffmpegStatic from 'ffmpeg-static';
+import { resolveFfmpegBinaryPath } from './ffmpegPath';
 
 type EncryptionMethod = 'md5' | 'sha256';
 
@@ -20,6 +22,17 @@ interface DownloadRecordingOptions {
   windowSize?: number;
 }
 
+interface RecordingPlaybackStreamOptions extends Omit<DownloadRecordingOptions, 'outputPath'> {
+  outputDir: string;
+}
+
+export interface RecordingPlaybackJob {
+  assetPath: string;
+  ready: Promise<string>;
+  completed: Promise<string>;
+  cancel(): void;
+}
+
 interface MediaPart {
   mimetype: string;
   encrypted: boolean;
@@ -32,7 +45,10 @@ interface MediaPart {
 
 const DEFAULT_CLIENT_BOUNDARY = '--client-stream-boundary--';
 const DEFAULT_DEVICE_BOUNDARY = '--device-stream-boundary--';
-const NO_DATA_TIMEOUT_MS = 10_000;
+const NO_DATA_TIMEOUT_MS = 20_000;
+const PLAYBACK_READY_TIMEOUT_MS = 15_000;
+const MIN_PLAYBACK_READY_BYTES = 512_000;
+const FALLBACK_WINDOW_SIZE = 50;
 
 class BufferedSocketReader {
   private buffer = Buffer.alloc(0);
@@ -158,7 +174,7 @@ class MediaSession {
     private readonly host: string,
     private readonly username: string,
     private readonly hashedPassword: string,
-    windowSize = 50,
+    windowSize = 200,
   ) {
     this.socket = net.createConnection({ host, port: 8800 });
     this.reader = new BufferedSocketReader(this.socket);
@@ -178,7 +194,7 @@ class MediaSession {
     await this.writeRequest(requestLine, headers);
 
     const firstHeaders = await this.readInitialHeaders();
-    const authenticateHeader = firstHeaders['WWW-Authenticate'];
+    const authenticateHeader = getHeader(firstHeaders, 'www-authenticate');
     if (!authenticateHeader) {
       throw new Error('Camera did not request recording-stream authentication');
     }
@@ -202,14 +218,15 @@ class MediaSession {
     await this.writeRequest(requestLine, headers);
 
     const okHeaders = await this.readInitialHeaders();
-    const keyExchange = okHeaders['Key-Exchange'];
-    if (!keyExchange) {
-      throw new Error('Camera did not provide recording-stream key exchange data');
+    const keyExchange = getHeader(okHeaders, 'key-exchange', 'x-key-exchange', 'key_exchange');
+    if (keyExchange) {
+      this.cipher = new MediaCipher(keyExchange, this.hashedPassword);
+    } else {
+      // Some firmware variants serve plaintext media parts and omit key-exchange.
+      this.cipher = null;
     }
 
-    this.cipher = new MediaCipher(keyExchange, this.hashedPassword);
-
-    const contentType = okHeaders['Content-Type'] ?? '';
+    const contentType = getHeader(okHeaders, 'content-type') ?? '';
     const boundaryMatch = contentType.match(/boundary=([^;]+)/i);
     if (boundaryMatch?.[1]) {
       this.deviceBoundary = boundaryMatch[1].trim();
@@ -228,11 +245,11 @@ class MediaSession {
   ): Promise<void> {
     const payload = JSON.stringify({
       type: 'request',
-      seq: 1,
+      seq: crypto.randomInt(1000, 0x7fff),
       params: {
         playback: {
           client_id: userId,
-          channels: [0, 1],
+          channels: [0],
           scale: '1/1',
           start_time: String(startTime),
           end_time: String(endTime),
@@ -249,9 +266,22 @@ class MediaSession {
     });
 
     let sessionId: number | undefined;
+    let receivedVideo = false;
+    let receivedAnyPart = false;
 
     while (true) {
-      const part = await this.readPart();
+      let part: MediaPart;
+      try {
+        part = await this.readPart();
+      } catch (error) {
+        const msg = String((error as Error)?.message ?? error ?? '');
+        if (msg.includes('Camera closed the recording stream unexpectedly') && (receivedVideo || receivedAnyPart)) {
+          break;
+        }
+        throw error;
+      }
+
+      receivedAnyPart = true;
       if (part.sessionId !== undefined) {
         sessionId = part.sessionId;
       }
@@ -261,6 +291,7 @@ class MediaSession {
       }
 
       if (part.mimetype === 'video/mp2t') {
+        receivedVideo = true;
         await onVideoData(part.plaintext);
         continue;
       }
@@ -315,20 +346,24 @@ class MediaSession {
     const headerBlock = await this.reader.readUntil(Buffer.from('\r\n\r\n'), NO_DATA_TIMEOUT_MS);
     const headerText = headerBlock.subarray(0, headerBlock.length - 4).toString('utf8').trim();
     const headers = parseHeaders(headerText);
-    const mimetype = headers['Content-Type'] ?? 'application/octet-stream';
-    const contentLength = Number(headers['Content-Length'] ?? '0');
-    const encrypted = headers['X-If-Encrypt'] === '1';
+    const mimetype = getHeader(headers, 'content-type') ?? 'application/octet-stream';
+    const contentLength = Number(getHeader(headers, 'content-length') ?? '0');
+    const encrypted = getHeader(headers, 'x-if-encrypt') === '1';
     const ciphertext = await this.reader.readExactly(contentLength, NO_DATA_TIMEOUT_MS);
 
     let plaintext = ciphertext;
     if (encrypted) {
-      if (!this.cipher) throw new Error('Recording stream cipher was not initialised');
+      if (!this.cipher) {
+        throw new Error('Recording stream is encrypted but camera did not provide key-exchange data');
+      }
       plaintext = this.cipher.decrypt(ciphertext);
     }
 
     let json: Record<string, unknown> | undefined;
-    let seq = headers['X-Data-Sequence'] ? Number(headers['X-Data-Sequence']) : undefined;
-    let sessionId = headers['X-Session-Id'] ? Number(headers['X-Session-Id']) : undefined;
+    const seqHeader = getHeader(headers, 'x-data-sequence');
+    const sessionHeader = getHeader(headers, 'x-session-id');
+    let seq = seqHeader ? Number(seqHeader) : undefined;
+    let sessionId = sessionHeader ? Number(sessionHeader) : undefined;
 
     if (mimetype === 'application/json') {
       try {
@@ -375,87 +410,471 @@ class MediaSession {
 }
 
 export async function downloadRecordingToMp4(options: DownloadRecordingOptions): Promise<string> {
-  if (!ffmpegStatic) {
-    throw new Error('ffmpeg-static is not available on this platform');
-  }
+  const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
+
+  const logPrefix = `[recording:dl:${options.host}:${options.startTime}-${options.endTime}]`;
+  const retryWindowSizes = buildRetryWindowSizes(options.windowSize);
+  console.info(`${logPrefix} starting download, windowSizes=${retryWindowSizes.join(',')}`);
 
   fs.mkdirSync(path.dirname(options.outputPath), { recursive: true });
+  const partialOutputPath = `${options.outputPath}.part`;
   if (fs.existsSync(options.outputPath)) {
-    return options.outputPath;
+    const existingSize = fs.statSync(options.outputPath).size;
+    if (existingSize > 0) {
+      console.info(`${logPrefix} file already exists, returning cached`);
+      return options.outputPath;
+    }
+
+    fs.rmSync(options.outputPath, { force: true });
+    console.warn(`${logPrefix} removed zero-byte cached file before retrying download`);
   }
 
-  const session = new MediaSession(
-    options.host,
-    options.username || 'admin',
-    options.hashedPassword,
-    options.windowSize,
-  );
-  await session.start();
+  if (fs.existsSync(partialOutputPath)) {
+    fs.rmSync(partialOutputPath, { force: true });
+    console.warn(`${logPrefix} removed stale partial download before retrying`);
+  }
 
-  const ffmpegProc = spawn(ffmpegStatic, [
-    '-loglevel',
-    'error',
-    '-y',
-    '-f',
-    'mpegts',
-    '-i',
-    'pipe:0',
-    '-c',
-    'copy',
-    '-movflags',
-    '+faststart',
-    options.outputPath,
-  ], {
-    stdio: ['pipe', 'ignore', 'pipe'],
-  });
+  let lastError: unknown = null;
 
-  const stderrChunks: Buffer[] = [];
-  ffmpegProc.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+  for (let attemptIndex = 0; attemptIndex < retryWindowSizes.length; attemptIndex += 1) {
+    const windowSize = retryWindowSizes[attemptIndex];
+    const session = new MediaSession(
+      options.host,
+      options.username || 'admin',
+      options.hashedPassword,
+      windowSize,
+    );
+    console.info(`${logPrefix} connecting to media session (attempt ${attemptIndex + 1}/${retryWindowSizes.length}, windowSize=${windowSize})...`);
+    await session.start();
+    console.info(`${logPrefix} media session connected, starting stream...`);
 
-  let tsBuffer = Buffer.alloc(0);
+    const ffmpegProc = spawn(ffmpegBinary, [
+      '-loglevel',
+      'error',
+      '-y',
+      '-f',
+      'mpegts',
+      '-i',
+      'pipe:0',
+      '-c',
+      'copy',
+      '-movflags',
+      '+faststart',
+      partialOutputPath,
+    ], {
+      stdio: ['pipe', 'ignore', 'pipe'],
+    });
 
-  try {
-    await session.streamRecording(options.userId, options.startTime, options.endTime, async (chunk) => {
-      tsBuffer = Buffer.concat([tsBuffer, chunk]);
-      while (tsBuffer.length >= 188) {
-        const packet = tsBuffer.subarray(0, 188);
-        tsBuffer = tsBuffer.subarray(188);
-        if (!ffmpegProc.stdin.write(packet)) {
-          await once(ffmpegProc.stdin, 'drain');
-        }
+    const stderrChunks: Buffer[] = [];
+    ffmpegProc.stderr.on('data', (chunk: Buffer) => {
+      stderrChunks.push(chunk);
+      const message = chunk.toString('utf8').trim();
+      if (message) {
+        console.info(`${logPrefix} ffmpeg: ${message}`);
       }
     });
 
-    ffmpegProc.stdin.end();
-    const [exitCode] = (await once(ffmpegProc, 'close')) as [number | null];
-    if (exitCode !== 0) {
-      const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
-      throw new Error(stderr || `ffmpeg exited with code ${exitCode}`);
+    let tsBuffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+    let totalDataChunks = 0;
+    let totalBytes = 0;
+
+    try {
+      console.info(`${logPrefix} starting media stream for userId=${options.userId}`);
+      await session.streamRecording(options.userId, options.startTime, options.endTime, async (chunk) => {
+        totalDataChunks++;
+        totalBytes += chunk.length;
+        if (totalDataChunks % 50 === 0) {
+          console.info(`${logPrefix} received ${totalDataChunks} chunks, ${totalBytes} bytes`);
+        }
+        tsBuffer = await writeAlignedTsPackets(tsBuffer, chunk, ffmpegProc.stdin);
+      });
+
+      console.info(`${logPrefix} media stream ended, received ${totalDataChunks} chunks (${totalBytes} bytes)`);
+      ffmpegProc.stdin.end();
+      console.info(`${logPrefix} waiting for ffmpeg to finish...`);
+      const [exitCode] = (await once(ffmpegProc, 'close')) as [number | null];
+      if (exitCode !== 0) {
+        const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
+        throw new Error(stderr || `ffmpeg exited with code ${exitCode}`);
+      }
+
+      const partialStats = fs.statSync(partialOutputPath);
+      if (partialStats.size <= 0) {
+        throw new Error('ffmpeg created an empty recording file');
+      }
+
+      fs.renameSync(partialOutputPath, options.outputPath);
+
+      console.info(`${logPrefix} successfully saved to ${options.outputPath}`);
+      return options.outputPath;
+    } catch (error) {
+      lastError = error;
+      const msg = (error as Error)?.message ?? String(error);
+      console.error(`${logPrefix} failed: ${msg}, received ${totalDataChunks} chunks before error`);
+      try {
+        ffmpegProc.kill('SIGKILL');
+      } catch {
+        /* ignore */
+      }
+      try {
+        fs.rmSync(options.outputPath, { force: true });
+      } catch {
+        /* ignore */
+      }
+      try {
+        fs.rmSync(partialOutputPath, { force: true });
+      } catch {
+        /* ignore */
+      }
+      if (!isRetryableRecordingStreamError(msg) || attemptIndex >= retryWindowSizes.length - 1) {
+        throw error;
+      }
+      console.warn(`${logPrefix} retrying download with smaller window after retryable stream failure`);
+    } finally {
+      await session.close();
+      console.info(`${logPrefix} media session closed`);
+    }
+  }
+
+  throw (lastError instanceof Error ? lastError : new Error('Unable to download recording stream'));
+}
+
+export async function startRecordingDownloadToHls(
+  options: RecordingPlaybackStreamOptions,
+): Promise<RecordingPlaybackJob> {
+  const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
+
+  const logPrefix = `[recording:hls:${options.host}:${options.startTime}-${options.endTime}]`;
+  const assetPath = path.join(options.outputDir, 'stream.mp4');
+
+  fs.rmSync(options.outputDir, { recursive: true, force: true });
+  fs.mkdirSync(options.outputDir, { recursive: true });
+
+  let cancelled = false;
+  let activeFfmpegProc: ReturnType<typeof spawn> | null = null;
+  let activeSession: MediaSession | null = null;
+
+  const closeActiveSession = async () => {
+    const sessionToClose = activeSession;
+    activeSession = null;
+    if (!sessionToClose) {
+      return;
+    }
+    try {
+      await sessionToClose.close();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const stopActiveFfmpeg = () => {
+    const ffmpegToKill = activeFfmpegProc;
+    activeFfmpegProc = null;
+    if (!ffmpegToKill) {
+      return;
+    }
+    try {
+      if (!ffmpegToKill.killed) {
+        ffmpegToKill.kill('SIGKILL');
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const retryWindowSizes = buildRetryWindowSizes(options.windowSize);
+
+  const runAttempt = async (withAudio: boolean, windowSize: number): Promise<void> => {
+    const modeLabel = withAudio ? 'audio+video' : 'video-only';
+    console.info(`${logPrefix} connecting to media session (${modeLabel}, windowSize=${windowSize})...`);
+
+    const session = new MediaSession(
+      options.host,
+      options.username || 'admin',
+      options.hashedPassword,
+      windowSize,
+    );
+    activeSession = session;
+    await session.start();
+    console.info(`${logPrefix} media session connected, starting progressive MP4 stream (${modeLabel})...`);
+
+    const ffmpegArgs = [
+      '-loglevel',
+      'error',
+      '-y',
+      '-fflags',
+      '+genpts+discardcorrupt',
+      '-err_detect',
+      'ignore_err',
+      '-analyzeduration',
+      '1000000',
+      '-probesize',
+      '1000000',
+      '-f',
+      'mpegts',
+      '-i',
+      'pipe:0',
+      '-map',
+      '0:v:0',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      '-tune',
+      'zerolatency',
+      '-pix_fmt',
+      'yuv420p',
+      '-g',
+      '50',
+      '-sc_threshold',
+      '0',
+    ];
+
+    if (withAudio) {
+      ffmpegArgs.push('-map', '0:a:0?', '-c:a', 'copy');
     }
 
-    return options.outputPath;
-  } catch (error) {
-    try {
-      ffmpegProc.kill('SIGKILL');
-    } catch {
-      /* ignore */
+    ffmpegArgs.push(
+      '-f',
+      'mp4',
+      '-movflags',
+      'frag_keyframe+empty_moov+default_base_moof',
+      assetPath,
+    );
+
+    const ffmpegProc = spawn(ffmpegBinary, ffmpegArgs, {
+      stdio: ['pipe', 'ignore', 'pipe'],
+    });
+    activeFfmpegProc = ffmpegProc;
+    const ffmpegStdin = ffmpegProc.stdin;
+    if (!ffmpegStdin) {
+      throw new Error('ffmpeg stdin is not available for recording playback');
     }
+
+    const stderrChunks: Buffer[] = [];
+    ffmpegProc.stderr.on('data', (chunk: Buffer) => {
+      stderrChunks.push(chunk);
+      const message = chunk.toString('utf8').trim();
+      if (message) {
+        console.info(`${logPrefix} ffmpeg: ${message}`);
+      }
+    });
+
+    let totalDataChunks = 0;
+    let totalBytes = 0;
+    let tsBuffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+
     try {
-      fs.rmSync(options.outputPath, { force: true });
-    } catch {
-      /* ignore */
+      console.info(`${logPrefix} starting media stream for userId=${options.userId} (${modeLabel})`);
+      await session.streamRecording(options.userId, options.startTime, options.endTime, async (chunk) => {
+        if (ffmpegProc.exitCode !== null || ffmpegStdin.destroyed) {
+          throw new Error('ffmpeg exited early during progressive playback');
+        }
+
+        totalDataChunks += 1;
+        totalBytes += chunk.length;
+        if (totalDataChunks % 50 === 0) {
+          console.info(`${logPrefix} received ${totalDataChunks} chunks, ${totalBytes} bytes`);
+        }
+
+        tsBuffer = await writeAlignedTsPackets(tsBuffer, chunk, ffmpegStdin);
+      });
+
+      if (tsBuffer.length >= 188 && !ffmpegStdin.destroyed) {
+        tsBuffer = await writeAlignedTsPackets(tsBuffer, Buffer.alloc(0), ffmpegStdin);
+      }
+
+      console.info(`${logPrefix} media stream ended, received ${totalDataChunks} chunks (${totalBytes} bytes) (${modeLabel})`);
+      if (!ffmpegStdin.destroyed) {
+        ffmpegStdin.end();
+      }
+
+      const [exitCode] = (await once(ffmpegProc, 'close')) as [number | null];
+      if (cancelled) {
+        throw new Error('Recording playback cancelled');
+      }
+      if (exitCode !== 0) {
+        const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
+        throw new Error(stderr || `ffmpeg exited with code ${exitCode}`);
+      }
+
+      console.info(`${logPrefix} finished writing progressive MP4 playback (${modeLabel})`);
+    } finally {
+      stopActiveFfmpeg();
+      await closeActiveSession();
     }
-    throw error;
-  } finally {
-    await session.close();
+  };
+
+  const runAttemptWithRetry = async (withAudio: boolean): Promise<void> => {
+    let lastError: unknown = null;
+
+    for (let attemptIndex = 0; attemptIndex < retryWindowSizes.length; attemptIndex += 1) {
+      const windowSize = retryWindowSizes[attemptIndex];
+      try {
+        await runAttempt(withAudio, windowSize);
+        return;
+      } catch (error) {
+        lastError = error;
+        const message = (error as Error)?.message ?? String(error);
+        try {
+          fs.rmSync(assetPath, { force: true });
+        } catch {
+          /* ignore */
+        }
+        if (!isRetryableRecordingStreamError(message) || attemptIndex >= retryWindowSizes.length - 1) {
+          throw error;
+        }
+        console.warn(`${logPrefix} retrying progressive playback with smaller window after retryable stream failure`);
+      }
+    }
+
+    throw (lastError instanceof Error ? lastError : new Error('Unable to start recording playback stream'));
+  };
+
+  const ready = waitForPlaybackFileReady(assetPath, PLAYBACK_READY_TIMEOUT_MS, logPrefix).catch((error) => {
+    console.info(`${logPrefix} readiness wait timed out: ${(error as Error)?.message ?? error}`);
+    return assetPath;
+  });
+
+  const completed = (async () => {
+    try {
+      try {
+        await runAttemptWithRetry(true);
+      } catch (error) {
+        if (cancelled) {
+          throw error;
+        }
+
+        const message = (error as Error)?.message ?? String(error);
+        const audioHeaderFailure = /header missing|sample rate not set|could not write header|incorrect codec parameters|invalid argument/i.test(
+          message,
+        );
+
+        if (!audioHeaderFailure) {
+          throw error;
+        }
+
+        console.warn(`${logPrefix} audio stream is invalid, retrying progressive playback without audio`);
+        try {
+          fs.rmSync(assetPath, { force: true });
+        } catch {
+          /* ignore */
+        }
+        await runAttemptWithRetry(false);
+      }
+
+      return assetPath;
+    } catch (error) {
+      const msg = (error as Error)?.message ?? String(error);
+      console.error(`${logPrefix} failed: ${msg}`);
+      throw error;
+    } finally {
+      stopActiveFfmpeg();
+      await closeActiveSession();
+    }
+  })();
+
+  completed.catch(() => {
+    if (!cancelled) {
+      try {
+        fs.rmSync(options.outputDir, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
+  return {
+    assetPath,
+    ready,
+    completed,
+    cancel() {
+      cancelled = true;
+      try {
+        const stdin = activeFfmpegProc?.stdin;
+        if (stdin && !stdin.destroyed) {
+          stdin.destroy();
+        }
+      } catch {
+        /* ignore */
+      }
+      stopActiveFfmpeg();
+      void closeActiveSession();
+    },
+  };
+}
+
+function waitForPlaybackFileReady(filePath: string, timeoutMs: number, logPrefix: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+
+    const check = () => {
+      try {
+        if (fs.existsSync(filePath)) {
+          const stats = fs.statSync(filePath);
+          if (stats.size >= MIN_PLAYBACK_READY_BYTES) {
+            console.info(`${logPrefix} playback file is ready (${stats.size} bytes)`);
+            resolve(filePath);
+            return;
+          }
+        }
+      } catch {
+        /* keep polling */
+      }
+
+      if (Date.now() - start >= timeoutMs) {
+        reject(new Error('Timed out waiting for recording playback to become ready'));
+        return;
+      }
+
+      setTimeout(check, 200);
+    };
+
+    check();
+  });
+}
+
+function buildRetryWindowSizes(windowSize?: number): number[] {
+  const values = new Set<number>();
+  values.add(typeof windowSize === 'number' && Number.isFinite(windowSize) && windowSize > 0 ? windowSize : 200);
+  values.add(FALLBACK_WINDOW_SIZE);
+  return Array.from(values);
+}
+
+function isRetryableRecordingStreamError(message: string): boolean {
+  return (
+    message.includes('Camera closed the recording stream unexpectedly') ||
+    message.includes('Timed out waiting for recording data from camera') ||
+    message.includes('ffmpeg created an empty recording file')
+  );
+}
+
+async function writeAlignedTsPackets(buffer: Buffer, chunk: Buffer, writable: Writable): Promise<Buffer> {
+  let nextBuffer = chunk.length > 0 ? Buffer.concat([buffer, chunk]) : buffer;
+
+  while (nextBuffer.length >= 188 && nextBuffer[0] !== 0x47) {
+    const syncIndex = nextBuffer.indexOf(0x47, 1);
+    if (syncIndex === -1) {
+      return Buffer.alloc(0);
+    }
+    nextBuffer = nextBuffer.subarray(syncIndex);
   }
+
+  while (nextBuffer.length >= 188) {
+    const packet = nextBuffer.subarray(0, 188);
+    nextBuffer = nextBuffer.subarray(188);
+    writable.write(packet);
+  }
+
+  return nextBuffer;
 }
 
 function parseDigestFields(value: string): Record<string, string> {
   const fields: Record<string, string> = {};
-  for (const chunk of value.split(',')) {
-    const [rawKey, rawValue] = chunk.split('=', 2);
-    if (!rawKey || rawValue === undefined) continue;
+  const regex = /(\w+)=("[^"]*"|[^,\s]+)/g;
+  for (const match of value.matchAll(regex)) {
+    const rawKey = match[1];
+    const rawValue = match[2];
     fields[rawKey.trim()] = rawValue.trim().replace(/^"|"$/g, '');
   }
   return fields;
@@ -466,9 +885,19 @@ function parseHeaders(block: string): Record<string, string> {
   for (const line of block.split(/\r\n/)) {
     const separator = line.indexOf(':');
     if (separator === -1) continue;
-    headers[line.slice(0, separator).trim()] = line.slice(separator + 1).trim();
+    headers[line.slice(0, separator).trim().toLowerCase()] = line.slice(separator + 1).trim();
   }
   return headers;
+}
+
+function getHeader(headers: Record<string, string>, ...names: string[]): string | undefined {
+  for (const name of names) {
+    const value = headers[name.toLowerCase()];
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 function parseStatusCode(statusLine: string): number {

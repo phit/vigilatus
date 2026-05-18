@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { CameraConfig, Recording } from './types';
 
+type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';
+
 contextBridge.exposeInMainWorld('tapoStudio', {
   cameras: {
     getAll: (): Promise<CameraConfig[]> => ipcRenderer.invoke('cameras:getAll'),
@@ -13,7 +15,7 @@ contextBridge.exposeInMainWorld('tapoStudio', {
     ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('cameras:test', cfg),
   },
   stream: {
-    start: (cameraId: string): Promise<string> => ipcRenderer.invoke('stream:start', cameraId),
+    start: (cameraId: string): Promise<string | null> => ipcRenderer.invoke('stream:start', cameraId),
     stop: (cameraId: string): Promise<void> => ipcRenderer.invoke('stream:stop', cameraId),
     startPlayback: (cameraId: string, seekSeconds: number): Promise<string> =>
       ipcRenderer.invoke('stream:playback', cameraId, seekSeconds),
@@ -24,7 +26,29 @@ contextBridge.exposeInMainWorld('tapoStudio', {
   recordings: {
     list: (cameraId: string, date: string): Promise<Recording[]> =>
       ipcRenderer.invoke('recordings:list', cameraId, date),
-    play: (cameraId: string, startTime: number, endTime: number): Promise<string> =>
-      ipcRenderer.invoke('recordings:play', cameraId, startTime, endTime),
+    play: (cameraId: string, startTime: number, endTime: number, requestedTime: number): Promise<string> =>
+      ipcRenderer.invoke('recordings:play', cameraId, startTime, endTime, requestedTime),
+  },
+  ui: {
+    onOpenAddCamera: (callback: () => void): (() => void) => {
+      const handler = () => callback();
+      ipcRenderer.on('ui:openAddCamera', handler);
+      return () => ipcRenderer.removeListener('ui:openAddCamera', handler);
+    },
+    onSetPreviewsVisible: (callback: (visible: boolean) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, visible: boolean) => callback(visible);
+      ipcRenderer.on('ui:setPreviewsVisible', handler);
+      return () => ipcRenderer.removeListener('ui:setPreviewsVisible', handler);
+    },
+    onSetTimelineVisible: (callback: (visible: boolean) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, visible: boolean) => callback(visible);
+      ipcRenderer.on('ui:setTimelineVisible', handler);
+      return () => ipcRenderer.removeListener('ui:setTimelineVisible', handler);
+    },
+    onSetPreviewPosition: (callback: (position: PreviewPosition) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, position: PreviewPosition) => callback(position);
+      ipcRenderer.on('ui:setPreviewPosition', handler);
+      return () => ipcRenderer.removeListener('ui:setPreviewPosition', handler);
+    },
   },
 });
