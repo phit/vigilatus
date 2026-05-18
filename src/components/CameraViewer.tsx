@@ -11,11 +11,30 @@ export function CameraViewer({ camera, playbackMode }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [playerError, setPlayerError] = useState<string | null>(null);
+  const [isMuted, setIsMuted] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const hlsUrl = camera?.hlsUrl;
   const isHlsSource = Boolean(hlsUrl && hlsUrl.toLowerCase().includes('.m3u8'));
   const snapshot = camera?.snapshotDataUrl;
   const status = camera?.status ?? 'idle';
+  const isPlaybackLoading = playbackMode === 'playback' && status === 'connecting' && !hlsUrl;
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = isMuted;
+    video.volume = isMuted ? 0 : 1;
+  }, [isMuted, hlsUrl]);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
 
   useEffect(() => {
     setPlayerError(null);
@@ -33,11 +52,31 @@ export function CameraViewer({ camera, playbackMode }: Props) {
     if (!hlsUrl) return;
 
     if (!isHlsSource) {
+      const startPlayback = () => {
+        video.play().catch(() => {
+          // Ignore early autoplay failures until the media pipeline has buffered enough data.
+        });
+      };
+
+      const onVideoError = () => {
+        const mediaError = video.error;
+        const message = mediaError
+          ? `HTML5 video error ${mediaError.code}`
+          : 'HTML5 video playback failed';
+        console.error('[viewer:video] error', mediaError);
+        setPlayerError(message);
+      };
+
       video.src = hlsUrl;
-      video.play().catch(() => {
-        setPlayerError('Playback failed to start');
-      });
-      return;
+      video.load();
+      video.addEventListener('loadedmetadata', startPlayback);
+      video.addEventListener('canplay', startPlayback);
+      video.addEventListener('error', onVideoError);
+      return () => {
+        video.removeEventListener('loadedmetadata', startPlayback);
+        video.removeEventListener('canplay', startPlayback);
+        video.removeEventListener('error', onVideoError);
+      };
     }
 
     if (Hls.isSupported()) {
@@ -45,9 +84,12 @@ export function CameraViewer({ camera, playbackMode }: Props) {
         lowLatencyMode: true,
         enableWorker: true,
         // Retry quickly while stream is starting
-        manifestLoadingMaxRetry: 20,
+        manifestLoadingMaxRetry: 120,
         manifestLoadingRetryDelay: 500,
-        fragLoadingMaxRetry: 10,
+        levelLoadingMaxRetry: 120,
+        levelLoadingRetryDelay: 500,
+        fragLoadingMaxRetry: 60,
+        fragLoadingRetryDelay: 500,
       });
       hlsRef.current = hls;
       hls.loadSource(hlsUrl);
@@ -99,17 +141,52 @@ export function CameraViewer({ camera, playbackMode }: Props) {
 
   const displayError = playerError ?? (status === 'error' ? camera?.errorMessage ?? 'Stream error' : null);
 
+  const toggleMute = () => {
+    setIsMuted((value) => !value);
+  };
+
+  const toggleFullscreen = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+
+    await video.requestFullscreen();
+  };
+
   return (
     <div className="viewer">
       {hlsUrl && !displayError ? (
-        <video
-          ref={videoRef}
-          className="viewer-video"
-          autoPlay
-          muted
-          playsInline
-          controls={playbackMode === 'playback'}
-        />
+        <>
+          <video
+            ref={videoRef}
+            className="viewer-video"
+            autoPlay
+            muted={isMuted}
+            playsInline
+          />
+          <div className="viewer-controls">
+            <button
+              type="button"
+              className="viewer-control-btn"
+              onClick={toggleMute}
+              title={isMuted ? 'Enable audio' : 'Mute audio'}
+            >
+              {isMuted ? 'Unmute' : 'Mute'}
+            </button>
+            <button
+              type="button"
+              className="viewer-control-btn"
+              onClick={() => void toggleFullscreen()}
+              title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            >
+              {isFullscreen ? 'Window' : 'Fullscreen'}
+            </button>
+          </div>
+        </>
       ) : snapshot ? (
         <img src={snapshot} alt={label} className="viewer-snapshot" />
       ) : (
@@ -117,7 +194,7 @@ export function CameraViewer({ camera, playbackMode }: Props) {
           {status === 'connecting' && <div className="spinner" />}
           <span className="viewer-label">
             {status === 'connecting'
-              ? 'Connecting…'
+              ? isPlaybackLoading ? 'Loading recording...' : 'Connecting...'
               : displayError
               ? displayError
               : status === 'offline'

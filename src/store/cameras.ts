@@ -1,13 +1,19 @@
 import { create } from 'zustand';
-import type { CameraConfig, CameraState, Recording, PlaybackMode } from '../types';
+import type { CameraConfig, CameraState, Recording, PlaybackMode, PreviewPosition } from '../types';
+
+const PLAYBACK_PREROLL_MS = 5_000;
+const PLAYBACK_WINDOW_MS = 120_000;
 
 interface CamerasStore {
   cameras: CameraState[];
   selectedId: string | null;
   showPreviews: boolean;
+  showTimeline: boolean;
+  previewPosition: PreviewPosition;
   playbackMode: PlaybackMode;
   playbackTime: number | null;
   recordings: Recording[];
+  recordingsLoading: boolean;
   recordingsError: string | null;
 
   loadCameras(): Promise<void>;
@@ -22,6 +28,9 @@ interface CamerasStore {
   setStatus(id: string, status: CameraState['status'], error?: string): void;
 
   togglePreviews(): void;
+  setPreviewsVisible(visible: boolean): void;
+  setTimelineVisible(visible: boolean): void;
+  setPreviewPosition(position: PreviewPosition): void;
   loadRecordings(cameraId: string, date: string): Promise<void>;
   seekTo(time: number): Promise<void>;
   goLive(): void;
@@ -31,9 +40,12 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   cameras: [],
   selectedId: null,
   showPreviews: true,
+  showTimeline: true,
+  previewPosition: 'right',
   playbackMode: 'live',
   playbackTime: null,
   recordings: [],
+  recordingsLoading: false,
   recordingsError: null,
 
   // ------------------------------------------------------------------
@@ -71,7 +83,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   // ------------------------------------------------------------------
 
   selectCamera(id) {
-    set({ selectedId: id, playbackMode: 'live', playbackTime: null, recordings: [], recordingsError: null });
+    set({ selectedId: id, playbackMode: 'live', playbackTime: null, recordings: [], recordingsLoading: false, recordingsError: null });
     void get().startStream(id);
   },
 
@@ -79,13 +91,31 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
     get().setStatus(id, 'connecting');
     try {
       const hlsUrl = await window.tapoStudio.stream.start(id);
+      if (!hlsUrl) {
+        set((s) => ({
+          cameras: s.cameras.map((c) =>
+            c.config.id === id ? { ...c, status: 'idle', hlsUrl: undefined, errorMessage: undefined } : c,
+          ),
+        }));
+        return;
+      }
+
       set((s) => ({
         cameras: s.cameras.map((c) =>
           c.config.id === id ? { ...c, status: 'live', hlsUrl, errorMessage: undefined } : c,
         ),
       }));
     } catch (e) {
-      get().setStatus(id, 'error', (e as Error).message);
+      const msg = (e as Error).message;
+      if (msg.includes('Stream start cancelled')) {
+        set((s) => ({
+          cameras: s.cameras.map((c) =>
+            c.config.id === id ? { ...c, status: 'idle', hlsUrl: undefined, errorMessage: undefined } : c,
+          ),
+        }));
+        return;
+      }
+      get().setStatus(id, 'error', msg);
     }
   },
 
@@ -122,16 +152,29 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
     set((s) => ({ showPreviews: !s.showPreviews }));
   },
 
+  setPreviewsVisible(visible) {
+    set({ showPreviews: visible });
+  },
+
+  setTimelineVisible(visible) {
+    set({ showTimeline: visible });
+  },
+
+  setPreviewPosition(position) {
+    set({ previewPosition: position });
+  },
+
   // ------------------------------------------------------------------
   // Recordings + timeline
   // ------------------------------------------------------------------
 
   async loadRecordings(cameraId, date) {
+    set({ recordingsLoading: true, recordingsError: null });
     try {
       const recs = await window.tapoStudio.recordings.list(cameraId, date);
-      set({ recordings: recs, recordingsError: null });
+      set({ recordings: recs, recordingsLoading: false, recordingsError: null });
     } catch (e) {
-      set({ recordings: [], recordingsError: (e as Error)?.message ?? 'Failed to load recordings' });
+      set({ recordings: [], recordingsLoading: false, recordingsError: (e as Error)?.message ?? 'Failed to load recordings' });
     }
   },
 
@@ -147,11 +190,29 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
 
     set({ playbackMode: 'playback', playbackTime: time });
 
+    const requestedStartTime = Math.max(clip.startTime, time - PLAYBACK_PREROLL_MS);
+    const requestedEndTime = Math.min(
+      clip.endTime,
+      Math.max(requestedStartTime + 15_000, requestedStartTime + PLAYBACK_WINDOW_MS),
+    );
+
+    // Clear live source immediately while recording clip is being prepared.
+    // Do not stop the live process here because it can race with an in-flight
+    // stream:start and surface SIGKILL as a start failure.
+    set((s) => ({
+      cameras: s.cameras.map((c) =>
+        c.config.id === selectedId
+          ? { ...c, hlsUrl: undefined, status: 'connecting', errorMessage: undefined }
+          : c,
+      ),
+    }));
+
     try {
       const playbackUrl = await window.tapoStudio.recordings.play(
         selectedId,
-        clip.startTime,
-        clip.endTime,
+        requestedStartTime,
+        requestedEndTime,
+        time,
       );
       set((s) => ({
         cameras: s.cameras.map((c) =>
@@ -167,7 +228,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
 
   goLive() {
     const { selectedId } = get();
-    set({ playbackMode: 'live', playbackTime: null, recordings: [], recordingsError: null });
+    set({ playbackMode: 'live', playbackTime: null, recordings: [], recordingsLoading: false, recordingsError: null });
     if (selectedId) void get().startStream(selectedId);
   },
 }));

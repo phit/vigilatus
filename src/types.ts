@@ -37,3 +37,5 @@ export interface Recording {
 }
 
 export type PlaybackMode = 'live' | 'playback';
+
+export type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';

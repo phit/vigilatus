@@ -1,19 +1,23 @@
+// @refresh reset
 import { useEffect, useState } from 'react';
 import { useCameraStore } from './store/cameras';
 import { CameraViewer } from './components/CameraViewer';
 import { CameraPreview } from './components/CameraPreview';
 import { Timeline } from './components/Timeline';
 import { AddCameraModal } from './components/AddCameraModal';
-import type { CameraConfig } from './types';
+import type { CameraConfig, PreviewPosition } from './types';
 
 export function App() {
   const {
     cameras,
     selectedId,
     showPreviews,
+    showTimeline,
+    previewPosition,
     playbackMode,
     playbackTime,
     recordings,
+    recordingsLoading,
     recordingsError,
     loadCameras,
     addCamera,
@@ -22,7 +26,9 @@ export function App() {
     selectCamera,
     startStream,
     stopStream,
-    togglePreviews,
+    setPreviewsVisible,
+    setTimelineVisible,
+    setPreviewPosition,
     loadRecordings,
     seekTo,
     goLive,
@@ -33,17 +39,53 @@ export function App() {
 
   const selectedCamera = cameras.find((c) => c.config.id === selectedId);
   const playbackEnabled = Boolean(selectedCamera);
+  const isPlaybackLoading = Boolean(
+    selectedCamera
+    && playbackMode === 'playback'
+    && selectedCamera.status === 'connecting'
+    && !selectedCamera.hlsUrl,
+  );
+  const headerStatusLabel = isPlaybackLoading
+    ? 'Loading recording...'
+    : playbackMode === 'playback'
+    ? 'Playback'
+    : selectedCamera?.status ?? 'idle';
   const timelineMessage = !selectedCamera
     ? 'Select a camera to load recording availability.'
     : recordingsError
     ? `Recording query failed: ${recordingsError}`
+    : recordingsLoading
+    ? 'Loading recordings...'
     : recordings.length > 0
     ? `${recordings.length} recording segment${recordings.length === 1 ? '' : 's'} found. Drag or click the timeline to open a clip.`
-    : 'No recording segments reported for the selected day. You can still drag the timeline, but only highlighted segments can start playback.';
+    : 'No recording segments found for the selected day.';
 
   useEffect(() => {
     void loadCameras();
   }, []);
+
+  useEffect(() => {
+    const offOpenAdd = window.tapoStudio.ui.onOpenAddCamera(() => {
+      setEditTarget(undefined);
+      setShowModal(true);
+    });
+    const offSetPreviewsVisible = window.tapoStudio.ui.onSetPreviewsVisible((visible) => {
+      setPreviewsVisible(visible);
+    });
+    const offSetTimelineVisible = window.tapoStudio.ui.onSetTimelineVisible((visible) => {
+      setTimelineVisible(visible);
+    });
+    const offSetPreviewPosition = window.tapoStudio.ui.onSetPreviewPosition((position: PreviewPosition) => {
+      setPreviewPosition(position);
+    });
+
+    return () => {
+      offOpenAdd();
+      offSetPreviewsVisible();
+      offSetTimelineVisible();
+      offSetPreviewPosition();
+    };
+  }, [setPreviewsVisible, setTimelineVisible, setPreviewPosition]);
 
   // Auto-select + start first camera on load
   useEffect(() => {
@@ -69,20 +111,15 @@ export function App() {
   };
 
   return (
-    <div className="app">
+    <div className={`app${showTimeline ? '' : ' app--no-timeline'}`}>
       {/* ── Header ─────────────────────────────────────── */}
       <header className="header">
-        <div className="header-brand">
-          <span className="brand-dot" />
-          TapoStudio
-        </div>
-
         <div className="header-cam-info">
           {selectedCamera && (
             <>
               <span className="header-cam-name">{selectedCamera.config.name}</span>
               <span className={`badge badge-${playbackMode === 'playback' ? 'playback' : selectedCamera.status}`}>
-                {playbackMode === 'playback' ? 'Playback' : selectedCamera.status}
+                {headerStatusLabel}
               </span>
               <button
                 type="button"
@@ -116,24 +153,20 @@ export function App() {
             </>
           )}
         </div>
-
-        <div className="header-actions">
-          <button type="button" className="btn-secondary" onClick={togglePreviews}>
-            {showPreviews ? 'Hide' : 'Show'} previews
-          </button>
-          <button type="button" className="btn-primary" onClick={openAdd}>
-            + Add camera
-          </button>
-        </div>
       </header>
 
       {/* ── Workspace ──────────────────────────────────── */}
-      <div className="workspace">
+      <div className={`workspace${showPreviews && cameras.length > 0 ? ` workspace--previews-${previewPosition}` : ''}`}>
         {/* Main viewer */}
         <div
           className="viewer-wrap"
           onClick={() => {
-            if (!selectedCamera?.hlsUrl && selectedCamera && selectedCamera.status !== 'connecting') {
+            if (
+              playbackMode === 'live'
+              && !selectedCamera?.hlsUrl
+              && selectedCamera
+              && selectedCamera.status !== 'connecting'
+            ) {
               void startStream(selectedCamera.config.id);
             }
           }}
@@ -149,6 +182,7 @@ export function App() {
                 key={cam.config.id}
                 camera={cam}
                 isSelected={cam.config.id === selectedId}
+                playbackMode={playbackMode}
                 onSelect={() => selectCamera(cam.config.id)}
               />
             ))}
@@ -167,19 +201,21 @@ export function App() {
       </div>
 
       {/* ── Timeline ───────────────────────────────────── */}
-      <Timeline
-        recordings={recordings}
-        playbackMode={playbackMode}
-        playbackTime={playbackTime}
-        playbackEnabled={playbackEnabled}
-        statusMessage={timelineMessage}
-        selectedCameraId={selectedId}
-        onSeek={(t) => void seekTo(t)}
-        onGoLive={goLive}
-        onLoadDate={(date) => {
-          if (selectedId) void loadRecordings(selectedId, date);
-        }}
-      />
+      {showTimeline && (
+        <Timeline
+          recordings={recordings}
+          playbackMode={playbackMode}
+          playbackTime={playbackTime}
+          playbackEnabled={playbackEnabled}
+          statusMessage={timelineMessage}
+          selectedCameraId={selectedId}
+          onSeek={(t) => void seekTo(t)}
+          onGoLive={goLive}
+          onLoadDate={(date) => {
+            if (selectedId) void loadRecordings(selectedId, date);
+          }}
+        />
+      )}
 
       {/* ── Add / edit modal ───────────────────────────── */}
       {showModal && (

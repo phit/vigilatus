@@ -4,12 +4,13 @@ import type { CameraState } from '../types';
 interface Props {
   camera: CameraState;
   isSelected: boolean;
+  playbackMode: 'live' | 'playback';
   onSelect(): void;
 }
 
 const REFRESH_BASE_MS = 5000;
 
-export function CameraPreview({ camera, isSelected, onSelect }: Props) {
+export function CameraPreview({ camera, isSelected, playbackMode, onSelect }: Props) {
   const [snapshot, setSnapshot] = useState<string | null>(camera.snapshotDataUrl ?? null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -43,6 +44,9 @@ export function CameraPreview({ camera, isSelected, onSelect }: Props) {
 
   const { name } = camera.config;
   const { status } = camera;
+  const statusLabel = (playbackMode === 'playback' && isSelected && status === 'connecting' && !camera.hlsUrl)
+    ? 'Loading recording...'
+    : status;
 
   return (
     <button
@@ -62,7 +66,7 @@ export function CameraPreview({ camera, isSelected, onSelect }: Props) {
       </div>
       <div className="preview-footer">
         <span className="preview-name">{name}</span>
-        <span className={`preview-dot dot-${status}`} title={status} />
+        <span className={`preview-dot dot-${status}`} title={statusLabel} />
       </div>
     </button>
   );

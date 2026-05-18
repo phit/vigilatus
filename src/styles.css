@@ -43,6 +43,10 @@ body {
   height: 100vh;
 }
 
+.app--no-timeline {
+  grid-template-rows: 48px 1fr;
+}
+
 .header {
   display: flex;
   align-items: center;
@@ -52,24 +56,6 @@ body {
   background: rgba(7, 11, 22, 0.92);
   backdrop-filter: blur(12px);
   z-index: 10;
-}
-
-.header-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 700;
-  font-size: 15px;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-
-.brand-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 8px var(--accent);
 }
 
 .header-cam-info {
@@ -87,21 +73,33 @@ body {
   text-overflow: ellipsis;
 }
 
-.header-actions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
 .workspace {
   display: grid;
   grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
   overflow: hidden;
   position: relative;
 }
 
-.workspace:has(.preview-strip) {
+.workspace--previews-right {
   grid-template-columns: 1fr 220px;
+}
+
+.workspace--previews-left {
+  grid-template-columns: 220px 1fr;
+}
+
+.workspace--previews-top {
+  grid-template-rows: 170px 1fr;
+}
+
+.workspace--previews-bottom {
+  grid-template-rows: 1fr 170px;
+}
+
+.workspace--previews-left .preview-strip,
+.workspace--previews-top .preview-strip {
+  order: -1;
 }
 
 .viewer-wrap {
@@ -161,6 +159,31 @@ body {
   backdrop-filter: blur(4px);
 }
 
+.viewer-controls {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  gap: 8px;
+  z-index: 3;
+}
+
+.viewer-control-btn {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(0, 0, 0, 0.58);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.viewer-control-btn:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(15, 23, 42, 0.88);
+}
+
 .viewer-badge {
   font-size: 11px;
   font-weight: 700;
@@ -180,6 +203,35 @@ body {
   border-left: 1px solid var(--border);
   background: rgba(10, 15, 30, 0.7);
   scrollbar-width: thin;
+}
+
+.workspace--previews-left .preview-strip {
+  border-left: none;
+  border-right: 1px solid var(--border);
+}
+
+.workspace--previews-top .preview-strip,
+.workspace--previews-bottom .preview-strip {
+  flex-direction: row;
+  align-items: flex-start;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-left: none;
+}
+
+.workspace--previews-top .preview-strip {
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace--previews-bottom .preview-strip {
+  border-top: 1px solid var(--border);
+}
+
+.workspace--previews-top .preview-card,
+.workspace--previews-bottom .preview-card {
+  width: auto;
+  min-width: 180px;
+  flex: 0 0 220px;
 }
 
 .preview-card {
@@ -679,16 +731,23 @@ button {
 
 @media (max-width: 960px) {
   .workspace,
-  .workspace:has(.preview-strip) {
+  .workspace--previews-right,
+  .workspace--previews-left,
+  .workspace--previews-top,
+  .workspace--previews-bottom {
     grid-template-columns: 1fr;
+    grid-template-rows: 1fr;
   }
 
   .preview-strip {
+    order: 0;
     flex-direction: row;
     overflow-x: auto;
     overflow-y: hidden;
     border-left: none;
     border-top: 1px solid var(--border);
+    border-right: none;
+    border-bottom: none;
   }
 
   .preview-card {
@@ -697,5 +756,17 @@ button {
 
   .form-row {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .viewer-controls {
+    right: 8px;
+    bottom: 8px;
+  }
+
+  .viewer-control-btn {
+    padding: 5px 8px;
+    font-size: 11px;
   }
 }
