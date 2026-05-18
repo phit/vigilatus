@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TapoStudio Licenses and Credits</title>
+    <link rel="stylesheet" href="dialogs.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>TapoStudio Licenses and Credits</h1>
+      <p>Version <span id="app-version"></span></p>
+
+      <section class="panel">
+        <h2>FFmpeg Attribution</h2>
+        <ul>
+          <li>This product may include software developed by the FFmpeg project.</li>
+          <li>FFmpeg is licensed under the GNU Lesser General Public License (LGPL) version 2.1 or later.</li>
+          <li>Some FFmpeg builds can include optional GPL components, depending on how the binary was compiled.</li>
+          <li>Copyright (c) the FFmpeg developers.</li>
+        </ul>
+      </section>
+
+      <section class="panel">
+        <h2>pytapo Credit</h2>
+        <ul>
+          <li>This application uses <code>pytapo</code> for Tapo device integration.</li>
+          <li><code>pytapo</code> is authored by Juraj Nyiri and distributed under the MIT License.</li>
+          <li><a href="https://github.com/JurajNyiri/pytapo" target="_blank" rel="noreferrer noopener">https://github.com/JurajNyiri/pytapo</a></li>
+        </ul>
+      </section>
+
+      <section class="panel">
+        <h2>Trademark Notice</h2>
+        <ul>
+          <li><code>Tapo</code> and <code>TP-Link</code> are trademarks of their respective owners.</li>
+          <li>TapoStudio is independent and not affiliated with or endorsed by TP-Link.</li>
+        </ul>
+      </section>
+
+      <section class="panel">
+        <h2>Official Legal Resources</h2>
+        <ul>
+          <li><a href="https://ffmpeg.org/legal.html" target="_blank" rel="noreferrer noopener">https://ffmpeg.org/legal.html</a></li>
+          <li><a href="https://ffmpeg.org/ffmpeg-license.html" target="_blank" rel="noreferrer noopener">https://ffmpeg.org/ffmpeg-license.html</a></li>
+        </ul>
+      </section>
+    </main>
+
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const version = params.get('version') || 'unknown';
+
+      const versionNode = document.getElementById('app-version');
+      if (versionNode) {
+        versionNode.textContent = version;
+      }
+    </script>
+  </body>
+</html>

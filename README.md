@@ -2,6 +2,14 @@
 
 Desktop app scaffold for monitoring multiple Tapo cameras on Windows and Linux.
 
+## Legal disclaimer
+
+- This project is an independent, community-driven tool and is not affiliated with, endorsed by, or sponsored by TP-Link.
+- Any Tapo API communication in this project relies on publicly observable behavior and/or third-party reverse-engineered integrations, which may change or stop working at any time.
+- `Tapo`, `TP-Link`, and related names, logos, and product marks are trademarks of their respective owners.
+- Use this software only with devices and accounts you own or are authorized to access, and ensure your usage complies with applicable laws and the vendor's terms.
+- This repository is provided for educational and interoperability purposes and does not constitute legal advice.
+
 ## Current shape
 
 - Electron shell with a React + TypeScript renderer.
@@ -23,6 +31,28 @@ Install dependencies, then run the dev shell:
 npm install
 npm run dev
 ```
+
+## Releases
+
+Build distributables with electron-builder:
+
+```bash
+# unpacked app directory (quick packaging smoke test)
+npm run package
+
+# Windows portable .exe
+npm run release:win
+
+# Linux portable AppImage
+npm run release:linux
+```
+
+Artifacts are written to `release/`.
+
+Notes:
+
+- `release:win` should be run on Windows.
+- `release:linux` should be run on Linux (or in a Linux CI runner/container).
 
 ## Requirements
 
