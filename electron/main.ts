@@ -404,19 +404,23 @@ ipcMain.handle('ui:showCameraContextMenu', (_e): Promise<string | null> => {
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark';
 
-  // Content Security Policy
+  // Content Security Policy (relaxed in dev for Vite HMR inline scripts)
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const scriptSrc = isDevelopment ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'";
+    const connectSrc = isDevelopment
+      ? `connect-src 'self' http://127.0.0.1:* ws://localhost:*`
+      : "connect-src 'self' http://127.0.0.1:*";
     callback({
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
           [
             "default-src 'self'",
-            "script-src 'self'",
+            scriptSrc,
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data:",
             "media-src 'self' http://127.0.0.1:* blob:",
-            "connect-src 'self' http://127.0.0.1:*",
+            connectSrc,
             "object-src 'none'",
             "base-uri 'self'",
           ].join('; '),

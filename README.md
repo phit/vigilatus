@@ -1,6 +1,6 @@
 # TapoStudio
 
-Desktop app scaffold for monitoring multiple Tapo cameras on Windows and Linux.  
+Desktop app for monitoring multiple TP-Link Tapo cameras.  
 Note: this app was basically fully written with the help of AI, while I did fully oversee all code changes, this is my first Electron application.
 
 ## Legal disclaimer
@@ -10,19 +10,6 @@ Note: this app was basically fully written with the help of AI, while I did full
 - `Tapo`, `TP-Link`, and related names, logos, and product marks are trademarks of their respective owners.
 - Use this software only with devices and accounts you own or are authorized to access, and ensure your usage complies with applicable laws and the vendor's terms.
 - This repository is provided for educational and interoperability purposes and does not constitute legal advice.
-
-## Current shape
-
-- Electron shell with a React + TypeScript renderer.
-- Primary viewer area for a maximized selected camera.
-- Preview grid for switching between cameras.
-- Timeline strip ready for local-recording scrubbing.
-
-## Next integration points
-
-- Add a Tapo device adapter for live streams and camera discovery.
-- Add SD-card recording index / clip lookup.
-- Replace the static camera data with real device state and motion events.
 
 ## Development
 
@@ -71,7 +58,4 @@ Notes:
 - `release:win` should be run on Windows.
 - `release:linux` should be run on Linux (or in a Linux CI runner/container).
 
-## Requirements
-
-- Node.js 20 or newer
-- npm available on PATH
+Mac should work in theory but I'm unable to test that, if you did feel free to let me know!
