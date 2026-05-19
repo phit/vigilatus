@@ -87,5 +87,24 @@
   "contextMenu": {
     "edit": "Bearbeiten",
     "remove": "Entfernen"
+  },
+  "menu": {
+    "app": "Vigilatus",
+    "addCamera": "Kamera hinzufügen",
+    "about": "Über Vigilatus",
+    "view": "Ansicht",
+    "previews": "Vorschauen",
+    "timeline": "Zeitleiste",
+    "statusbar": "Statusleiste",
+    "previewPosition": "Vorschau-Position",
+    "left": "Links",
+    "right": "Rechts",
+    "top": "Oben",
+    "bottom": "Unten",
+    "language": "Sprache",
+    "systemDefault": "Systemstandard",
+    "help": "Hilfe",
+    "licensesAndCredits": "Lizenzen und Danksagungen",
+    "issuesAndFeedback": "Probleme und Feedback"
   }
 }

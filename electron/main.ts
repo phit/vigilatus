@@ -11,10 +11,12 @@ import {
 } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
+import { mainBindings, clearMainBindings } from 'i18next-electron-fs-backend';
 import * as configStore from './config/store';
 import * as streamManager from './tapo/streamManager';
 import { registerHandlers } from './ipc/handlers';
 import { loadTestFixtures } from './testing/fixtures';
+import { t, setLanguage } from './i18n';
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const shouldOpenDevTools = process.env.VIGILATUS_OPEN_DEVTOOLS === '1' || !isDevelopment;
@@ -175,12 +177,12 @@ function openLicensesWindow(): void {
 function setApplicationMenu(): void {
   const appSubmenu: MenuItemConstructorOptions[] = [
     {
-      label: 'Add Camera',
+      label: t('menu.addCamera'),
       click: () => sendUiEvent('ui:openAddCamera'),
     },
     { type: 'separator' },
     {
-      label: 'About Tapo Studio',
+      label: t('menu.about'),
       click: () => openAboutWindow(),
     },
     { type: 'separator' },
@@ -189,7 +191,7 @@ function setApplicationMenu(): void {
 
   const viewSubmenu: MenuItemConstructorOptions[] = [
     {
-      label: 'Previews',
+      label: t('menu.previews'),
       type: 'checkbox',
       checked: uiDisplayState.previews,
       click: (menuItem) => {
@@ -199,7 +201,7 @@ function setApplicationMenu(): void {
       },
     },
     {
-      label: 'Timeline',
+      label: t('menu.timeline'),
       type: 'checkbox',
       checked: uiDisplayState.timeline,
       click: (menuItem) => {
@@ -209,7 +211,7 @@ function setApplicationMenu(): void {
       },
     },
     {
-      label: 'Statusbar',
+      label: t('menu.statusbar'),
       type: 'checkbox',
       checked: uiDisplayState.header,
       click: (menuItem) => {
@@ -219,10 +221,10 @@ function setApplicationMenu(): void {
       },
     },
     {
-      label: 'Preview Position',
+      label: t('menu.previewPosition'),
       submenu: [
         {
-          label: 'Left',
+          label: t('menu.left'),
           type: 'radio',
           checked: uiDisplayState.previewPosition === 'left',
           click: () => {
@@ -232,7 +234,7 @@ function setApplicationMenu(): void {
           },
         },
         {
-          label: 'Right',
+          label: t('menu.right'),
           type: 'radio',
           checked: uiDisplayState.previewPosition === 'right',
           click: () => {
@@ -242,7 +244,7 @@ function setApplicationMenu(): void {
           },
         },
         {
-          label: 'Top',
+          label: t('menu.top'),
           type: 'radio',
           checked: uiDisplayState.previewPosition === 'top',
           click: () => {
@@ -252,7 +254,7 @@ function setApplicationMenu(): void {
           },
         },
         {
-          label: 'Bottom',
+          label: t('menu.bottom'),
           type: 'radio',
           checked: uiDisplayState.previewPosition === 'bottom',
           click: () => {
@@ -265,16 +267,18 @@ function setApplicationMenu(): void {
     },
     { type: 'separator' },
     {
-      label: 'Language',
+      label: t('menu.language'),
       submenu: [
         {
-          label: 'System default',
+          label: t('menu.systemDefault'),
           type: 'radio',
           checked: uiDisplayState.language === 'system',
           click: () => {
             uiDisplayState.language = 'system';
             configStore.setUiDisplayPreferences({ language: 'system' });
             sendUiEvent('ui:setLanguage', 'system');
+            setLanguage('system');
+            setApplicationMenu();
           },
         },
         {
@@ -285,6 +289,8 @@ function setApplicationMenu(): void {
             uiDisplayState.language = 'en';
             configStore.setUiDisplayPreferences({ language: 'en' });
             sendUiEvent('ui:setLanguage', 'en');
+            setLanguage('en');
+            setApplicationMenu();
           },
         },
         {
@@ -295,6 +301,8 @@ function setApplicationMenu(): void {
             uiDisplayState.language = 'de';
             configStore.setUiDisplayPreferences({ language: 'de' });
             sendUiEvent('ui:setLanguage', 'de');
+            setLanguage('de');
+            setApplicationMenu();
           },
         },
       ],
@@ -309,25 +317,25 @@ function setApplicationMenu(): void {
 
   const helpSubmenu: MenuItemConstructorOptions[] = [
     {
-      label: 'About Tapo Studio',
+      label: t('menu.about'),
       click: () => openAboutWindow(),
     },
     { type: 'separator' },
     {
-      label: 'Licenses and Credits',
+      label: t('menu.licensesAndCredits'),
       click: () => openLicensesWindow(),
     },
     {
-      label: 'Issues and Feedback',
+      label: t('menu.issuesAndFeedback'),
       click: () => void shell.openExternal(projectGithubUrl + '/issues'),
     },
   ];
 
   const template: MenuItemConstructorOptions[] = [
     ...(process.platform === 'darwin' ? ([{ role: 'appMenu' }] as MenuItemConstructorOptions[]) : []),
-    { label: 'Tapo Studio', submenu: appSubmenu },
-    { label: 'View', submenu: viewSubmenu },
-    { role: 'help', submenu: helpSubmenu },
+    { label: t('menu.app'), submenu: appSubmenu },
+    { label: t('menu.view'), submenu: viewSubmenu },
+    { label: t('menu.help'), submenu: helpSubmenu },
   ];
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -352,6 +360,7 @@ function createWindow(): void {
   });
 
   wireExternalLinks(win);
+  mainBindings(ipcMain, win, fs);
 
   if (isDevelopment && process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL);
@@ -443,6 +452,7 @@ app.whenReady().then(async () => {
   uiDisplayState.header = persistedUiDisplay.header;
   uiDisplayState.previewPosition = persistedUiDisplay.previewPosition;
   uiDisplayState.language = persistedUiDisplay.language;
+  setLanguage(uiDisplayState.language);
 
   setupLogging();
 
@@ -470,7 +480,10 @@ app.whenReady().then(async () => {
   });
 });
 
-app.on('before-quit', () => streamManager.cleanup());
+app.on('before-quit', () => {
+  streamManager.cleanup();
+  clearMainBindings(ipcMain);
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

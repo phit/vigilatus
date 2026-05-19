@@ -32,6 +32,7 @@
     "hls.js": "^1.5.21",
     "i18next": "^26.2.0",
     "i18next-browser-languagedetector": "^8.2.1",
+    "i18next-electron-fs-backend": "^4.0.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-i18next": "^17.0.8",
@@ -66,6 +67,7 @@
     "files": [
       "dist/electron/**/*",
       "dist/renderer/**/*",
+      "locales/**/*",
       "package.json"
     ],
     "asar": true,
