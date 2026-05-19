@@ -6,3 +6,5 @@ out/
 pytapo/
 release/
 test-results/
+.agents/
+skills-lock.json

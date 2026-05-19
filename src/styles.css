@@ -47,6 +47,14 @@ body {
   grid-template-rows: 48px 1fr;
 }
 
+.app--no-header {
+  grid-template-rows: 1fr 130px;
+}
+
+.app--no-header.app--no-timeline {
+  grid-template-rows: 1fr;
+}
+
 .header {
   display: flex;
   align-items: center;

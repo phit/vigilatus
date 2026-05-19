@@ -48,6 +48,11 @@ contextBridge.exposeInMainWorld('tapoStudio', {
       ipcRenderer.on('ui:setTimelineVisible', handler);
       return () => ipcRenderer.removeListener('ui:setTimelineVisible', handler);
     },
+    onSetHeaderVisible: (callback: (visible: boolean) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, visible: boolean) => callback(visible);
+      ipcRenderer.on('ui:setHeaderVisible', handler);
+      return () => ipcRenderer.removeListener('ui:setHeaderVisible', handler);
+    },
     onSetPreviewPosition: (callback: (position: PreviewPosition) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, position: PreviewPosition) => callback(position);
       ipcRenderer.on('ui:setPreviewPosition', handler);

@@ -13,6 +13,7 @@ export function App() {
     selectedId,
     showPreviews,
     showTimeline,
+    showHeader,
     previewPosition,
     playbackMode,
     playbackTime,
@@ -29,6 +30,7 @@ export function App() {
     restartActiveStreams,
     setPreviewsVisible,
     setTimelineVisible,
+    setHeaderVisible,
     setPreviewPosition,
     loadRecordings,
     seekTo,
@@ -76,6 +78,9 @@ export function App() {
     const offSetTimelineVisible = window.tapoStudio.ui.onSetTimelineVisible((visible) => {
       setTimelineVisible(visible);
     });
+    const offSetHeaderVisible = window.tapoStudio.ui.onSetHeaderVisible((visible) => {
+      setHeaderVisible(visible);
+    });
     const offSetPreviewPosition = window.tapoStudio.ui.onSetPreviewPosition((position: PreviewPosition) => {
       setPreviewPosition(position);
     });
@@ -87,10 +92,11 @@ export function App() {
       offOpenAdd();
       offSetPreviewsVisible();
       offSetTimelineVisible();
+      offSetHeaderVisible();
       offSetPreviewPosition();
       offStreamsInvalidated();
     };
-  }, [setPreviewsVisible, setTimelineVisible, setPreviewPosition, restartActiveStreams]);
+  }, [setPreviewsVisible, setTimelineVisible, setHeaderVisible, setPreviewPosition, restartActiveStreams]);
 
   // Auto-select + start first camera on load
   useEffect(() => {
@@ -116,8 +122,9 @@ export function App() {
   };
 
   return (
-    <div className={`app${showTimeline ? '' : ' app--no-timeline'}`} data-testid="app-shell">
+    <div className={`app${showTimeline ? '' : ' app--no-timeline'}${showHeader ? '' : ' app--no-header'}`} data-testid="app-shell">
       {/* ── Header ─────────────────────────────────────── */}
+      {showHeader && (
       <header className="header">
         <div className="header-cam-info">
           {selectedCamera && (
@@ -162,6 +169,7 @@ export function App() {
           )}
         </div>
       </header>
+      )}
 
       {/* ── Workspace ──────────────────────────────────── */}
       <div className={`workspace${showPreviews && cameras.length > 0 ? ` workspace--previews-${previewPosition}` : ''}`}>

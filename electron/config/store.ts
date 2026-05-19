@@ -9,6 +9,7 @@ interface Config {
   uiDisplay: {
     previews: boolean;
     timeline: boolean;
+    header: boolean;
     previewPosition: PreviewPosition;
   };
 }
@@ -19,6 +20,7 @@ let config: Config = {
   uiDisplay: {
     previews: true,
     timeline: true,
+    header: true,
     previewPosition: 'right',
   },
 };
@@ -33,6 +35,7 @@ export function init(userDataPath: string): void {
         uiDisplay: {
           previews: parsed.uiDisplay?.previews ?? true,
           timeline: parsed.uiDisplay?.timeline ?? true,
+          header: parsed.uiDisplay?.header ?? true,
           previewPosition: parsed.uiDisplay?.previewPosition ?? 'right',
         },
       };
@@ -42,6 +45,7 @@ export function init(userDataPath: string): void {
         uiDisplay: {
           previews: true,
           timeline: true,
+          header: true,
           previewPosition: 'right',
         },
       };
@@ -71,16 +75,17 @@ export function removeCamera(id: string): void {
   save();
 }
 
-export function getUiDisplayPreferences(): { previews: boolean; timeline: boolean; previewPosition: PreviewPosition } {
+export function getUiDisplayPreferences(): { previews: boolean; timeline: boolean; header: boolean; previewPosition: PreviewPosition } {
   return { ...config.uiDisplay };
 }
 
 export function setUiDisplayPreferences(
-  preferences: Partial<{ previews: boolean; timeline: boolean; previewPosition: PreviewPosition }>,
+  preferences: Partial<{ previews: boolean; timeline: boolean; header: boolean; previewPosition: PreviewPosition }>,
 ): void {
   config.uiDisplay = {
     previews: preferences.previews ?? config.uiDisplay.previews,
     timeline: preferences.timeline ?? config.uiDisplay.timeline,
+    header: preferences.header ?? config.uiDisplay.header,
     previewPosition: preferences.previewPosition ?? config.uiDisplay.previewPosition,
   };
   save();

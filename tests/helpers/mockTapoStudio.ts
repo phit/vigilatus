@@ -30,6 +30,7 @@ export type TapoStudioMock = {
     onOpenAddCamera: ReturnType<typeof vi.fn<[() => void], Unsubscribe>>;
     onSetPreviewsVisible: ReturnType<typeof vi.fn<[(visible: boolean) => void], Unsubscribe>>;
     onSetTimelineVisible: ReturnType<typeof vi.fn<[(visible: boolean) => void], Unsubscribe>>;
+    onSetHeaderVisible: ReturnType<typeof vi.fn<[(visible: boolean) => void], Unsubscribe>>;
     onSetPreviewPosition: ReturnType<typeof vi.fn<[(position: PreviewPosition) => void], Unsubscribe>>;
     onStreamsInvalidated: ReturnType<typeof vi.fn<[() => void], Unsubscribe>>;
   };
@@ -69,6 +70,7 @@ export function createTapoStudioMock(overrides: Partial<TapoStudioMock> = {}): T
       onOpenAddCamera: vi.fn().mockImplementation(() => noop),
       onSetPreviewsVisible: vi.fn().mockImplementation(() => noop),
       onSetTimelineVisible: vi.fn().mockImplementation(() => noop),
+      onSetHeaderVisible: vi.fn().mockImplementation(() => noop),
       onSetPreviewPosition: vi.fn().mockImplementation(() => noop),
       onStreamsInvalidated: vi.fn().mockImplementation(() => noop),
     },

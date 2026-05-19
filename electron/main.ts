@@ -63,6 +63,7 @@ let licensesWindow: BrowserWindow | null = null;
 const uiDisplayState = {
   previews: true,
   timeline: true,
+  header: true,
   previewPosition: 'right' as PreviewPosition,
 };
 
@@ -74,6 +75,7 @@ function sendUiEvent(channel: string, ...args: unknown[]): void {
 function applyUiDisplayStateToRenderer(): void {
   sendUiEvent('ui:setPreviewsVisible', uiDisplayState.previews);
   sendUiEvent('ui:setTimelineVisible', uiDisplayState.timeline);
+  sendUiEvent('ui:setHeaderVisible', uiDisplayState.header);
   sendUiEvent('ui:setPreviewPosition', uiDisplayState.previewPosition);
 }
 
@@ -201,6 +203,16 @@ function setApplicationMenu(): void {
         uiDisplayState.timeline = menuItem.checked;
         configStore.setUiDisplayPreferences({ timeline: menuItem.checked });
         sendUiEvent('ui:setTimelineVisible', menuItem.checked);
+      },
+    },
+    {
+      label: 'Header',
+      type: 'checkbox',
+      checked: uiDisplayState.header,
+      click: (menuItem) => {
+        uiDisplayState.header = menuItem.checked;
+        configStore.setUiDisplayPreferences({ header: menuItem.checked });
+        sendUiEvent('ui:setHeaderVisible', menuItem.checked);
       },
     },
     {
@@ -336,6 +348,7 @@ app.whenReady().then(async () => {
   const persistedUiDisplay = configStore.getUiDisplayPreferences();
   uiDisplayState.previews = persistedUiDisplay.previews;
   uiDisplayState.timeline = persistedUiDisplay.timeline;
+  uiDisplayState.header = persistedUiDisplay.header;
   uiDisplayState.previewPosition = persistedUiDisplay.previewPosition;
   
   setupLogging();

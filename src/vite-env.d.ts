@@ -33,6 +33,7 @@ declare global {
         onOpenAddCamera(callback: () => void): () => void;
         onSetPreviewsVisible(callback: (visible: boolean) => void): () => void;
         onSetTimelineVisible(callback: (visible: boolean) => void): () => void;
+        onSetHeaderVisible(callback: (visible: boolean) => void): () => void;
         onSetPreviewPosition(callback: (position: PreviewPosition) => void): () => void;
         onStreamsInvalidated(callback: () => void): () => void;
       };
