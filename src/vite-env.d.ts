@@ -43,6 +43,7 @@ declare global {
         onSetPreviewsVisible(callback: (visible: boolean) => void): () => void;
         onSetTimelineVisible(callback: (visible: boolean) => void): () => void;
         onSetHeaderVisible(callback: (visible: boolean) => void): () => void;
+        onSetDebugOverlayVisible(callback: (visible: boolean) => void): () => void;
         onSetPreviewPosition(callback: (position: PreviewPosition) => void): () => void;
         onStreamsInvalidated(callback: () => void): () => void;
         onSetLanguage(callback: (language: string) => void): () => void;

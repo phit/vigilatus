@@ -166,6 +166,24 @@ body {
   backdrop-filter: blur(4px);
 }
 
+.viewer-debug-overlay {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: 'Consolas', 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: #0f0;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 6px 10px;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 4;
+  line-height: 1.4;
+}
+
 .viewer-controls {
   position: absolute;
   right: 12px;

@@ -105,6 +105,7 @@
     "systemDefault": "System default",
     "help": "Help",
     "licensesAndCredits": "Licenses and Credits",
-    "issuesAndFeedback": "Issues and Feedback"
+    "issuesAndFeedback": "Issues and Feedback",
+    "debugOverlay": "Video Debug Overlay"
   }
 }

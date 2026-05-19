@@ -10,6 +10,7 @@ interface CamerasStore {
   showPreviews: boolean;
   showTimeline: boolean;
   showHeader: boolean;
+  showDebugOverlay: boolean;
   previewPosition: PreviewPosition;
   playbackMode: PlaybackMode;
   playbackTime: number | null;
@@ -33,6 +34,7 @@ interface CamerasStore {
   setPreviewsVisible(visible: boolean): void;
   setTimelineVisible(visible: boolean): void;
   setHeaderVisible(visible: boolean): void;
+  setDebugOverlayVisible(visible: boolean): void;
   setPreviewPosition(position: PreviewPosition): void;
   loadRecordings(cameraId: string, date: string): Promise<void>;
   seekTo(time: number): Promise<void>;
@@ -45,6 +47,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   showPreviews: true,
   showTimeline: true,
   showHeader: true,
+  showDebugOverlay: false,
   previewPosition: 'right',
   playbackMode: 'live',
   playbackTime: null,
@@ -183,6 +186,10 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
 
   setHeaderVisible(visible) {
     set({ showHeader: visible });
+  },
+
+  setDebugOverlayVisible(visible) {
+    set({ showDebugOverlay: visible });
   },
 
   setPreviewPosition(position) {

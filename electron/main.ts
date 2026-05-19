@@ -69,6 +69,7 @@ const uiDisplayState = {
   header: false,
   previewPosition: 'right' as PreviewPosition,
   language: 'system',
+  debugOverlay: false,
 };
 
 function sendUiEvent(channel: string, ...args: unknown[]): void {
@@ -218,6 +219,15 @@ function setApplicationMenu(): void {
         uiDisplayState.header = menuItem.checked;
         configStore.setUiDisplayPreferences({ header: menuItem.checked });
         sendUiEvent('ui:setHeaderVisible', menuItem.checked);
+      },
+    },
+    {
+      label: t('menu.debugOverlay'),
+      type: 'checkbox',
+      checked: uiDisplayState.debugOverlay,
+      click: (menuItem) => {
+        uiDisplayState.debugOverlay = menuItem.checked;
+        sendUiEvent('ui:setDebugOverlayVisible', menuItem.checked);
       },
     },
     {

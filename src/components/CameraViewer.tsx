@@ -2,6 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import Hls, { ErrorTypes } from 'hls.js';
 import type { CameraState } from '../types';
+import { useCameraStore } from '../store/cameras';
+
+interface VideoStats {
+  resolution: string;
+  codec: string;
+  fps: number;
+  bitrate: number;
+}
 
 interface Props {
   camera: CameraState | undefined;
@@ -17,6 +25,8 @@ export function CameraViewer({ camera, playbackMode }: Props) {
   const [volume, setVolume] = useState(0);
   const [prevVolume, setPrevVolume] = useState(0.5);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [videoStats, setVideoStats] = useState<VideoStats | null>(null);
+  const showDebugOverlay = useCameraStore((s) => s.showDebugOverlay);
 
   const hlsUrl = camera?.hlsUrl;
   const isHlsSource = Boolean(hlsUrl && hlsUrl.toLowerCase().includes('.m3u8'));
@@ -39,6 +49,53 @@ export function CameraViewer({ camera, playbackMode }: Props) {
     document.addEventListener('fullscreenchange', onFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
   }, []);
+
+  // Poll video stats for the debug overlay
+  useEffect(() => {
+    if (!showDebugOverlay) {
+      setVideoStats(null);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const video = videoRef.current;
+      const hls = hlsRef.current;
+      if (!video || !hlsUrl) {
+        setVideoStats(null);
+        return;
+      }
+
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      const resolution = w && h ? `${w}×${h}` : '—';
+
+      let codec = '—';
+      let fps = 0;
+      let bitrate = 0;
+
+      if (hls) {
+        const level = hls.levels?.[hls.currentLevel];
+        if (level) {
+          codec = level.codecSet || level.videoCodec || '—';
+          fps = level.frameRate || 0;
+          bitrate = Math.round((level.bitrate || 0) / 1000);
+        }
+      }
+
+      // Fallback FPS from getVideoPlaybackQuality
+      if (!fps && typeof video.getVideoPlaybackQuality === 'function') {
+        const q = video.getVideoPlaybackQuality();
+        if (q.totalVideoFrames > 0) {
+          const elapsed = (performance.now() - (q as any).creationTime) / 1000;
+          if (elapsed > 0) fps = Math.round(q.totalVideoFrames / elapsed);
+        }
+      }
+
+      setVideoStats({ resolution, codec, fps, bitrate });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [showDebugOverlay, hlsUrl]);
 
   useEffect(() => {
     setPlayerError(null);
@@ -327,6 +384,15 @@ export function CameraViewer({ camera, playbackMode }: Props) {
                 ? t('viewer.live')
                 : status}
           </span>
+        </div>
+      )}
+
+      {showDebugOverlay && videoStats && (
+        <div className="viewer-debug-overlay">
+          <span>{videoStats.resolution}</span>
+          <span>{videoStats.codec}</span>
+          <span>{videoStats.fps ? `${videoStats.fps} fps` : '— fps'}</span>
+          <span>{videoStats.bitrate ? `${videoStats.bitrate} kbps` : '— kbps'}</span>
         </div>
       )}
     </div>

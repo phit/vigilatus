@@ -10,6 +10,7 @@ function resetStore(): void {
     selectedId: null,
     showPreviews: true,
     showTimeline: true,
+    showDebugOverlay: false,
     previewPosition: 'right',
     playbackMode: 'live',
     playbackTime: null,

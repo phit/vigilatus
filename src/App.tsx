@@ -33,6 +33,7 @@ export function App() {
     setPreviewsVisible,
     setTimelineVisible,
     setHeaderVisible,
+    setDebugOverlayVisible,
     setPreviewPosition,
     loadRecordings,
     seekTo,
@@ -73,6 +74,9 @@ export function App() {
     const offSetHeaderVisible = window.vigilatus.ui.onSetHeaderVisible((visible) => {
       setHeaderVisible(visible);
     });
+    const offSetDebugOverlayVisible = window.vigilatus.ui.onSetDebugOverlayVisible((visible) => {
+      setDebugOverlayVisible(visible);
+    });
     const offSetPreviewPosition = window.vigilatus.ui.onSetPreviewPosition((position: PreviewPosition) => {
       setPreviewPosition(position);
     });
@@ -93,11 +97,19 @@ export function App() {
       offSetPreviewsVisible();
       offSetTimelineVisible();
       offSetHeaderVisible();
+      offSetDebugOverlayVisible();
       offSetPreviewPosition();
       offStreamsInvalidated();
       offSetLanguage();
     };
-  }, [setPreviewsVisible, setTimelineVisible, setHeaderVisible, setPreviewPosition, restartActiveStreams]);
+  }, [
+    setPreviewsVisible,
+    setTimelineVisible,
+    setHeaderVisible,
+    setDebugOverlayVisible,
+    setPreviewPosition,
+    restartActiveStreams,
+  ]);
 
   // Auto-select + start first camera on load
   useEffect(() => {
