@@ -138,7 +138,7 @@ test('drives the timeline into playback using mocked recordings', async () => {
 
     await window.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
 
-    await expect(window.getByTestId('header-mode-badge')).toHaveText('Playback');
+    await expect(window.locator('.viewer-badge')).toHaveText('Playback');
   } finally {
     await app.close();
   }

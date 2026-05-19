@@ -42,17 +42,6 @@ export function App() {
 
   const selectedCamera = cameras.find((c) => c.config.id === selectedId);
   const playbackEnabled = Boolean(selectedCamera);
-  const isPlaybackLoading = Boolean(
-    selectedCamera
-    && playbackMode === 'playback'
-    && selectedCamera.status === 'connecting'
-    && !selectedCamera.hlsUrl,
-  );
-  const headerStatusLabel = isPlaybackLoading
-    ? 'Loading recording...'
-    : playbackMode === 'playback'
-    ? 'Playback'
-    : selectedCamera?.status ?? 'idle';
   const timelineMessage = !selectedCamera
     ? 'Select a camera to load recording availability.'
     : recordingsError
@@ -129,13 +118,6 @@ export function App() {
         <div className="header-cam-info">
           {selectedCamera && (
             <>
-              <span className="header-cam-name">{selectedCamera.config.name}</span>
-              <span
-                className={`badge badge-${playbackMode === 'playback' ? 'playback' : selectedCamera.status}`}
-                data-testid="header-mode-badge"
-              >
-                {headerStatusLabel}
-              </span>
               <button
                 type="button"
                 className="btn-icon"
