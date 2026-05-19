@@ -106,6 +106,16 @@
     "help": "Help",
     "licensesAndCredits": "Licenses and Credits",
     "issuesAndFeedback": "Issues and Feedback",
-    "debugOverlay": "Video Debug Overlay"
+    "debugOverlay": "Video Debug Overlay",
+    "checkForUpdates": "Check for Updates…"
+  },
+  "updater": {
+    "title": "Software Update",
+    "available": "A new version ({{version}}) is available.",
+    "downloading": "The update is being downloaded in the background.",
+    "ready": "Version {{version}} has been downloaded and is ready to install.",
+    "restartNow": "Restart Now",
+    "later": "Later",
+    "noUpdates": "You are running the latest version."
   }
 }

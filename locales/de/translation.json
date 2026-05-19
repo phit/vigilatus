@@ -46,8 +46,8 @@
     "today": "(Heute)",
     "live": "● Live",
     "scrubber": "Zeitleisten-Regler",
-    "segmentsFound_one": "{{count}} Aufnahmesegment gefunden. Ziehen oder klicken Sie auf die Zeitleiste, um einen Clip zu öffnen.",
-    "segmentsFound_other": "{{count}} Aufnahmesegmente gefunden. Ziehen oder klicken Sie auf die Zeitleiste, um einen Clip zu öffnen.",
+    "segmentsFound_one": "{{count}} Aufnahmesegment gefunden. Ziehen oder klicke auf der Zeitleiste, um einen Clip zu öffnen.",
+    "segmentsFound_other": "{{count}} Aufnahmesegmente gefunden. Ziehen oder klicke auf der Zeitleiste, um einen Clip zu öffnen.",
     "noSegments": "Keine Aufnahmesegmente für den ausgewählten Tag gefunden.",
     "selectCamera": "Kamera auswählen, um Aufnahmeverfügbarkeit zu laden.",
     "queryFailed": "Aufnahmeabfrage fehlgeschlagen: {{error}}",
@@ -66,7 +66,7 @@
     "apiPassword": "Tapo-API-Passwort",
     "apiPasswordPlaceholder": "Normalerweise das Tapo-/TP-Link-Kontopasswort",
     "streamSettings": "Stream-Einstellungen",
-    "streamHint": "Verwenden Sie eine dieser Stream-Optionen: Kamerakonto-Anmeldedaten für direktes RTSP oder die App auf einen externen RTSP-Proxy verweisen.",
+    "streamHint": "Verwende eine dieser Stream-Optionen: Kamerakonto-Anmeldedaten für direktes RTSP oder die App auf einen externen RTSP-Proxy verweisen.",
     "rtspUrl": "Externe RTSP-Quell-URL (optional)",
     "rtspUrlPlaceholder": "rtsp://proxy.local:8554/haustuer",
     "proxyUsername": "Proxy-RTSP-Benutzername",
@@ -106,6 +106,16 @@
     "help": "Hilfe",
     "licensesAndCredits": "Lizenzen und Danksagungen",
     "issuesAndFeedback": "Probleme und Feedback",
-    "debugOverlay": "Video-Debug-Overlay"
+    "debugOverlay": "Video-Debug-Overlay",
+    "checkForUpdates": "Nach Updates suchen…"
+  },
+  "updater": {
+    "title": "Software-Update",
+    "available": "Eine neue Version ({{version}}) ist verfügbar.",
+    "downloading": "Das Update wird im Hintergrund heruntergeladen.",
+    "ready": "Version {{version}} wurde heruntergeladen und kann installiert werden.",
+    "restartNow": "Jetzt neu starten",
+    "later": "Später",
+    "noUpdates": "Die neueste Version ist bereits installiert."
   }
 }

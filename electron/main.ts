@@ -17,6 +17,7 @@ import * as streamManager from './tapo/streamManager';
 import { registerHandlers } from './ipc/handlers';
 import { loadTestFixtures } from './testing/fixtures';
 import { t, setLanguage } from './i18n';
+import { initAutoUpdater, checkForUpdates } from './autoUpdater';
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const shouldOpenDevTools = process.env.VIGILATUS_OPEN_DEVTOOLS === '1' || !isDevelopment;
@@ -332,6 +333,11 @@ function setApplicationMenu(): void {
     },
     { type: 'separator' },
     {
+      label: t('menu.checkForUpdates'),
+      click: () => checkForUpdates(),
+    },
+    { type: 'separator' },
+    {
       label: t('menu.licensesAndCredits'),
       click: () => openLicensesWindow(),
     },
@@ -478,6 +484,7 @@ app.whenReady().then(async () => {
   setApplicationMenu();
 
   createWindow();
+  initAutoUpdater();
 
   powerMonitor.on('resume', () => {
     console.log('[main:powerMonitor] System resumed from sleep, invalidating streams');
