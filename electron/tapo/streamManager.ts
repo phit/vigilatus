@@ -46,6 +46,8 @@ const STREAM_READY_TIMEOUT_MS = 15_000;
 const STREAM_READY_POLL_MS = 250;
 const STDERR_HISTORY_LIMIT = 24;
 const MIN_PLAYBACK_FILE_BYTES = 512_000;
+const RECORDINGS_DIR = path.join(os.tmpdir(), 'vigilatus-recordings');
+const RECORDING_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 function isExpectedStopError(cameraId: string, err: Error): boolean {
   const message = String(err?.message ?? '');
@@ -55,6 +57,50 @@ function isExpectedStopError(cameraId: string, err: Error): boolean {
 // ---------------------------------------------------------------------------
 // Init / teardown
 // ---------------------------------------------------------------------------
+
+/** Remove leftover temp dirs from a previous session and recreate them fresh. */
+function cleanStaleTempDirs(): void {
+  for (const dir of [HLS_DIR, SNAP_DIR, PLAYBACK_DIR]) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+/** Delete recording cache files older than RECORDING_MAX_AGE_MS. */
+function purgeOldRecordings(): void {
+  if (!fs.existsSync(RECORDINGS_DIR)) return;
+  const now = Date.now();
+  try {
+    for (const hostDir of fs.readdirSync(RECORDINGS_DIR)) {
+      const hostPath = path.join(RECORDINGS_DIR, hostDir);
+      const stat = fs.statSync(hostPath);
+      if (!stat.isDirectory()) continue;
+      for (const file of fs.readdirSync(hostPath)) {
+        const filePath = path.join(hostPath, file);
+        try {
+          const fstat = fs.statSync(filePath);
+          if (now - fstat.mtimeMs > RECORDING_MAX_AGE_MS) {
+            fs.unlinkSync(filePath);
+          }
+        } catch {
+          /* skip inaccessible files */
+        }
+      }
+      // Remove the host dir if empty
+      try {
+        const remaining = fs.readdirSync(hostPath);
+        if (remaining.length === 0) fs.rmdirSync(hostPath);
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch (err) {
+    console.error('[streamManager] Failed to purge old recordings:', err);
+  }
+}
 
 export async function init(): Promise<void> {
   console.log('[streamManager:init] ffmpegStatic value:', ffmpegStatic);
@@ -68,6 +114,9 @@ export async function init(): Promise<void> {
     throw err;
   }
 
+  cleanStaleTempDirs();
+  purgeOldRecordings();
+
   fs.mkdirSync(HLS_DIR, { recursive: true });
   fs.mkdirSync(SNAP_DIR, { recursive: true });
   fs.mkdirSync(PLAYBACK_DIR, { recursive: true });
@@ -78,6 +127,14 @@ export async function init(): Promise<void> {
 export function cleanup(): void {
   for (const id of streams.keys()) stopStream(id);
   server?.close();
+  // Remove ephemeral temp dirs (recordings cache is intentionally kept)
+  for (const dir of [HLS_DIR, SNAP_DIR, PLAYBACK_DIR]) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best-effort */
+    }
+  }
 }
 
 export function stopAllStreams(): void {
@@ -616,7 +673,7 @@ function startServer(): Promise<number> {
       } else if (relativePath.startsWith('recording/')) {
         // Serve from recordings directory (for in-progress downloads)
         // The path includes the host directory, e.g., /recording/192.168.100.141/timestamp.mp4
-        baseDir = path.join(os.tmpdir(), 'vigilatus-recordings');
+        baseDir = RECORDINGS_DIR;
         filePath = relativePath.replace(/^recording\//, '');
       } else {
         baseDir = HLS_DIR;
