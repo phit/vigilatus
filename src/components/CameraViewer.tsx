@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import Hls, { ErrorTypes } from 'hls.js';
 import type { CameraState } from '../types';
 
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export function CameraViewer({ camera, playbackMode }: Props) {
+  const { t } = useTranslation();
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [playerError, setPlayerError] = useState<string | null>(null);
@@ -61,8 +63,8 @@ export function CameraViewer({ camera, playbackMode }: Props) {
       const onVideoError = () => {
         const mediaError = video.error;
         const message = mediaError
-          ? `HTML5 video error ${mediaError.code}`
-          : 'HTML5 video playback failed';
+          ? t('viewer.html5VideoError', { code: mediaError.code })
+          : t('viewer.html5VideoFailed');
         console.error('[viewer:video] error', mediaError);
         setPlayerError(message);
       };
@@ -102,11 +104,11 @@ export function CameraViewer({ camera, playbackMode }: Props) {
         if (!data.fatal) return;
 
         if (data.type === ErrorTypes.NETWORK_ERROR) {
-          setPlayerError('Failed to load HLS stream from local server');
+          setPlayerError(t('viewer.hlsNetworkError'));
         } else if (data.type === ErrorTypes.MEDIA_ERROR) {
-          setPlayerError('Browser could not decode the stream');
+          setPlayerError(t('viewer.hlsMediaError'));
         } else {
-          setPlayerError(data.details || 'HLS playback failed');
+          setPlayerError(data.details || t('viewer.hlsGenericError'));
         }
 
         hls.destroy();
@@ -116,8 +118,8 @@ export function CameraViewer({ camera, playbackMode }: Props) {
       const onVideoError = () => {
         const mediaError = video.error;
         const message = mediaError
-          ? `HTML5 video error ${mediaError.code}`
-          : 'HTML5 video playback failed';
+          ? t('viewer.html5VideoError', { code: mediaError.code })
+          : t('viewer.html5VideoFailed');
         console.error('[viewer:video] error', mediaError);
         setPlayerError(message);
       };
@@ -132,14 +134,14 @@ export function CameraViewer({ camera, playbackMode }: Props) {
       // Safari native HLS
       video.src = hlsUrl;
       video.play().catch(() => {
-        setPlayerError('Native HLS playback failed');
+        setPlayerError(t('viewer.nativeHlsError'));
       });
     }
-  }, [hlsUrl, isHlsSource]);
+  }, [hlsUrl, isHlsSource, t]);
 
-  const label = camera?.config.name ?? 'No camera selected';
+  const label = camera?.config.name ?? t('viewer.noCamera');
 
-  const displayError = playerError ?? (status === 'error' ? camera?.errorMessage ?? 'Stream error' : null);
+  const displayError = playerError ?? (status === 'error' ? camera?.errorMessage ?? t('viewer.streamError') : null);
 
   const toggleMute = () => {
     setIsMuted((value) => !value);
@@ -173,17 +175,17 @@ export function CameraViewer({ camera, playbackMode }: Props) {
               type="button"
               className="viewer-control-btn"
               onClick={toggleMute}
-              title={isMuted ? 'Enable audio' : 'Mute audio'}
+              title={isMuted ? t('viewer.enableAudio') : t('viewer.muteAudio')}
             >
-              {isMuted ? 'Unmute' : 'Mute'}
+              {isMuted ? t('viewer.unmute') : t('viewer.mute')}
             </button>
             <button
               type="button"
               className="viewer-control-btn"
               onClick={() => void toggleFullscreen()}
-              title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              title={isFullscreen ? t('viewer.exitFullscreen') : t('viewer.enterFullscreen')}
             >
-              {isFullscreen ? 'Window' : 'Fullscreen'}
+              {isFullscreen ? t('viewer.window') : t('viewer.fullscreen')}
             </button>
           </div>
         </>
@@ -194,14 +196,14 @@ export function CameraViewer({ camera, playbackMode }: Props) {
           {status === 'connecting' && <div className="spinner" />}
           <span className="viewer-label">
             {status === 'connecting'
-              ? isPlaybackLoading ? 'Loading recording...' : 'Connecting...'
+              ? isPlaybackLoading ? t('viewer.loadingRecording') : t('viewer.connecting')
               : displayError
               ? displayError
               : status === 'offline'
-              ? 'Camera offline'
+              ? t('viewer.cameraOffline')
               : camera
-              ? 'Click to start stream'
-              : 'Select a camera'}
+              ? t('viewer.clickToStart')
+              : t('viewer.selectCamera')}
           </span>
         </div>
       )}
@@ -210,7 +212,7 @@ export function CameraViewer({ camera, playbackMode }: Props) {
         <div className="viewer-overlay-meta">
           <span className="viewer-cam-name">{label}</span>
           <span className={`viewer-badge badge-${playbackMode === 'playback' ? 'playback' : status}`}>
-            {playbackMode === 'playback' ? 'Playback' : status === 'live' ? 'Live' : status}
+            {playbackMode === 'playback' ? t('viewer.playback') : status === 'live' ? t('viewer.live') : status}
           </span>
         </div>
       )}

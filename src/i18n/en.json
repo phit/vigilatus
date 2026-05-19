@@ -1,0 +1,92 @@
+{
+  "app": {
+    "noCameras": "No cameras yet.",
+    "addFirstCamera": "+ Add your first camera",
+    "confirmRemove": "Remove this camera?"
+  },
+  "header": {
+    "stopStream": "Stop stream",
+    "startStream": "Start stream",
+    "editCamera": "Edit camera",
+    "removeCamera": "Remove camera"
+  },
+  "viewer": {
+    "noCamera": "No camera selected",
+    "enableAudio": "Enable audio",
+    "muteAudio": "Mute audio",
+    "unmute": "Unmute",
+    "mute": "Mute",
+    "exitFullscreen": "Exit fullscreen",
+    "enterFullscreen": "Enter fullscreen",
+    "window": "Window",
+    "fullscreen": "Fullscreen",
+    "loadingRecording": "Loading recording...",
+    "connecting": "Connecting...",
+    "cameraOffline": "Camera offline",
+    "clickToStart": "Click to start stream",
+    "selectCamera": "Select a camera",
+    "playback": "Playback",
+    "live": "Live",
+    "streamError": "Stream error",
+    "hlsNetworkError": "Failed to load HLS stream from local server",
+    "hlsMediaError": "Browser could not decode the stream",
+    "hlsGenericError": "HLS playback failed",
+    "nativeHlsError": "Native HLS playback failed",
+    "html5VideoError": "HTML5 video error {{code}}",
+    "html5VideoFailed": "HTML5 video playback failed"
+  },
+  "preview": {
+    "switchTo": "Switch to {{name}}",
+    "loadingRecording": "Loading recording..."
+  },
+  "timeline": {
+    "title": "Timeline",
+    "previousDay": "Previous day",
+    "nextDay": "Next day",
+    "goToToday": "Go to today",
+    "today": "(Today)",
+    "live": "● Live",
+    "scrubber": "Timeline scrubber",
+    "segmentsFound_one": "{{count}} recording segment found. Drag or click the timeline to open a clip.",
+    "segmentsFound_other": "{{count}} recording segments found. Drag or click the timeline to open a clip.",
+    "noSegments": "No recording segments found for the selected day.",
+    "selectCamera": "Select a camera to load recording availability.",
+    "queryFailed": "Recording query failed: {{error}}",
+    "loading": "Loading recordings..."
+  },
+  "modal": {
+    "editCamera": "Edit Camera",
+    "addCamera": "Add Camera",
+    "hint": "Newer firmware: enable <strong>Third-Party Compatibility</strong> in Tapo app → <em>Me → Tapo Lab</em>. The API password is usually your Tapo / TP-Link account password. The <strong>Camera Account</strong> under Advanced Settings is separate and is only for direct RTSP streaming.",
+    "cameraName": "Camera name",
+    "cameraNamePlaceholder": "Front Door",
+    "ipAddress": "IP address",
+    "ipPlaceholder": "192.168.1.100",
+    "apiUsername": "Tapo API username",
+    "apiUsernamePlaceholder": "Usually admin",
+    "apiPassword": "Tapo API password",
+    "apiPasswordPlaceholder": "Usually your Tapo / TP-Link account password",
+    "streamSettings": "Stream settings",
+    "streamHint": "Use one of these stream options: set Camera Account credentials for direct camera RTSP, or point the app at your external RTSP proxy.",
+    "rtspUrl": "External RTSP source URL (optional)",
+    "rtspUrlPlaceholder": "rtsp://proxy.local:8554/front-door",
+    "proxyUsername": "Proxy RTSP username",
+    "proxyUsernamePlaceholder": "viewer",
+    "proxyPassword": "Proxy RTSP password",
+    "proxyPasswordPlaceholder": "optional",
+    "camAccountUsername": "Camera Account username",
+    "camAccountPassword": "Camera Account password",
+    "model": "Model (optional)",
+    "modelPlaceholder": "C310, C200, TC70 …",
+    "testSuccess": "✓ API connection successful",
+    "testFail": "✗ {{error}}",
+    "testing": "Testing…",
+    "testConnection": "Test connection",
+    "saveChanges": "Save changes",
+    "addCameraBtn": "Add camera"
+  },
+  "contextMenu": {
+    "edit": "Edit",
+    "remove": "Remove"
+  }
+}

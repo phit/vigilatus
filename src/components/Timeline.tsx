@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { format, parse, addDays, startOfDay, isToday as isDateToday } from 'date-fns';
 import type { Recording, PlaybackMode } from '../types';
 
@@ -60,6 +61,7 @@ export function Timeline({
   'data-testid': testId,
 }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const { t } = useTranslation();
   const activePointerRef = useRef<number | null>(null);
   const dragTimeRef = useRef<number | null>(null);
   const suppressClickRef = useRef(false);
@@ -166,18 +168,18 @@ export function Timeline({
   return (
     <div className="timeline" data-testid={testId}>
       <div className="timeline-header">
-        <span className="timeline-title">Timeline</span>
+        <span className="timeline-title">{t('timeline.title')}</span>
         <span className="timeline-date-nav">
-          <button type="button" className="btn-date-nav" onClick={goToPreviousDay} title="Previous day">◀</button>
+          <button type="button" className="btn-date-nav" onClick={goToPreviousDay} title={t('timeline.previousDay')}>◀</button>
           <button
             type="button"
             className="timeline-date"
             onClick={goToToday}
-            title="Go to today"
+            title={t('timeline.goToToday')}
           >
-            {formatDateDisplay(selectedDate)}{isToday ? ' (Today)' : ''}
+            {formatDateDisplay(selectedDate)}{isToday ? ` ${t('timeline.today')}` : ''}
           </button>
-          <button type="button" className="btn-date-nav" onClick={goToNextDay} disabled={isToday} title="Next day">▶</button>
+          <button type="button" className="btn-date-nav" onClick={goToNextDay} disabled={isToday} title={t('timeline.nextDay')}>▶</button>
         </span>
         {playbackMode === 'playback' && (
           <span className="timeline-playback-time">
@@ -190,7 +192,7 @@ export function Timeline({
           className={`btn-live${playbackMode === 'live' ? ' btn-live--active' : ''}`}
           onClick={onGoLive}
         >
-          ● Live
+          {t('timeline.live')}
         </button>
       </div>
 
@@ -223,7 +225,7 @@ export function Timeline({
           finalizeDrag();
         }}
         role="slider"
-        aria-label="Timeline scrubber"
+        aria-label={t('timeline.scrubber')}
         aria-valuemin={windowStart}
         aria-valuemax={windowEnd}
         aria-valuenow={playbackTime ?? windowEnd}

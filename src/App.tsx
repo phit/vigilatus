@@ -1,5 +1,6 @@
 // @refresh reset
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useCameraStore } from './store/cameras';
 import { CameraViewer } from './components/CameraViewer';
 import { CameraPreview } from './components/CameraPreview';
@@ -37,20 +38,21 @@ export function App() {
     goLive,
   } = useCameraStore();
 
+  const { t } = useTranslation();
   const [showModal, setShowModal] = useState(false);
   const [editTarget, setEditTarget] = useState<CameraConfig | undefined>(undefined);
 
   const selectedCamera = cameras.find((c) => c.config.id === selectedId);
   const playbackEnabled = Boolean(selectedCamera);
   const timelineMessage = !selectedCamera
-    ? 'Select a camera to load recording availability.'
+    ? t('timeline.selectCamera')
     : recordingsError
-    ? `Recording query failed: ${recordingsError}`
+    ? t('timeline.queryFailed', { error: recordingsError })
     : recordingsLoading
-    ? 'Loading recordings...'
+    ? t('timeline.loading')
     : recordings.length > 0
-    ? `${recordings.length} recording segment${recordings.length === 1 ? '' : 's'} found. Drag or click the timeline to open a clip.`
-    : 'No recording segments found for the selected day.';
+    ? t('timeline.segmentsFound', { count: recordings.length })
+    : t('timeline.noSegments');
 
   useEffect(() => {
     void loadCameras();
@@ -107,7 +109,7 @@ export function App() {
   };
 
   const handleRemove = async (id: string) => {
-    if (confirm('Remove this camera?')) await removeCamera(id);
+    if (confirm(t('app.confirmRemove'))) await removeCamera(id);
   };
 
   return (
@@ -121,7 +123,7 @@ export function App() {
               <button
                 type="button"
                 className="btn-icon"
-                title={`${selectedCamera.hlsUrl ? 'Stop' : 'Start'} stream`}
+                title={selectedCamera.hlsUrl ? t('header.stopStream') : t('header.startStream')}
                 disabled={selectedCamera.status === 'connecting'}
                 onClick={() =>
                   selectedCamera.hlsUrl
@@ -134,7 +136,7 @@ export function App() {
               <button
                 type="button"
                 className="btn-icon"
-                title="Edit camera"
+                title={t('header.editCamera')}
                 onClick={() => openEdit(selectedCamera.config)}
               >
                 ✎
@@ -142,7 +144,7 @@ export function App() {
               <button
                 type="button"
                 className="btn-icon btn-icon--danger"
-                title="Remove camera"
+                title={t('header.removeCamera')}
                 onClick={() => void handleRemove(selectedCamera.config.id)}
               >
                 ✕
@@ -193,9 +195,9 @@ export function App() {
         {/* Empty state */}
         {cameras.length === 0 && (
           <div className="empty-state" data-testid="empty-state">
-            <p>No cameras yet.</p>
+            <p>{t('app.noCameras')}</p>
             <button type="button" className="btn-primary" onClick={openAdd} data-testid="empty-state-add-camera">
-              + Add your first camera
+              {t('app.addFirstCamera')}
             </button>
           </div>
         )}

@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 import type { CameraConfig } from '../types';
 
 interface Props {
@@ -23,6 +24,7 @@ const DEFAULT: Omit<CameraConfig, 'id' | 'name'> = {
 };
 
 export function AddCameraModal({ initial, onSave, onClose }: Props) {
+  const { t } = useTranslation();
   const [form, setForm] = useState<CameraConfig>(
     initial ?? { id: randomId(), name: '', ...DEFAULT },
   );
@@ -88,55 +90,52 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
     >
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>{initial ? 'Edit Camera' : 'Add Camera'}</h2>
+          <h2>{initial ? t('modal.editCamera') : t('modal.addCamera')}</h2>
           <button type="button" className="modal-close" onClick={onClose} data-testid="add-camera-close">✕</button>
         </div>
 
         <p className="modal-hint">
-          Newer firmware: enable <strong>Third-Party Compatibility</strong> in Tapo app →{' '}
-          <em>Me → Tapo Lab</em>. The API password is usually your Tapo / TP-Link account
-          password. The <strong>Camera Account</strong> under Advanced Settings is separate and is
-          only for direct RTSP streaming.
+          <Trans i18nKey="modal.hint" />
         </p>
 
         <form onSubmit={handleSubmit} className="modal-form">
           <label>
-            Camera name
+            {t('modal.cameraName')}
             <input
               required
               value={form.name}
               onChange={(e) => set('name', e.target.value)}
-              placeholder="Front Door"
+              placeholder={t('modal.cameraNamePlaceholder')}
             />
           </label>
 
           <label>
-            IP address
+            {t('modal.ipAddress')}
             <input
               required
               value={form.host}
               onChange={(e) => set('host', e.target.value)}
-              placeholder="192.168.1.100"
+              placeholder={t('modal.ipPlaceholder')}
             />
           </label>
 
           <div className="form-row">
             <label>
-              Tapo API username
+              {t('modal.apiUsername')}
               <input
                 value={form.username}
                 onChange={(e) => set('username', e.target.value)}
-                placeholder="Usually admin"
+                placeholder={t('modal.apiUsernamePlaceholder')}
               />
             </label>
             <label>
-              Tapo API password
+              {t('modal.apiPassword')}
               <input
                 type="password"
                 required
                 value={form.password}
                 onChange={(e) => set('password', e.target.value)}
-                placeholder="Usually your Tapo / TP-Link account password"
+                placeholder={t('modal.apiPasswordPlaceholder')}
               />
             </label>
           </div>
@@ -147,58 +146,57 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
             onClick={() => setShowAdvanced((v) => !v)}
             data-testid="add-camera-toggle-advanced"
           >
-            {showAdvanced ? '▲' : '▼'} Stream settings
+            {showAdvanced ? '▲' : '▼'} {t('modal.streamSettings')}
           </button>
 
           {showAdvanced && (
             <div className="form-advanced">
               <p className="modal-hint">
-                Use one of these stream options:
-                set Camera Account credentials for direct camera RTSP, or point the app at your external RTSP proxy.
+                {t('modal.streamHint')}
               </p>
               <label>
-                External RTSP source URL (optional)
+                {t('modal.rtspUrl')}
                 <input
                   value={form.rtspUrl ?? ''}
                   onChange={(e) => set('rtspUrl', e.target.value)}
-                  placeholder="rtsp://proxy.local:8554/front-door"
+                  placeholder={t('modal.rtspUrlPlaceholder')}
                 />
               </label>
               <div className="form-row">
                 <label>
-                  Proxy RTSP username
+                  {t('modal.proxyUsername')}
                   <input
                     value={form.rtspUsername ?? ''}
                     onChange={(e) => set('rtspUsername', e.target.value)}
-                    placeholder="viewer"
+                    placeholder={t('modal.proxyUsernamePlaceholder')}
                   />
                 </label>
                 <label>
-                  Proxy RTSP password
+                  {t('modal.proxyPassword')}
                   <input
                     type="password"
                     value={form.rtspPassword ?? ''}
                     onChange={(e) => set('rtspPassword', e.target.value)}
-                    placeholder="optional"
+                    placeholder={t('modal.proxyPasswordPlaceholder')}
                   />
                 </label>
               </div>
               <div className="form-row">
                 <label>
-                  Camera Account username
+                  {t('modal.camAccountUsername')}
                   <input
                     value={form.streamUser}
                     onChange={(e) => set('streamUser', e.target.value)}
-                    placeholder="Camera Account username"
+                    placeholder={t('modal.camAccountUsername')}
                   />
                 </label>
                 <label>
-                  Camera Account password
+                  {t('modal.camAccountPassword')}
                   <input
                     type="password"
                     value={form.streamPassword}
                     onChange={(e) => set('streamPassword', e.target.value)}
-                    placeholder="Camera Account password"
+                    placeholder={t('modal.camAccountPassword')}
                   />
                 </label>
               </div>
@@ -206,26 +204,26 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
           )}
 
           <label>
-            Model (optional)
+            {t('modal.model')}
             <input
               value={form.model ?? ''}
               onChange={(e) => set('model', e.target.value)}
-              placeholder="C310, C200, TC70 …"
+              placeholder={t('modal.modelPlaceholder')}
             />
           </label>
 
           {testResult && (
             <p className={`test-result${testResult.success ? ' test-ok' : ' test-fail'}`}>
-              {testResult.success ? '✓ API connection successful' : `✗ ${testResult.error}`}
+              {testResult.success ? t('modal.testSuccess') : t('modal.testFail', { error: testResult.error })}
             </p>
           )}
 
           <div className="modal-actions">
             <button type="button" className="btn-secondary" onClick={handleTest} disabled={testing || !form.host || !form.password} data-testid="add-camera-test-connection">
-              {testing ? 'Testing…' : 'Test connection'}
+              {testing ? t('modal.testing') : t('modal.testConnection')}
             </button>
             <button type="submit" className="btn-primary" disabled={!form.name || !form.host || !form.password} data-testid="add-camera-save">
-              {initial ? 'Save changes' : 'Add camera'}
+              {initial ? t('modal.saveChanges') : t('modal.addCameraBtn')}
             </button>
           </div>
         </form>

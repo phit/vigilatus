@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { CameraState } from '../types';
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
 const REFRESH_BASE_MS = 5000;
 
 export function CameraPreview({ camera, isSelected, playbackMode, onSelect, onEdit, onRemove }: Props) {
+  const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState<string | null>(camera.snapshotDataUrl ?? null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -47,7 +49,7 @@ export function CameraPreview({ camera, isSelected, playbackMode, onSelect, onEd
   const { name } = camera.config;
   const { status } = camera;
   const statusLabel = (playbackMode === 'playback' && isSelected && status === 'connecting' && !camera.hlsUrl)
-    ? 'Loading recording...'
+    ? t('preview.loadingRecording')
     : status;
 
   const handleContextMenu = async (e: React.MouseEvent) => {
@@ -63,7 +65,7 @@ export function CameraPreview({ camera, isSelected, playbackMode, onSelect, onEd
       className={`preview-card${isSelected ? ' preview-card--selected' : ''}`}
       onClick={onSelect}
       onContextMenu={handleContextMenu}
-      title={`Switch to ${name}`}
+      title={t('preview.switchTo', { name })}
     >
       <div className="preview-thumb">
         {snapshot ? (
