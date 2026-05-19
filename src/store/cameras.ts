@@ -57,24 +57,24 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   // ------------------------------------------------------------------
 
   async loadCameras() {
-    const configs = await window.tapoStudio.cameras.getAll();
+    const configs = await window.vigilatus.cameras.getAll();
     set({
       cameras: configs.map((config) => ({ config, status: 'idle' })),
     });
   },
 
   async addCamera(cfg) {
-    await window.tapoStudio.cameras.add(cfg);
+    await window.vigilatus.cameras.add(cfg);
     await get().loadCameras();
   },
 
   async updateCamera(id, updates) {
-    await window.tapoStudio.cameras.update(id, updates);
+    await window.vigilatus.cameras.update(id, updates);
     await get().loadCameras();
   },
 
   async removeCamera(id) {
-    await window.tapoStudio.cameras.remove(id);
+    await window.vigilatus.cameras.remove(id);
     set((s) => {
       const cameras = s.cameras.filter((c) => c.config.id !== id);
       const selectedId = s.selectedId === id ? (cameras[0]?.config.id ?? null) : s.selectedId;
@@ -101,7 +101,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   async startStream(id) {
     get().setStatus(id, 'connecting');
     try {
-      const hlsUrl = await window.tapoStudio.stream.start(id);
+      const hlsUrl = await window.vigilatus.stream.start(id);
       if (!hlsUrl) {
         set((s) => ({
           cameras: s.cameras.map((c) =>
@@ -131,7 +131,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   },
 
   stopStream(id) {
-    void window.tapoStudio.stream.stop(id);
+    void window.vigilatus.stream.stop(id);
     set((s) => ({
       cameras: s.cameras.map((c) => (c.config.id === id ? { ...c, status: 'idle', hlsUrl: undefined } : c)),
     }));
@@ -196,7 +196,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   async loadRecordings(cameraId, date) {
     set({ recordingsLoading: true, recordingsError: null });
     try {
-      const recs = await window.tapoStudio.recordings.list(cameraId, date);
+      const recs = await window.vigilatus.recordings.list(cameraId, date);
       set({ recordings: recs, recordingsLoading: false, recordingsError: null });
     } catch (e) {
       set({
@@ -251,7 +251,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
     }));
 
     try {
-      const playbackUrl = await window.tapoStudio.recordings.play(
+      const playbackUrl = await window.vigilatus.recordings.play(
         selectedId,
         requestedStartTime,
         requestedEndTime,

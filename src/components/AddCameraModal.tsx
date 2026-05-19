@@ -37,7 +37,7 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
     setTesting(true);
     setTestResult(null);
     try {
-      const result = await window.tapoStudio.cameras.test({
+      const result = await window.vigilatus.cameras.test({
         host: form.host,
         username: form.username,
         password: form.password,

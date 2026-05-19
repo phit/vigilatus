@@ -48,11 +48,18 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps
+      - name: Install Electron system deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0 libnotify4 libnss3 libxss1 \
+            libasound2t64 libgbm1 libatk-bridge2.0-0 libdrm2 libatspi2.0-0
       - run: npm run build
       - name: Run E2E tests
         run: ${{ matrix.os == 'ubuntu-latest' && 'xvfb-run --auto-servernum' || '' }} npx playwright test
         shell: bash
+        env:
+          CI: 'true'
       - uses: actions/upload-artifact@v7
         if: failure()
         with:

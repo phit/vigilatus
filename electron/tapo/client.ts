@@ -402,7 +402,7 @@ export class TapoClient {
     }
 
     const hostDir = this.host.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const outDir = path.join(os.tmpdir(), 'tapostudio-recordings', hostDir);
+    const outDir = path.join(os.tmpdir(), 'vigilatus-recordings', hostDir);
     const outFile = path.join(outDir, `${startTime}-${endTime}.mp4`);
 
     const encryptionMethod = this.passwordMethod ?? 'md5';

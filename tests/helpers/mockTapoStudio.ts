@@ -3,7 +3,7 @@ import type { CameraConfig, PreviewPosition, Recording, RuntimeInfo } from '../.
 
 type Unsubscribe = () => void;
 
-export type TapoStudioMock = {
+export type VigilatusMock = {
   cameras: {
     getAll: ReturnType<typeof vi.fn<[], Promise<CameraConfig[]>>>;
     add: ReturnType<typeof vi.fn<[CameraConfig], Promise<void>>>;
@@ -45,9 +45,9 @@ export type TapoStudioMock = {
   };
 };
 
-export function createTapoStudioMock(overrides: Partial<TapoStudioMock> = {}): TapoStudioMock {
+export function createVigilatusMock(overrides: Partial<VigilatusMock> = {}): VigilatusMock {
   const noop = () => undefined;
-  const mock: TapoStudioMock = {
+  const mock: VigilatusMock = {
     cameras: {
       getAll: vi.fn().mockResolvedValue([]),
       add: vi.fn().mockResolvedValue(undefined),
@@ -69,7 +69,7 @@ export function createTapoStudioMock(overrides: Partial<TapoStudioMock> = {}): T
     },
     diagnostics: {
       getRuntimeInfo: vi.fn().mockResolvedValue({
-        userData: 'C:/tmp/tapostudio',
+        userData: 'C:/tmp/vigilatus',
         logPath: null,
         isDevelopment: true,
         isPackaged: false,
@@ -92,8 +92,8 @@ export function createTapoStudioMock(overrides: Partial<TapoStudioMock> = {}): T
   return Object.assign(mock, overrides);
 }
 
-export function installTapoStudioMock(mock: TapoStudioMock): void {
-  Object.defineProperty(window, 'tapoStudio', {
+export function installVigilatusMock(mock: VigilatusMock): void {
+  Object.defineProperty(window, 'vigilatus', {
     value: mock,
     configurable: true,
     writable: true,

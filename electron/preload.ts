@@ -3,7 +3,7 @@ import type { CameraConfig, Recording, RuntimeInfo } from './types';
 
 type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';
 
-contextBridge.exposeInMainWorld('tapoStudio', {
+contextBridge.exposeInMainWorld('vigilatus', {
   cameras: {
     getAll: (): Promise<CameraConfig[]> => ipcRenderer.invoke('cameras:getAll'),
     add: (cfg: CameraConfig): Promise<void> => ipcRenderer.invoke('cameras:add', cfg),

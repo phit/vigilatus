@@ -17,9 +17,9 @@ import { registerHandlers } from './ipc/handlers';
 import { loadTestFixtures } from './testing/fixtures';
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const shouldOpenDevTools = process.env.TAPOSTUDIO_OPEN_DEVTOOLS === '1' || !isDevelopment;
+const shouldOpenDevTools = process.env.VIGILATUS_OPEN_DEVTOOLS === '1' || !isDevelopment;
 const projectGithubUrl = 'https://github.com/phit/tapo-studio';
-const automationUserDataDir = process.env.TAPOSTUDIO_USER_DATA_DIR?.trim();
+const automationUserDataDir = process.env.VIGILATUS_USER_DATA_DIR?.trim();
 
 if (automationUserDataDir) {
   app.setPath('userData', path.resolve(automationUserDataDir));
@@ -29,7 +29,7 @@ if (automationUserDataDir) {
 let logPath: string | null = null;
 function setupLogging(): void {
   try {
-    logPath = path.join(app.getPath('userData'), 'tapostudio.log');
+    logPath = path.join(app.getPath('userData'), 'vigilatus.log');
     const logStream = fs.createWriteStream(logPath, { flags: 'a' });
     const originalLog = console.log;
     const originalError = console.error;
@@ -47,7 +47,7 @@ function setupLogging(): void {
       originalError(...args);
     };
 
-    console.log('=== TapoStudio Started ===');
+    console.log('=== Vigilatus Started ===');
     console.log('isDevelopment:', isDevelopment);
     console.log('app.isPackaged:', app.isPackaged);
     console.log('userData:', app.getPath('userData'));
@@ -340,7 +340,8 @@ function createWindow(): void {
     minWidth: 1200,
     minHeight: 800,
     backgroundColor: '#070b16',
-    title: 'TapoStudio',
+    title: 'Vigilatus',
+    icon: path.join(__dirname, '..', 'renderer', 'logo.svg'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

@@ -11,7 +11,7 @@ export interface TestFixtures {
 }
 
 export function loadTestFixtures(): TestFixtures | null {
-  const fixtureFile = process.env.TAPOSTUDIO_TEST_FIXTURES?.trim();
+  const fixtureFile = process.env.VIGILATUS_TEST_FIXTURES?.trim();
   if (!fixtureFile) return null;
 
   const resolvedPath = path.resolve(fixtureFile);

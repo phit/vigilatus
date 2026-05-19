@@ -225,7 +225,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
         let attemptError: unknown = null;
         for (const attempt of attempts) {
           const clipKey = `${Math.floor(attempt.start / 1000)}-${Math.floor(attempt.end / 1000)}`;
-          const outputDir = path.join(os.tmpdir(), 'tapostudio-playback', cameraId, clipKey);
+          const outputDir = path.join(os.tmpdir(), 'vigilatus-playback', cameraId, clipKey);
           try {
             const job = await client.startRecordingPlayback(
               attempt.start,
@@ -378,7 +378,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
         });
 
       const relativeAssetPath = path.relative(
-        path.join(os.tmpdir(), 'tapostudio-playback'),
+        path.join(os.tmpdir(), 'vigilatus-playback'),
         playbackJob.assetPath ?? '',
       );
       const url = streamManager.getPlaybackAssetUrl(relativeAssetPath);

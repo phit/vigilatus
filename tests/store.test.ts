@@ -2,7 +2,7 @@ import { waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useCameraStore } from '../src/store/cameras';
 import type { CameraConfig } from '../src/types';
-import { createTapoStudioMock, installTapoStudioMock } from './helpers/mockTapoStudio';
+import { createVigilatusMock, installVigilatusMock } from './helpers/mockVigilatus';
 
 function resetStore(): void {
   useCameraStore.setState({
@@ -21,14 +21,14 @@ function resetStore(): void {
 
 describe('useCameraStore', () => {
   beforeEach(() => {
-    installTapoStudioMock(createTapoStudioMock());
+    installVigilatusMock(createVigilatusMock());
     resetStore();
   });
 
   it('selects a camera and starts its stream', async () => {
-    const mock = createTapoStudioMock();
+    const mock = createVigilatusMock();
     mock.stream.start.mockResolvedValueOnce('http://127.0.0.1/live.m3u8');
-    installTapoStudioMock(mock);
+    installVigilatusMock(mock);
 
     useCameraStore.setState({
       cameras: [
@@ -64,9 +64,9 @@ describe('useCameraStore', () => {
   });
 
   it('seeks into a recording clip and requests playback', async () => {
-    const mock = createTapoStudioMock();
+    const mock = createVigilatusMock();
     mock.recordings.play.mockResolvedValueOnce('blob:recording-playback');
-    installTapoStudioMock(mock);
+    installVigilatusMock(mock);
 
     useCameraStore.setState({
       cameras: [{ config: camera('cam-1'), status: 'idle' }],

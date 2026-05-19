@@ -1,5 +1,5 @@
 {
-  "name": "tapostudio",
+  "name": "vigilatus",
   "version": "0.1.0",
   "private": true,
   "description": "Cross-platform desktop app for viewing Tapo cameras and local recordings.",
@@ -58,8 +58,8 @@
     "wait-on": "^9.0.10"
   },
   "build": {
-    "appId": "link.phit.tapostudio",
-    "productName": "TapoStudio",
+    "appId": "link.phit.vigilatus",
+    "productName": "Vigilatus",
     "directories": {
       "output": "release"
     },
@@ -73,6 +73,7 @@
       "node_modules/ffmpeg-static/**/*"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "portable",
@@ -84,6 +85,7 @@
       "artifactName": "${productName}-${version}-win-${arch}-portable.${ext}"
     },
     "linux": {
+      "icon": "build/icon.png",
       "target": [
         {
           "target": "AppImage",

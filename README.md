@@ -1,4 +1,4 @@
-# TapoStudio
+# Vigilatus
 
 Desktop app for monitoring multiple TP-Link Tapo cameras.  
 Note: this app was basically fully written with the help of AI, while I did fully oversee all code changes, this is my first Electron application.
@@ -34,7 +34,7 @@ Run the real Electron smoke test, which builds the app and launches it against a
 npm run test:e2e
 ```
 
-For manual automation runs, set `TAPOSTUDIO_USER_DATA_DIR` to isolate config and logs from your normal profile. The main process writes a `tapostudio.log` file inside that directory and exposes the active runtime paths through `window.tapoStudio.diagnostics.getRuntimeInfo()`.
+For manual automation runs, set `VIGILATUS_USER_DATA_DIR` to isolate config and logs from your normal profile. The main process writes a `vigilatus.log` file inside that directory and exposes the active runtime paths through `window.vigilatus.diagnostics.getRuntimeInfo()`.
 
 ## Releases
 

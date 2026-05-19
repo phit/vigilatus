@@ -60,26 +60,26 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const offOpenAdd = window.tapoStudio.ui.onOpenAddCamera(() => {
+    const offOpenAdd = window.vigilatus.ui.onOpenAddCamera(() => {
       setEditTarget(undefined);
       setShowModal(true);
     });
-    const offSetPreviewsVisible = window.tapoStudio.ui.onSetPreviewsVisible((visible) => {
+    const offSetPreviewsVisible = window.vigilatus.ui.onSetPreviewsVisible((visible) => {
       setPreviewsVisible(visible);
     });
-    const offSetTimelineVisible = window.tapoStudio.ui.onSetTimelineVisible((visible) => {
+    const offSetTimelineVisible = window.vigilatus.ui.onSetTimelineVisible((visible) => {
       setTimelineVisible(visible);
     });
-    const offSetHeaderVisible = window.tapoStudio.ui.onSetHeaderVisible((visible) => {
+    const offSetHeaderVisible = window.vigilatus.ui.onSetHeaderVisible((visible) => {
       setHeaderVisible(visible);
     });
-    const offSetPreviewPosition = window.tapoStudio.ui.onSetPreviewPosition((position: PreviewPosition) => {
+    const offSetPreviewPosition = window.vigilatus.ui.onSetPreviewPosition((position: PreviewPosition) => {
       setPreviewPosition(position);
     });
-    const offStreamsInvalidated = window.tapoStudio.ui.onStreamsInvalidated(() => {
+    const offStreamsInvalidated = window.vigilatus.ui.onStreamsInvalidated(() => {
       restartActiveStreams();
     });
-    const offSetLanguage = window.tapoStudio.ui.onSetLanguage((language) => {
+    const offSetLanguage = window.vigilatus.ui.onSetLanguage((language) => {
       if (language === 'system') {
         const detected = navigator.language.split('-')[0] || 'en';
         i18n.changeLanguage(detected);

@@ -24,7 +24,7 @@ export function CameraPreview({ camera, isSelected, playbackMode, onSelect, onEd
     const refresh = async () => {
       if (cancelled) return;
       try {
-        const data = await window.tapoStudio.snapshot.get(camera.config.id);
+        const data = await window.vigilatus.snapshot.get(camera.config.id);
         if (!cancelled && data) {
           setSnapshot(data);
         }
@@ -55,7 +55,7 @@ export function CameraPreview({ camera, isSelected, playbackMode, onSelect, onEd
 
   const handleContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
-    const action = await window.tapoStudio.contextMenu.showCameraMenu();
+    const action = await window.vigilatus.contextMenu.showCameraMenu();
     if (action === 'edit') onEdit();
     else if (action === 'remove') onRemove();
   };

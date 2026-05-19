@@ -14,7 +14,7 @@ const electronPath = path.join(
 const projectRoot = path.resolve(process.cwd());
 
 async function launchElectronApp(options: { fixtures: TestFixtures; cameras?: CameraConfig[] }) {
-  const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tapostudio-e2e-'));
+  const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vigilatus-e2e-'));
   const fixturePath = path.join(userDataDir, 'fixtures.json');
 
   await fs.writeFile(fixturePath, JSON.stringify(options.fixtures, null, 2), 'utf8');
@@ -38,15 +38,25 @@ async function launchElectronApp(options: { fixtures: TestFixtures; cameras?: Ca
     );
   }
 
+  const isCI = Boolean(process.env.CI);
+  const isLinux = process.platform === 'linux';
+
   const app = await electron.launch({
     executablePath: electronPath,
-    args: [projectRoot, ...(process.platform === 'linux' ? ['--no-sandbox', '--disable-gpu'] : [])],
+    args: [
+      projectRoot,
+      ...(isLinux
+        ? ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--disable-setuid-sandbox']
+        : []),
+    ],
     env: {
       ...process.env,
-      TAPOSTUDIO_USER_DATA_DIR: userDataDir,
-      TAPOSTUDIO_TEST_FIXTURES: fixturePath,
-      TAPOSTUDIO_OPEN_DEVTOOLS: '0',
+      VIGILATUS_USER_DATA_DIR: userDataDir,
+      VIGILATUS_TEST_FIXTURES: fixturePath,
+      VIGILATUS_OPEN_DEVTOOLS: '0',
+      ...(isCI && isLinux ? { ELECTRON_ENABLE_LOGGING: '1' } : {}),
     },
+    timeout: isCI ? 30_000 : 10_000,
   });
 
   const window = await app.firstWindow();
@@ -59,7 +69,7 @@ test('launches the real app and creates a camera through the UI', async () => {
   const { app, window, userDataDir } = await launchElectronApp({ fixtures: { streams: {} } });
 
   try {
-    const runtimeInfo = await window.evaluate(() => window.tapoStudio.diagnostics.getRuntimeInfo());
+    const runtimeInfo = await window.evaluate(() => window.vigilatus.diagnostics.getRuntimeInfo());
     await expect
       .poll(async () => {
         if (!runtimeInfo.logPath) return '';
@@ -69,7 +79,7 @@ test('launches the real app and creates a camera through the UI', async () => {
           return '';
         }
       })
-      .toContain('=== TapoStudio Started ===');
+      .toContain('=== Vigilatus Started ===');
 
     await expect(window.getByTestId('empty-state')).toBeVisible();
     await window.getByTestId('empty-state-add-camera').click();

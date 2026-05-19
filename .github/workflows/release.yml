@@ -20,11 +20,11 @@ jobs:
           - os: windows-latest
             release_command: npm run release:win
             artifact_name: windows-portable
-            artifact_path: release/TapoStudio-*-win-*-portable.exe
+            artifact_path: release/Vigilatus-*-win-*-portable.exe
           - os: ubuntu-latest
             release_command: npm run release:linux
             artifact_name: linux-appimage
-            artifact_path: release/TapoStudio-*-linux-*.AppImage
+            artifact_path: release/Vigilatus-*-linux-*.AppImage
 
     steps:
       - name: Checkout

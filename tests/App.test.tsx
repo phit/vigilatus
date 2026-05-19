@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { App } from '../src/App';
 import { useCameraStore } from '../src/store/cameras';
-import { createTapoStudioMock, installTapoStudioMock } from './helpers/mockTapoStudio';
+import { createVigilatusMock, installVigilatusMock } from './helpers/mockVigilatus';
 
 function resetStore(): void {
   useCameraStore.setState({
@@ -21,13 +21,13 @@ function resetStore(): void {
 
 describe('App', () => {
   beforeEach(() => {
-    installTapoStudioMock(createTapoStudioMock());
+    installVigilatusMock(createVigilatusMock());
     resetStore();
   });
 
   it('opens and closes the add camera modal from the empty state', async () => {
-    const mock = createTapoStudioMock();
-    installTapoStudioMock(mock);
+    const mock = createVigilatusMock();
+    installVigilatusMock(mock);
 
     render(<App />);
 

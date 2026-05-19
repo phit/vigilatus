@@ -4,7 +4,7 @@ import type { CameraConfig, PreviewPosition, Recording, RuntimeInfo } from './ty
 
 declare global {
   interface Window {
-    tapoStudio: {
+    vigilatus: {
       cameras: {
         getAll(): Promise<CameraConfig[]>;
         add(cfg: CameraConfig): Promise<void>;

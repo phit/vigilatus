@@ -20,9 +20,9 @@ import { resolveFfmpegBinaryPath } from './ffmpegPath';
 // Constants
 // ---------------------------------------------------------------------------
 
-const HLS_DIR = path.join(os.tmpdir(), 'tapostudio-hls');
-const SNAP_DIR = path.join(os.tmpdir(), 'tapostudio-snaps');
-const PLAYBACK_DIR = path.join(os.tmpdir(), 'tapostudio-playback');
+const HLS_DIR = path.join(os.tmpdir(), 'vigilatus-hls');
+const SNAP_DIR = path.join(os.tmpdir(), 'vigilatus-snaps');
+const PLAYBACK_DIR = path.join(os.tmpdir(), 'vigilatus-playback');
 
 // ---------------------------------------------------------------------------
 // State
@@ -616,7 +616,7 @@ function startServer(): Promise<number> {
       } else if (relativePath.startsWith('recording/')) {
         // Serve from recordings directory (for in-progress downloads)
         // The path includes the host directory, e.g., /recording/192.168.100.141/timestamp.mp4
-        baseDir = path.join(os.tmpdir(), 'tapostudio-recordings');
+        baseDir = path.join(os.tmpdir(), 'vigilatus-recordings');
         filePath = relativePath.replace(/^recording\//, '');
       } else {
         baseDir = HLS_DIR;

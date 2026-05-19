@@ -39,7 +39,7 @@ function parseArgs(argv: string[]): CliArgs {
 }
 
 function loadCameras(): CameraConfig[] {
-  const filePath = path.join(os.homedir(), 'AppData', 'Roaming', 'tapostudio', 'cameras.json');
+  const filePath = path.join(os.homedir(), 'AppData', 'Roaming', 'vigilatus', 'cameras.json');
   const raw = fs.readFileSync(filePath, 'utf8');
   const parsed = JSON.parse(raw) as { cameras?: CameraConfig[] };
   return parsed.cameras ?? [];

@@ -29,6 +29,22 @@ let config: Config = {
 
 export function init(userDataPath: string): void {
   configPath = path.join(userDataPath, 'cameras.json');
+
+  // TODO: Remove this migration after a few releases (added 2026-05-19).
+  // Copy config from the old "TapoStudio" user-data folder if the new one doesn't exist yet.
+  if (!fs.existsSync(configPath)) {
+    const oldPath = path.join(path.dirname(userDataPath), 'TapoStudio', 'cameras.json');
+    if (fs.existsSync(oldPath)) {
+      try {
+        fs.mkdirSync(userDataPath, { recursive: true });
+        fs.copyFileSync(oldPath, configPath);
+        console.info('[config] Migrated config from TapoStudio →', configPath);
+      } catch (err) {
+        console.warn('[config] Failed to migrate old config:', err);
+      }
+    }
+  }
+
   if (fs.existsSync(configPath)) {
     try {
       const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Partial<Config>;
