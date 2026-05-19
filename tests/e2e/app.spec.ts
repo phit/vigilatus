@@ -130,12 +130,9 @@ test('drives the timeline into playback using mocked recordings', async () => {
     await expect(window.getByTestId('timeline')).toBeVisible();
     await expect(window.getByText(/1 recording segment found/i)).toBeVisible();
 
-    const track = window.locator('.timeline-track');
-    const box = await track.boundingBox();
-    expect(box).not.toBeNull();
-    if (!box) return;
-
-    await window.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
+    const segment = window.locator('.timeline-segment').first();
+    await expect(segment).toBeVisible();
+    await segment.click();
 
     await expect(window.locator('.viewer-badge')).toHaveText('Playback');
   } finally {
