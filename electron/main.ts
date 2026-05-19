@@ -6,6 +6,7 @@ import {
   type MenuItemConstructorOptions,
   nativeTheme,
   powerMonitor,
+  session,
   shell,
 } from 'electron';
 import path from 'node:path';
@@ -345,8 +346,11 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      webviewTag: false,
     },
   });
+
+  wireExternalLinks(win);
 
   if (isDevelopment && process.env.VITE_DEV_SERVER_URL) {
     win.loadURL(process.env.VITE_DEV_SERVER_URL);
@@ -399,6 +403,32 @@ ipcMain.handle('ui:showCameraContextMenu', (_e): Promise<string | null> => {
 
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark';
+
+  // Content Security Policy
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          [
+            "default-src 'self'",
+            "script-src 'self'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data:",
+            "media-src 'self' http://127.0.0.1:* blob:",
+            "connect-src 'self' http://127.0.0.1:*",
+            "object-src 'none'",
+            "base-uri 'self'",
+          ].join('; '),
+        ],
+      },
+    });
+  });
+
+  // Deny all permission requests from renderers
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
 
   configStore.init(app.getPath('userData'));
   const persistedUiDisplay = configStore.getUiDisplayPreferences();
