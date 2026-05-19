@@ -421,6 +421,7 @@ app.whenReady().then(async () => {
             "img-src 'self' data:",
             "media-src 'self' http://127.0.0.1:* blob:",
             connectSrc,
+            "worker-src 'self' blob:",
             "object-src 'none'",
             "base-uri 'self'",
           ].join('; '),
