@@ -430,9 +430,9 @@ app.whenReady().then(async () => {
     });
   });
 
-  // Deny all permission requests from renderers
-  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    callback(false);
+  // Deny all permission requests except fullscreen
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === 'fullscreen');
   });
 
   configStore.init(app.getPath('userData'));
