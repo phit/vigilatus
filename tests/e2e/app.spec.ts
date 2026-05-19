@@ -40,7 +40,7 @@ async function launchElectronApp(options: { fixtures: TestFixtures; cameras?: Ca
 
   const app = await electron.launch({
     executablePath: electronPath,
-    args: [projectRoot],
+    args: [projectRoot, ...(process.platform === 'linux' ? ['--no-sandbox', '--disable-gpu'] : [])],
     env: {
       ...process.env,
       TAPOSTUDIO_USER_DATA_DIR: userDataDir,
@@ -132,7 +132,10 @@ test('drives the timeline into playback using mocked recordings', async () => {
 
     const segment = window.locator('.timeline-segment').first();
     await expect(segment).toBeVisible();
-    await segment.click();
+    const segBox = await segment.boundingBox();
+    expect(segBox).not.toBeNull();
+    if (!segBox) return;
+    await window.mouse.click(segBox.x + segBox.width / 2, segBox.y + segBox.height / 2);
 
     await expect(window.locator('.viewer-badge')).toHaveText('Playback');
   } finally {
