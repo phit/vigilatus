@@ -87,7 +87,14 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   // ------------------------------------------------------------------
 
   selectCamera(id) {
-    set({ selectedId: id, playbackMode: 'live', playbackTime: null, recordings: [], recordingsLoading: false, recordingsError: null });
+    set({
+      selectedId: id,
+      playbackMode: 'live',
+      playbackTime: null,
+      recordings: [],
+      recordingsLoading: false,
+      recordingsError: null,
+    });
     void get().startStream(id);
   },
 
@@ -126,15 +133,13 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   stopStream(id) {
     void window.tapoStudio.stream.stop(id);
     set((s) => ({
-      cameras: s.cameras.map((c) =>
-        c.config.id === id ? { ...c, status: 'idle', hlsUrl: undefined } : c,
-      ),
+      cameras: s.cameras.map((c) => (c.config.id === id ? { ...c, status: 'idle', hlsUrl: undefined } : c)),
     }));
   },
 
   restartActiveStreams() {
-    const liveIds = get().cameras
-      .filter((c) => c.status === 'live' || c.status === 'connecting')
+    const liveIds = get()
+      .cameras.filter((c) => c.status === 'live' || c.status === 'connecting')
       .map((c) => c.config.id);
     if (liveIds.length === 0) return;
     console.log('[cameras] restarting streams after resume:', liveIds);
@@ -150,17 +155,13 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
 
   updateSnapshot(id, dataUrl) {
     set((s) => ({
-      cameras: s.cameras.map((c) =>
-        c.config.id === id ? { ...c, snapshotDataUrl: dataUrl } : c,
-      ),
+      cameras: s.cameras.map((c) => (c.config.id === id ? { ...c, snapshotDataUrl: dataUrl } : c)),
     }));
   },
 
   setStatus(id, status, error) {
     set((s) => ({
-      cameras: s.cameras.map((c) =>
-        c.config.id === id ? { ...c, status, errorMessage: error } : c,
-      ),
+      cameras: s.cameras.map((c) => (c.config.id === id ? { ...c, status, errorMessage: error } : c)),
     }));
   },
 
@@ -198,7 +199,11 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
       const recs = await window.tapoStudio.recordings.list(cameraId, date);
       set({ recordings: recs, recordingsLoading: false, recordingsError: null });
     } catch (e) {
-      set({ recordings: [], recordingsLoading: false, recordingsError: (e as Error)?.message ?? 'Failed to load recordings' });
+      set({
+        recordings: [],
+        recordingsLoading: false,
+        recordingsError: (e as Error)?.message ?? 'Failed to load recordings',
+      });
     }
   },
 
@@ -208,7 +213,12 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
 
     const clip = recordings.find((r) => time >= r.startTime && time <= r.endTime);
     if (!clip) {
-      console.info('[cameras:seekTo] no clip found for time', new Date(time).toISOString(), 'recordings:', recordings.length);
+      console.info(
+        '[cameras:seekTo] no clip found for time',
+        new Date(time).toISOString(),
+        'recordings:',
+        recordings.length,
+      );
       set({ playbackMode: 'live', playbackTime: null });
       return;
     }

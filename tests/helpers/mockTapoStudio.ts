@@ -9,7 +9,12 @@ export type TapoStudioMock = {
     add: ReturnType<typeof vi.fn<[CameraConfig], Promise<void>>>;
     update: ReturnType<typeof vi.fn<[string, Partial<CameraConfig>], Promise<void>>>;
     remove: ReturnType<typeof vi.fn<[string], Promise<void>>>;
-    test: ReturnType<typeof vi.fn<[Pick<CameraConfig, 'host' | 'username' | 'password'>], Promise<{ success: boolean; error?: string }>>>;
+    test: ReturnType<
+      typeof vi.fn<
+        [Pick<CameraConfig, 'host' | 'username' | 'password'>],
+        Promise<{ success: boolean; error?: string }>
+      >
+    >;
   };
   stream: {
     start: ReturnType<typeof vi.fn<[string], Promise<string | null>>>;

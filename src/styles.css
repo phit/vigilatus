@@ -33,8 +33,7 @@ body,
 body {
   background:
     radial-gradient(ellipse at top left, rgba(56, 189, 248, 0.12) 0%, transparent 40%),
-    radial-gradient(ellipse at bottom right, rgba(34, 197, 94, 0.09) 0%, transparent 40%),
-    var(--bg);
+    radial-gradient(ellipse at bottom right, rgba(34, 197, 94, 0.09) 0%, transparent 40%), var(--bg);
 }
 
 .app {

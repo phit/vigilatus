@@ -16,7 +16,7 @@ export interface CameraConfig {
 
 export interface Recording {
   startTime: number; // unix ms
-  endTime: number;   // unix ms
+  endTime: number; // unix ms
 }
 
 export type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';

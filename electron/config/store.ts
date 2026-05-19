@@ -79,12 +79,24 @@ export function removeCamera(id: string): void {
   save();
 }
 
-export function getUiDisplayPreferences(): { previews: boolean; timeline: boolean; header: boolean; previewPosition: PreviewPosition; language: string } {
+export function getUiDisplayPreferences(): {
+  previews: boolean;
+  timeline: boolean;
+  header: boolean;
+  previewPosition: PreviewPosition;
+  language: string;
+} {
   return { ...config.uiDisplay };
 }
 
 export function setUiDisplayPreferences(
-  preferences: Partial<{ previews: boolean; timeline: boolean; header: boolean; previewPosition: PreviewPosition; language: string }>,
+  preferences: Partial<{
+    previews: boolean;
+    timeline: boolean;
+    header: boolean;
+    previewPosition: PreviewPosition;
+    language: string;
+  }>,
 ): void {
   config.uiDisplay = {
     previews: preferences.previews ?? config.uiDisplay.previews,

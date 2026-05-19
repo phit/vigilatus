@@ -97,7 +97,9 @@ export function CameraViewer({ camera, playbackMode }: Props) {
       hls.loadSource(hlsUrl);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.play().catch(() => {/* autoplay may be blocked */});
+        video.play().catch(() => {
+          /* autoplay may be blocked */
+        });
       });
       hls.on(Hls.Events.ERROR, (_event, data) => {
         console.error('[viewer:hls] error', data);
@@ -141,7 +143,8 @@ export function CameraViewer({ camera, playbackMode }: Props) {
 
   const label = camera?.config.name ?? t('viewer.noCamera');
 
-  const displayError = playerError ?? (status === 'error' ? camera?.errorMessage ?? t('viewer.streamError') : null);
+  const displayError =
+    playerError ?? (status === 'error' ? (camera?.errorMessage ?? t('viewer.streamError')) : null);
 
   const toggleMute = () => {
     setIsMuted((value) => !value);
@@ -163,13 +166,7 @@ export function CameraViewer({ camera, playbackMode }: Props) {
     <div className="viewer">
       {hlsUrl && !displayError ? (
         <>
-          <video
-            ref={videoRef}
-            className="viewer-video"
-            autoPlay
-            muted={isMuted}
-            playsInline
-          />
+          <video ref={videoRef} className="viewer-video" autoPlay muted={isMuted} playsInline />
           <div className="viewer-controls">
             <button
               type="button"
@@ -196,14 +193,16 @@ export function CameraViewer({ camera, playbackMode }: Props) {
           {status === 'connecting' && <div className="spinner" />}
           <span className="viewer-label">
             {status === 'connecting'
-              ? isPlaybackLoading ? t('viewer.loadingRecording') : t('viewer.connecting')
+              ? isPlaybackLoading
+                ? t('viewer.loadingRecording')
+                : t('viewer.connecting')
               : displayError
-              ? displayError
-              : status === 'offline'
-              ? t('viewer.cameraOffline')
-              : camera
-              ? t('viewer.clickToStart')
-              : t('viewer.selectCamera')}
+                ? displayError
+                : status === 'offline'
+                  ? t('viewer.cameraOffline')
+                  : camera
+                    ? t('viewer.clickToStart')
+                    : t('viewer.selectCamera')}
           </span>
         </div>
       )}
@@ -212,7 +211,11 @@ export function CameraViewer({ camera, playbackMode }: Props) {
         <div className="viewer-overlay-meta">
           <span className="viewer-cam-name">{label}</span>
           <span className={`viewer-badge badge-${playbackMode === 'playback' ? 'playback' : status}`}>
-            {playbackMode === 'playback' ? t('viewer.playback') : status === 'live' ? t('viewer.live') : status}
+            {playbackMode === 'playback'
+              ? t('viewer.playback')
+              : status === 'live'
+                ? t('viewer.live')
+                : status}
           </span>
         </div>
       )}

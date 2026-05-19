@@ -48,9 +48,10 @@ export function CameraPreview({ camera, isSelected, playbackMode, onSelect, onEd
 
   const { name } = camera.config;
   const { status } = camera;
-  const statusLabel = (playbackMode === 'playback' && isSelected && status === 'connecting' && !camera.hlsUrl)
-    ? t('preview.loadingRecording')
-    : status;
+  const statusLabel =
+    playbackMode === 'playback' && isSelected && status === 'connecting' && !camera.hlsUrl
+      ? t('preview.loadingRecording')
+      : status;
 
   const handleContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -80,7 +81,6 @@ export function CameraPreview({ camera, isSelected, playbackMode, onSelect, onEd
         <span className="preview-name">{name}</span>
         <span className={`preview-dot dot-${status}`} title={statusLabel} />
       </div>
-
     </button>
   );
 }

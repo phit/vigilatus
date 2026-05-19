@@ -26,7 +26,13 @@ contextBridge.exposeInMainWorld('tapoStudio', {
   recordings: {
     list: (cameraId: string, date: string): Promise<Recording[]> =>
       ipcRenderer.invoke('recordings:list', cameraId, date),
-    play: (cameraId: string, startTime: number, endTime: number, requestedTime: number, clipStartTime?: number): Promise<string> =>
+    play: (
+      cameraId: string,
+      startTime: number,
+      endTime: number,
+      requestedTime: number,
+      clipStartTime?: number,
+    ): Promise<string> =>
       ipcRenderer.invoke('recordings:play', cameraId, startTime, endTime, requestedTime, clipStartTime),
   },
   diagnostics: {

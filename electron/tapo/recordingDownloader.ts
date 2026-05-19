@@ -458,9 +458,9 @@ class MediaSession {
 
     console.info(
       `[streamRecording] sending playback request:` +
-      ` userId=${userId}` +
-      ` start_time=${startTime} (${new Date(startTime * 1000).toISOString()})` +
-      ` end_time=${endTime} (${new Date(endTime * 1000).toISOString()})`,
+        ` userId=${userId}` +
+        ` start_time=${startTime} (${new Date(startTime * 1000).toISOString()})` +
+        ` end_time=${endTime} (${new Date(endTime * 1000).toISOString()})`,
     );
 
     await this.writeMultipart(Buffer.from(payload, 'utf8'), {
@@ -479,7 +479,10 @@ class MediaSession {
         part = await this.readPart();
       } catch (error) {
         const msg = String((error as Error)?.message ?? error ?? '');
-        if (msg.includes('Camera closed the recording stream unexpectedly') && (receivedVideo || receivedAnyPart)) {
+        if (
+          msg.includes('Camera closed the recording stream unexpectedly') &&
+          (receivedVideo || receivedAnyPart)
+        ) {
           break;
         }
         throw error;
@@ -490,7 +493,12 @@ class MediaSession {
         sessionId = part.sessionId;
       }
 
-      if (part.seq !== undefined && sessionId !== undefined && part.seq > 0 && part.seq % this.windowSize === 0) {
+      if (
+        part.seq !== undefined &&
+        sessionId !== undefined &&
+        part.seq > 0 &&
+        part.seq % this.windowSize === 0
+      ) {
         await this.sendAck(sessionId, this.windowSize * Math.floor(part.seq / this.windowSize));
       }
 
@@ -516,10 +524,13 @@ class MediaSession {
   }
 
   private async sendAck(sessionId: number, received: number): Promise<void> {
-    const payload = Buffer.from(JSON.stringify({
-      type: 'notification',
-      params: { event_type: 'stream_sequence' },
-    }), 'utf8');
+    const payload = Buffer.from(
+      JSON.stringify({
+        type: 'notification',
+        params: { event_type: 'stream_sequence' },
+      }),
+      'utf8',
+    );
 
     await this.writeMultipart(payload, {
       'Content-Type': 'application/json',
@@ -548,7 +559,10 @@ class MediaSession {
   private async readPart(): Promise<MediaPart> {
     await this.reader.readUntil(Buffer.from(this.deviceBoundary), NO_DATA_TIMEOUT_MS);
     const headerBlock = await this.reader.readUntil(Buffer.from('\r\n\r\n'), NO_DATA_TIMEOUT_MS);
-    const headerText = headerBlock.subarray(0, headerBlock.length - 4).toString('utf8').trim();
+    const headerText = headerBlock
+      .subarray(0, headerBlock.length - 4)
+      .toString('utf8')
+      .trim();
     const headers = parseHeaders(headerText);
     const mimetype = getHeader(headers, 'content-type') ?? 'application/octet-stream';
     const contentLength = Number(getHeader(headers, 'content-length') ?? '0');
@@ -658,7 +672,9 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
       options.hashedPassword,
       windowSize,
     );
-    console.info(`${logPrefix} connecting to media session (attempt ${attemptIndex + 1}/${retryWindowSizes.length}, windowSize=${windowSize})...`);
+    console.info(
+      `${logPrefix} connecting to media session (attempt ${attemptIndex + 1}/${retryWindowSizes.length}, windowSize=${windowSize})...`,
+    );
     await session.start();
     console.info(`${logPrefix} media session connected, starting stream...`);
 
@@ -666,7 +682,7 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
       stdio: options.audio ? ['pipe', 'ignore', 'pipe', 'pipe'] : ['pipe', 'ignore', 'pipe'],
     });
     const ffmpegStdin = ffmpegProc.stdin!;
-    const audioInput = options.audio ? ffmpegProc.stdio[3] as Writable | undefined : undefined;
+    const audioInput = options.audio ? (ffmpegProc.stdio[3] as Writable | undefined) : undefined;
     const ffmpegStderr = ffmpegProc.stderr!;
     if (!ffmpegStdin) {
       throw new Error('ffmpeg stdin is not available for recording download');
@@ -699,7 +715,9 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
         }
       });
 
-      console.info(`${logPrefix} media stream ended, received ${totalDataChunks} chunks (${totalBytes} bytes)`);
+      console.info(
+        `${logPrefix} media stream ended, received ${totalDataChunks} chunks (${totalBytes} bytes)`,
+      );
       if (audioInput && !audioInput.destroyed) {
         audioInput.end();
       }
@@ -749,7 +767,7 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
     }
   }
 
-  throw (lastError instanceof Error ? lastError : new Error('Unable to download recording stream'));
+  throw lastError instanceof Error ? lastError : new Error('Unable to download recording stream');
 }
 
 export async function startRecordingDownloadToHls(
@@ -811,7 +829,11 @@ export async function startRecordingDownloadToHls(
     await session.start();
     // console.info(`${logPrefix} media session connected, starting progressive MP4 stream (${modeLabel})...`);
 
-    const ffmpegArgs = buildPlaybackFfmpegArgs(assetPath, withAudio ? options.audio : undefined, options.seekOffsetSec);
+    const ffmpegArgs = buildPlaybackFfmpegArgs(
+      assetPath,
+      withAudio ? options.audio : undefined,
+      options.seekOffsetSec,
+    );
     // console.info(`${logPrefix} ffmpeg output path: ${assetPath}`);
     // console.info(`${logPrefix} ffmpeg args: ${ffmpegArgs.join(' ')}`);
 
@@ -819,10 +841,10 @@ export async function startRecordingDownloadToHls(
       stdio: withAudio && options.audio ? ['pipe', 'ignore', 'pipe', 'pipe'] : ['pipe', 'ignore', 'pipe'],
     });
     // console.info(`${logPrefix} ffmpeg process started (PID: ${ffmpegProc.pid})`);
-    
+
     activeFfmpegProc = ffmpegProc;
     const ffmpegStdin = ffmpegProc.stdin!;
-    const audioInput = withAudio && options.audio ? ffmpegProc.stdio[3] as Writable | undefined : undefined;
+    const audioInput = withAudio && options.audio ? (ffmpegProc.stdio[3] as Writable | undefined) : undefined;
     const ffmpegStderr = ffmpegProc.stderr!;
     if (!ffmpegStdin) {
       throw new Error('ffmpeg stdin is not available for recording playback');
@@ -919,11 +941,13 @@ export async function startRecordingDownloadToHls(
         if (!isRetryableRecordingStreamError(message) || attemptIndex >= retryWindowSizes.length - 1) {
           throw error;
         }
-        console.warn(`${logPrefix} retrying progressive playback with smaller window after retryable stream failure`);
+        console.warn(
+          `${logPrefix} retrying progressive playback with smaller window after retryable stream failure`,
+        );
       }
     }
 
-    throw (lastError instanceof Error ? lastError : new Error('Unable to start recording playback stream'));
+    throw lastError instanceof Error ? lastError : new Error('Unable to start recording playback stream');
   };
 
   const ready = waitForPlaybackFileReady(assetPath, PLAYBACK_READY_TIMEOUT_MS, logPrefix);
@@ -945,7 +969,7 @@ export async function startRecordingDownloadToHls(
         } catch {
           /* ignore */
         }
-        
+
         // Retry with audio if video-only failed
         try {
           await runAttemptWithRetry(true);
@@ -1011,25 +1035,25 @@ function waitForPlaybackFileReady(filePath: string, timeoutMs: number, logPrefix
           const currentSize = stats.size;
           const currentTime = Date.now();
           const isGrowing = currentSize > lastSize;
-          
+
           if (checkCount === 1 || checkCount % 10 === 0 || isGrowing) {
             // console.info(`${logPrefix} file check #${checkCount}: size=${currentSize}, growing=${isGrowing}`);
           }
-          
+
           // Resolve if we hit the main threshold
           if (currentSize >= MIN_PLAYBACK_READY_BYTES) {
             console.info(`${logPrefix} playback file is ready (${currentSize} bytes)`);
             resolve(filePath);
             return;
           }
-          
+
           // Or if file exists, has some data, and is actively growing
           if (currentSize >= MIN_PLAYBACK_GROWTH_BYTES && isGrowing && currentTime - lastCheckTime >= 400) {
             console.info(`${logPrefix} playback file is growing (${currentSize} bytes), starting playback`);
             resolve(filePath);
             return;
           }
-          
+
           lastSize = currentSize;
           if (isGrowing) {
             lastCheckTime = currentTime;
@@ -1044,7 +1068,9 @@ function waitForPlaybackFileReady(filePath: string, timeoutMs: number, logPrefix
       }
 
       if (Date.now() - start >= timeoutMs) {
-        console.error(`${logPrefix} file check timed out after ${checkCount} checks, ${Date.now() - start}ms`);
+        console.error(
+          `${logPrefix} file check timed out after ${checkCount} checks, ${Date.now() - start}ms`,
+        );
         reject(new Error('Timed out waiting for recording playback to become ready'));
         return;
       }
@@ -1057,15 +1083,7 @@ function waitForPlaybackFileReady(filePath: string, timeoutMs: number, logPrefix
 }
 
 function buildDownloadFfmpegArgs(outputPath: string, audio?: RecordingAudioOptions): string[] {
-  const args = [
-    '-loglevel',
-    'error',
-    '-y',
-    '-f',
-    'mpegts',
-    '-i',
-    'pipe:0',
-  ];
+  const args = ['-loglevel', 'error', '-y', '-f', 'mpegts', '-i', 'pipe:0'];
 
   if (audio) {
     args.push(
@@ -1094,7 +1112,11 @@ function buildDownloadFfmpegArgs(outputPath: string, audio?: RecordingAudioOptio
   return args;
 }
 
-function buildPlaybackFfmpegArgs(outputPath: string, audio?: RecordingAudioOptions, seekOffsetSec?: number): string[] {
+function buildPlaybackFfmpegArgs(
+  outputPath: string,
+  audio?: RecordingAudioOptions,
+  seekOffsetSec?: number,
+): string[] {
   const args = [
     '-loglevel',
     'error',
@@ -1151,13 +1173,7 @@ function buildPlaybackFfmpegArgs(outputPath: string, audio?: RecordingAudioOptio
     );
   }
 
-  args.push(
-    '-f',
-    'mp4',
-    '-movflags',
-    'frag_keyframe+empty_moov+default_base_moof',
-    outputPath,
-  );
+  args.push('-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', outputPath);
   return args;
 }
 
@@ -1193,7 +1209,9 @@ async function writeToWritable(writable: Writable, chunk: Buffer): Promise<void>
 
 function buildRetryWindowSizes(windowSize?: number): number[] {
   const values = new Set<number>();
-  values.add(typeof windowSize === 'number' && Number.isFinite(windowSize) && windowSize > 0 ? windowSize : 200);
+  values.add(
+    typeof windowSize === 'number' && Number.isFinite(windowSize) && windowSize > 0 ? windowSize : 200,
+  );
   values.add(FALLBACK_WINDOW_SIZE);
   return Array.from(values);
 }

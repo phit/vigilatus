@@ -44,9 +44,16 @@ function stopRecordingPlayback(cameraId: string): void {
   });
 }
 
-function normalizePlaybackWindow(startTime: number, endTime: number, requestedTime: number): { startTime: number; endTime: number } {
+function normalizePlaybackWindow(
+  startTime: number,
+  endTime: number,
+  requestedTime: number,
+): { startTime: number; endTime: number } {
   const boundedRequestedTime = Math.max(startTime, Math.min(endTime, requestedTime));
-  let normalizedStartTime = Math.max(startTime, Math.min(boundedRequestedTime, endTime - MIN_PLAYBACK_WINDOW_MS));
+  let normalizedStartTime = Math.max(
+    startTime,
+    Math.min(boundedRequestedTime, endTime - MIN_PLAYBACK_WINDOW_MS),
+  );
   let normalizedEndTime = Math.min(endTime, normalizedStartTime + MAX_PLAYBACK_WINDOW_MS);
 
   if (normalizedEndTime - normalizedStartTime < MIN_PLAYBACK_WINDOW_MS) {
@@ -87,13 +94,10 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     configStore.removeCamera(id);
   });
 
-  ipcMain.handle(
-    'cameras:test',
-    (_e, cfg: Pick<CameraConfig, 'host' | 'username' | 'password'>) => {
-      const client = new TapoClient(cfg);
-      return client.testConnection();
-    },
-  );
+  ipcMain.handle('cameras:test', (_e, cfg: Pick<CameraConfig, 'host' | 'username' | 'password'>) => {
+    const client = new TapoClient(cfg);
+    return client.testConnection();
+  });
 
   // ------------------------------------------------------------------
   // Streaming
@@ -170,189 +174,216 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     return recordings;
   });
 
-  ipcMain.handle('recordings:play', async (_e, cameraId: string, startTime: number, endTime: number, requestedTime?: number, clipStartTime?: number) => {
-    if (testFixtures?.playbackUrls) {
-      return testFixtures.playbackUrls[cameraId] ?? 'about:blank';
-    }
-
-    const cam = configStore.getCameras().find((c) => c.id === cameraId);
-    if (!cam) throw new Error(`Camera ${cameraId} not found`);
-
-    const playbackWindow = normalizePlaybackWindow(startTime, endTime, requestedTime ?? startTime);
-    startTime = playbackWindow.startTime;
-    endTime = playbackWindow.endTime;
-
-    // Workaround: Tapo cameras ignore start_time for current-day (in-progress) recordings
-    // and stream from the beginning of the daily recording file. Compute an ffmpeg -ss offset
-    // so the output MP4 starts at the correct position.
-    let seekOffsetSec: number | undefined;
-    if (typeof clipStartTime === 'number' && clipStartTime > 0) {
-      const now = new Date();
-      const todayMidnight = startOfDay(now).getTime();
-      if (clipStartTime >= todayMidnight) {
-        seekOffsetSec = Math.max(0, Math.floor((startTime - clipStartTime) / 1000));
+  ipcMain.handle(
+    'recordings:play',
+    async (
+      _e,
+      cameraId: string,
+      startTime: number,
+      endTime: number,
+      requestedTime?: number,
+      clipStartTime?: number,
+    ) => {
+      if (testFixtures?.playbackUrls) {
+        return testFixtures.playbackUrls[cameraId] ?? 'about:blank';
       }
-    }
 
-    let lastError: unknown = null;
-    const cachedUserId = recordingsUserIdCache.get(cameraId);
+      const cam = configStore.getCameras().find((c) => c.id === cameraId);
+      if (!cam) throw new Error(`Camera ${cameraId} not found`);
 
-    const tryDownloadWithFallbackWindow = async (
-      client: TapoClient,
-      userIdHint?: number,
-      baseStart: number = startTime,
-      baseEnd: number = endTime,
-    ): Promise<ActiveRecordingPlaybackJob & { ready: Promise<string> }> => {
-      const attempts = [
-        { start: baseStart, end: baseEnd, label: 'exact' },
-        { start: Math.max(0, baseStart - 5_000), end: baseEnd + 60_000, label: 'wide-60s' },
-        { start: Math.max(0, baseStart - 10_000), end: baseEnd + 180_000, label: 'wide-180s' },
-      ];
+      const playbackWindow = normalizePlaybackWindow(startTime, endTime, requestedTime ?? startTime);
+      startTime = playbackWindow.startTime;
+      endTime = playbackWindow.endTime;
 
-      let attemptError: unknown = null;
-      for (const attempt of attempts) {
-        const clipKey = `${Math.floor(attempt.start / 1000)}-${Math.floor(attempt.end / 1000)}`;
-        const outputDir = path.join(os.tmpdir(), 'tapostudio-playback', cameraId, clipKey);
-        try {
-          const job = await client.startRecordingPlayback(attempt.start, attempt.end, outputDir, userIdHint, seekOffsetSec);
-          await job.ready;
-          return job;
-        } catch (e) {
-          attemptError = e;
-          const msg = String((e as Error)?.message ?? e ?? '');
-          const shouldRetryWithWiderWindow = msg.includes('Camera closed the recording stream unexpectedly');
-          if (!shouldRetryWithWiderWindow) {
-            throw e;
-          }
-          console.info(`[recordings:play:${cameraId}] retrying with ${attempt.label} window failed: ${msg}`);
+      // Workaround: Tapo cameras ignore start_time for current-day (in-progress) recordings
+      // and stream from the beginning of the daily recording file. Compute an ffmpeg -ss offset
+      // so the output MP4 starts at the correct position.
+      let seekOffsetSec: number | undefined;
+      if (typeof clipStartTime === 'number' && clipStartTime > 0) {
+        const now = new Date();
+        const todayMidnight = startOfDay(now).getTime();
+        if (clipStartTime >= todayMidnight) {
+          seekOffsetSec = Math.max(0, Math.floor((startTime - clipStartTime) / 1000));
         }
       }
 
-      throw (attemptError instanceof Error
-        ? attemptError
-        : new Error('Unable to download recording stream'));
-    };
+      let lastError: unknown = null;
+      const cachedUserId = recordingsUserIdCache.get(cameraId);
 
-    const tryDownloadNearbySegments = async (
-      client: TapoClient,
-      userIdHint?: number,
-    ): Promise<ActiveRecordingPlaybackJob & { ready: Promise<string> }> => {
-      const targetDate = dateFromEpochMs(startTime);
-      const targetMid = Math.floor((startTime + endTime) / 2);
-      const all = await client.getRecordingsForDate(targetDate);
-      const candidates = all
-        .filter((r) => r.endTime - r.startTime >= 30_000)
-        .filter((r) => !(r.startTime === startTime && r.endTime === endTime))
-        .map((r) => ({
-          ...r,
-          distance: Math.abs(Math.floor((r.startTime + r.endTime) / 2) - targetMid),
-        }))
-        .sort((a, b) => a.distance - b.distance)
-        .slice(0, 3);
+      const tryDownloadWithFallbackWindow = async (
+        client: TapoClient,
+        userIdHint?: number,
+        baseStart: number = startTime,
+        baseEnd: number = endTime,
+      ): Promise<ActiveRecordingPlaybackJob & { ready: Promise<string> }> => {
+        const attempts = [
+          { start: baseStart, end: baseEnd, label: 'exact' },
+          { start: Math.max(0, baseStart - 5_000), end: baseEnd + 60_000, label: 'wide-60s' },
+          { start: Math.max(0, baseStart - 10_000), end: baseEnd + 180_000, label: 'wide-180s' },
+        ];
 
-      let lastNearbyError: unknown = null;
-      for (const candidate of candidates) {
-        try {
-          return await tryDownloadWithFallbackWindow(client, userIdHint, candidate.startTime, candidate.endTime);
-        } catch (e) {
-          lastNearbyError = e;
-          const msg = String((e as Error)?.message ?? e ?? '');
-          if (!msg.includes('Camera closed the recording stream unexpectedly')) {
-            throw e;
-          }
-        }
-      }
-
-      throw (lastNearbyError instanceof Error
-        ? lastNearbyError
-        : new Error('Unable to download nearby recording segment'));
-    };
-
-    let playbackJob: (ActiveRecordingPlaybackJob & { ready: Promise<string>; assetPath?: string }) | null = null;
-
-    stopRecordingPlayback(cameraId);
-    // Ensure the live stream process is stopped before requesting playback.
-    // Some camera firmware returns incorrect clip content when live and playback
-    // are requested concurrently for the same camera.
-    streamManager.stopStream(cameraId);
-
-    console.info(
-      `[recordings:play:${cameraId}] starting foreground download` +
-      ` window=${new Date(startTime).toISOString()}..${new Date(endTime).toISOString()}` +
-      ` requested=${new Date(requestedTime ?? startTime).toISOString()}` +
-      ` clipStart=${clipStartTime ? new Date(clipStartTime).toISOString() : 'N/A'}` +
-      ` seekOffset=${seekOffsetSec ?? 'none'}`,
-    );
-
-    const cachedClient = recordingsClientCache.get(cameraId);
-    if (cachedClient) {
-      try {
-        playbackJob = await tryDownloadWithFallbackWindow(cachedClient, cachedUserId);
-        console.info(`[recordings:play:${cameraId}] playback stream started (cached client)`);
-      } catch (e) {
-        const msg = String((e as Error)?.message ?? e ?? '');
-        if (msg.includes('Camera closed the recording stream unexpectedly')) {
+        let attemptError: unknown = null;
+        for (const attempt of attempts) {
+          const clipKey = `${Math.floor(attempt.start / 1000)}-${Math.floor(attempt.end / 1000)}`;
+          const outputDir = path.join(os.tmpdir(), 'tapostudio-playback', cameraId, clipKey);
           try {
-            playbackJob = await tryDownloadNearbySegments(cachedClient, cachedUserId);
-            console.info(`[recordings:play:${cameraId}] playback stream started (nearby segments)`);
-          } catch (nearbyError) {
-            lastError = nearbyError;
+            const job = await client.startRecordingPlayback(
+              attempt.start,
+              attempt.end,
+              outputDir,
+              userIdHint,
+              seekOffsetSec,
+            );
+            await job.ready;
+            return job;
+          } catch (e) {
+            attemptError = e;
+            const msg = String((e as Error)?.message ?? e ?? '');
+            const shouldRetryWithWiderWindow = msg.includes(
+              'Camera closed the recording stream unexpectedly',
+            );
+            if (!shouldRetryWithWiderWindow) {
+              throw e;
+            }
+            console.info(
+              `[recordings:play:${cameraId}] retrying with ${attempt.label} window failed: ${msg}`,
+            );
           }
-        } else {
-          lastError = e;
         }
-      }
-    }
 
-    if (!playbackJob) {
-      const credential = recordingsCredentialCache.get(cameraId) ?? primaryCredential(cam);
-      const client = new TapoClient(credential);
-      try {
-        playbackJob = await tryDownloadWithFallbackWindow(client, cachedUserId);
-        recordingsCredentialCache.set(cameraId, credential);
-        recordingsClientCache.set(cameraId, client);
-        const resolvedUserId = client.getCachedUserId();
-        if (typeof resolvedUserId === 'number') {
-          recordingsUserIdCache.set(cameraId, resolvedUserId);
-        }
-        console.info(`[recordings:play:${cameraId}] playback stream started`);
-      } catch (e) {
-        const msg = String((e as Error)?.message ?? e ?? '');
-        if (msg.includes('Camera closed the recording stream unexpectedly')) {
+        throw attemptError instanceof Error ? attemptError : new Error('Unable to download recording stream');
+      };
+
+      const tryDownloadNearbySegments = async (
+        client: TapoClient,
+        userIdHint?: number,
+      ): Promise<ActiveRecordingPlaybackJob & { ready: Promise<string> }> => {
+        const targetDate = dateFromEpochMs(startTime);
+        const targetMid = Math.floor((startTime + endTime) / 2);
+        const all = await client.getRecordingsForDate(targetDate);
+        const candidates = all
+          .filter((r) => r.endTime - r.startTime >= 30_000)
+          .filter((r) => !(r.startTime === startTime && r.endTime === endTime))
+          .map((r) => ({
+            ...r,
+            distance: Math.abs(Math.floor((r.startTime + r.endTime) / 2) - targetMid),
+          }))
+          .sort((a, b) => a.distance - b.distance)
+          .slice(0, 3);
+
+        let lastNearbyError: unknown = null;
+        for (const candidate of candidates) {
           try {
-            playbackJob = await tryDownloadNearbySegments(client, cachedUserId);
-            console.info(`[recordings:play:${cameraId}] playback stream started (nearby segments)`);
-          } catch (nearbyError) {
-            lastError = nearbyError;
+            return await tryDownloadWithFallbackWindow(
+              client,
+              userIdHint,
+              candidate.startTime,
+              candidate.endTime,
+            );
+          } catch (e) {
+            lastNearbyError = e;
+            const msg = String((e as Error)?.message ?? e ?? '');
+            if (!msg.includes('Camera closed the recording stream unexpectedly')) {
+              throw e;
+            }
           }
-        } else {
-          lastError = e;
+        }
+
+        throw lastNearbyError instanceof Error
+          ? lastNearbyError
+          : new Error('Unable to download nearby recording segment');
+      };
+
+      let playbackJob: (ActiveRecordingPlaybackJob & { ready: Promise<string>; assetPath?: string }) | null =
+        null;
+
+      stopRecordingPlayback(cameraId);
+      // Ensure the live stream process is stopped before requesting playback.
+      // Some camera firmware returns incorrect clip content when live and playback
+      // are requested concurrently for the same camera.
+      streamManager.stopStream(cameraId);
+
+      console.info(
+        `[recordings:play:${cameraId}] starting foreground download` +
+          ` window=${new Date(startTime).toISOString()}..${new Date(endTime).toISOString()}` +
+          ` requested=${new Date(requestedTime ?? startTime).toISOString()}` +
+          ` clipStart=${clipStartTime ? new Date(clipStartTime).toISOString() : 'N/A'}` +
+          ` seekOffset=${seekOffsetSec ?? 'none'}`,
+      );
+
+      const cachedClient = recordingsClientCache.get(cameraId);
+      if (cachedClient) {
+        try {
+          playbackJob = await tryDownloadWithFallbackWindow(cachedClient, cachedUserId);
+          console.info(`[recordings:play:${cameraId}] playback stream started (cached client)`);
+        } catch (e) {
+          const msg = String((e as Error)?.message ?? e ?? '');
+          if (msg.includes('Camera closed the recording stream unexpectedly')) {
+            try {
+              playbackJob = await tryDownloadNearbySegments(cachedClient, cachedUserId);
+              console.info(`[recordings:play:${cameraId}] playback stream started (nearby segments)`);
+            } catch (nearbyError) {
+              lastError = nearbyError;
+            }
+          } else {
+            lastError = e;
+          }
         }
       }
-    }
 
-    if (!playbackJob) {
-      throw (lastError instanceof Error
-        ? lastError
-        : new Error('Failed to download recording clip'));
-    }
-
-    activeRecordingPlaybackJobs.set(cameraId, playbackJob);
-    if (playbackJob.assetPath) {
-      streamManager.registerActivePlaybackAsset(playbackJob.assetPath, playbackJob.completed);
-    }
-    void playbackJob.completed.catch(() => undefined).finally(() => {
-      if (activeRecordingPlaybackJobs.get(cameraId) === playbackJob) {
-        activeRecordingPlaybackJobs.delete(cameraId);
+      if (!playbackJob) {
+        const credential = recordingsCredentialCache.get(cameraId) ?? primaryCredential(cam);
+        const client = new TapoClient(credential);
+        try {
+          playbackJob = await tryDownloadWithFallbackWindow(client, cachedUserId);
+          recordingsCredentialCache.set(cameraId, credential);
+          recordingsClientCache.set(cameraId, client);
+          const resolvedUserId = client.getCachedUserId();
+          if (typeof resolvedUserId === 'number') {
+            recordingsUserIdCache.set(cameraId, resolvedUserId);
+          }
+          console.info(`[recordings:play:${cameraId}] playback stream started`);
+        } catch (e) {
+          const msg = String((e as Error)?.message ?? e ?? '');
+          if (msg.includes('Camera closed the recording stream unexpectedly')) {
+            try {
+              playbackJob = await tryDownloadNearbySegments(client, cachedUserId);
+              console.info(`[recordings:play:${cameraId}] playback stream started (nearby segments)`);
+            } catch (nearbyError) {
+              lastError = nearbyError;
+            }
+          } else {
+            lastError = e;
+          }
+        }
       }
+
+      if (!playbackJob) {
+        throw lastError instanceof Error ? lastError : new Error('Failed to download recording clip');
+      }
+
+      activeRecordingPlaybackJobs.set(cameraId, playbackJob);
       if (playbackJob.assetPath) {
-        streamManager.unregisterActivePlaybackAsset(playbackJob.assetPath);
+        streamManager.registerActivePlaybackAsset(playbackJob.assetPath, playbackJob.completed);
       }
-    });
+      void playbackJob.completed
+        .catch(() => undefined)
+        .finally(() => {
+          if (activeRecordingPlaybackJobs.get(cameraId) === playbackJob) {
+            activeRecordingPlaybackJobs.delete(cameraId);
+          }
+          if (playbackJob.assetPath) {
+            streamManager.unregisterActivePlaybackAsset(playbackJob.assetPath);
+          }
+        });
 
-    const relativeAssetPath = path.relative(path.join(os.tmpdir(), 'tapostudio-playback'), playbackJob.assetPath ?? '');
-    const url = streamManager.getPlaybackAssetUrl(relativeAssetPath);
-    console.info(`[recordings:play:${cameraId}] returning URL=${url}`);
-    return url;
-  });
+      const relativeAssetPath = path.relative(
+        path.join(os.tmpdir(), 'tapostudio-playback'),
+        playbackJob.assetPath ?? '',
+      );
+      const url = streamManager.getPlaybackAssetUrl(relativeAssetPath);
+      console.info(`[recordings:play:${cameraId}] returning URL=${url}`);
+      return url;
+    },
+  );
 }

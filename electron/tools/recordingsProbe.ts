@@ -35,8 +35,8 @@ function parseArgs(argv: string[]): CliArgs {
   const hasDirectCredentials = Boolean(host && username && password);
   if ((!cameraId && !hasDirectCredentials) || !/^\d{8}$/.test(date)) {
     throw new Error(
-      'Usage: npm run probe:recordings -- --cameraId <id> --date YYYYMMDD\n'
-      + '   or: npm run probe:recordings -- --host <ip-or-host> --username <user> --password <pass> --date YYYYMMDD [--streamUser <user> --streamPassword <pass>]',
+      'Usage: npm run probe:recordings -- --cameraId <id> --date YYYYMMDD\n' +
+        '   or: npm run probe:recordings -- --host <ip-or-host> --username <user> --password <pass> --date YYYYMMDD [--streamUser <user> --streamPassword <pass>]',
     );
   }
 
@@ -74,7 +74,9 @@ async function run(): Promise<void> {
     username = camera.username;
     password = camera.password;
     probeLabel = `camera=${camera.id}`;
-    console.info(`[probe:recordings] ${probeLabel} host=${camera.host} user=${camera.username} date=${cli.date}`);
+    console.info(
+      `[probe:recordings] ${probeLabel} host=${camera.host} user=${camera.username} date=${cli.date}`,
+    );
   } else {
     host = cli.host;
     console.info(`[probe:recordings] host=${host} user=${username} date=${cli.date}`);
@@ -105,7 +107,9 @@ async function run(): Promise<void> {
     }
   } catch (error) {
     const tookMs = Date.now() - startedAt;
-    console.error(`[probe:recordings] ${probeLabel} success=false tookMs=${tookMs} error=${(error as Error).message}`);
+    console.error(
+      `[probe:recordings] ${probeLabel} success=false tookMs=${tookMs} error=${(error as Error).message}`,
+    );
     process.exitCode = 1;
   }
 }

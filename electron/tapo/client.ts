@@ -252,7 +252,6 @@ export class TapoClient {
   }
 
   private async queryRecordingsForDate(date: string, userId?: number): Promise<Recording[]> {
-
     const daySearchParams: {
       channel: number;
       date: string;
@@ -287,7 +286,10 @@ export class TapoClient {
     if (direct.length > 0) {
       return direct;
     }
-    if (typeof userId === 'number' && STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(resp) ?? Number.NaN)) {
+    if (
+      typeof userId === 'number' &&
+      STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(resp) ?? Number.NaN)
+    ) {
       const refreshedUserId = await this.tryResolvePlaybackUserId(date, true);
       if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
         return this.queryRecordingsForDate(date, refreshedUserId);
@@ -316,7 +318,10 @@ export class TapoClient {
     if (legacyParsed.length > 0) {
       return legacyParsed;
     }
-    if (typeof userId === 'number' && STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(legacyResp) ?? Number.NaN)) {
+    if (
+      typeof userId === 'number' &&
+      STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(legacyResp) ?? Number.NaN)
+    ) {
       const refreshedUserId = await this.tryResolvePlaybackUserId(date, true);
       if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
         return this.queryRecordingsForDate(date, refreshedUserId);
@@ -349,9 +354,14 @@ export class TapoClient {
       },
     });
 
-    const sub = (resp.result?.responses?.[0] as {
-      result?: { playback?: { search_results?: Array<Record<string, unknown>> } };
-    } | undefined)?.result?.playback?.search_results ?? [];
+    const sub =
+      (
+        resp.result?.responses?.[0] as
+          | {
+              result?: { playback?: { search_results?: Array<Record<string, unknown>> } };
+            }
+          | undefined
+      )?.result?.playback?.search_results ?? [];
 
     const dates = new Set<string>();
     for (const item of sub) {
@@ -425,14 +435,15 @@ export class TapoClient {
       } catch (e) {
         lastError = e;
         const msg = String((e as Error)?.message ?? e ?? '');
-        const shouldTryNextUserId = this.isRetryablePlaybackStreamError(msg) && i < candidateUserIds.length - 1;
+        const shouldTryNextUserId =
+          this.isRetryablePlaybackStreamError(msg) && i < candidateUserIds.length - 1;
         if (!shouldTryNextUserId) {
           throw e;
         }
       }
     }
 
-    throw (lastError instanceof Error ? lastError : new Error('Unable to download recording stream'));
+    throw lastError instanceof Error ? lastError : new Error('Unable to download recording stream');
   }
 
   async startRecordingPlayback(
@@ -489,14 +500,15 @@ export class TapoClient {
       } catch (e) {
         lastError = e;
         const msg = String((e as Error)?.message ?? e ?? '');
-        const shouldTryNextUserId = this.isRetryablePlaybackStreamError(msg) && i < candidateUserIds.length - 1;
+        const shouldTryNextUserId =
+          this.isRetryablePlaybackStreamError(msg) && i < candidateUserIds.length - 1;
         if (!shouldTryNextUserId) {
           throw e;
         }
       }
     }
 
-    throw (lastError instanceof Error ? lastError : new Error('Unable to start recording playback stream'));
+    throw lastError instanceof Error ? lastError : new Error('Unable to start recording playback stream');
   }
 
   // -------------------------------------------------------------------------
@@ -537,15 +549,11 @@ export class TapoClient {
     });
 
     this.isSecureValue =
-      resp.error_code === -40413 &&
-      String(resp.result?.data?.encrypt_type ?? '').includes('3');
+      resp.error_code === -40413 && String(resp.result?.data?.encrypt_type ?? '').includes('3');
     return this.isSecureValue;
   }
 
-  private validateDeviceConfirm(
-    nonce: string,
-    deviceConfirm: string,
-  ): boolean {
+  private validateDeviceConfirm(nonce: string, deviceConfirm: string): boolean {
     const sha256Check = sha256Upper(this.cnonce + this.hashedSha256 + nonce);
     if (deviceConfirm === sha256Check + nonce + this.cnonce) {
       this.passwordMethod = 'sha256';
@@ -632,7 +640,12 @@ export class TapoClient {
 
     const step2 = await this.post<ApiResponse>(`https://${this.host}`, {
       method: 'login',
-      params: { cnonce: this.cnonce, encrypt_type: '3', digest_passwd: digestPasswdFull, username: this.username },
+      params: {
+        cnonce: this.cnonce,
+        encrypt_type: '3',
+        digest_passwd: digestPasswdFull,
+        username: this.username,
+      },
     });
 
     const secLeft = step2.result?.data?.sec_left ?? 0;
@@ -694,11 +707,7 @@ export class TapoClient {
     let responseData: ApiResponse | null = null;
 
     // Token expired
-    if (
-      !raw ||
-      raw.error_code === -40401 ||
-      raw.error_code === -1
-    ) {
+    if (!raw || raw.error_code === -40401 || raw.error_code === -1) {
       this.clearSession();
       if (retryCount < MAX_LOGIN_RETRIES) return this.apiRequest(req, retryCount + 1);
       throw new Error(`API request failed: error_code ${raw?.error_code}`);
@@ -764,10 +773,11 @@ export class TapoClient {
       },
     });
 
-    const firstResponseErrorCode = (resp.result.responses?.[0] as { error_code?: unknown } | undefined)?.error_code;
+    const firstResponseErrorCode = (resp.result.responses?.[0] as { error_code?: unknown } | undefined)
+      ?.error_code;
     if (
-      (firstResponseErrorCode === -1 || firstResponseErrorCode === -40401)
-      && retryCount < MAX_LOGIN_RETRIES
+      (firstResponseErrorCode === -1 || firstResponseErrorCode === -40401) &&
+      retryCount < MAX_LOGIN_RETRIES
     ) {
       this.clearSession();
       return this.getUserId(retryCount + 1);
@@ -785,16 +795,20 @@ export class TapoClient {
       return this.rememberUserId(directNum);
     }
 
-    const nested = (resp.result.responses?.[0] as { result?: { user_id?: unknown } } | undefined)
-      ?.result?.user_id;
+    const nested = (resp.result.responses?.[0] as { result?: { user_id?: unknown } } | undefined)?.result
+      ?.user_id;
     const nestedNum = asNumber(nested);
     if (nestedNum != null) {
       return this.rememberUserId(nestedNum);
     }
 
-    const systemNested = (resp.result.responses?.[0] as {
-      result?: { system?: { get_user_id?: { id?: unknown; user_id?: unknown } } };
-    } | undefined)?.result?.system?.get_user_id;
+    const systemNested = (
+      resp.result.responses?.[0] as
+        | {
+            result?: { system?: { get_user_id?: { id?: unknown; user_id?: unknown } } };
+          }
+        | undefined
+    )?.result?.system?.get_user_id;
 
     const systemUserId = asNumber(systemNested?.user_id);
     if (systemUserId != null) {
@@ -806,9 +820,13 @@ export class TapoClient {
       return this.rememberUserId(systemId);
     }
 
-    const multiResponseUserId = (resp.result.responses?.[0] as {
-      result?: { user_id?: unknown };
-    } | undefined)?.result?.user_id;
+    const multiResponseUserId = (
+      resp.result.responses?.[0] as
+        | {
+            result?: { user_id?: unknown };
+          }
+        | undefined
+    )?.result?.user_id;
     const multiResponseUserIdNum = asNumber(multiResponseUserId);
     if (multiResponseUserIdNum != null) {
       return this.rememberUserId(multiResponseUserIdNum);
@@ -825,7 +843,10 @@ export class TapoClient {
     throw new Error('Failed to retrieve recording user ID');
   }
 
-  private async tryResolvePlaybackUserId(dateOrContext: string, forceReload: boolean): Promise<number | undefined> {
+  private async tryResolvePlaybackUserId(
+    dateOrContext: string,
+    forceReload: boolean,
+  ): Promise<number | undefined> {
     try {
       const userId = forceReload ? await this.getUserId(1) : await this.getUserId();
       this.logUserIdProbe('resolvedUserId', { date: dateOrContext, userId, forceReload });
@@ -926,15 +947,19 @@ export class TapoClient {
         params: { system: { name: 'clock_status' } },
       });
 
-      const direct = (resp.result as { system?: { clock_status?: { seconds_from_1970?: unknown } } })
-        .system?.clock_status?.seconds_from_1970;
+      const direct = (resp.result as { system?: { clock_status?: { seconds_from_1970?: unknown } } }).system
+        ?.clock_status?.seconds_from_1970;
       if (typeof direct === 'number') {
         return Math.floor(Date.now() / 1000) - direct;
       }
 
-      const nested = (resp.result.responses?.[0] as {
-        result?: { system?: { clock_status?: { seconds_from_1970?: unknown } } };
-      } | undefined)?.result?.system?.clock_status?.seconds_from_1970;
+      const nested = (
+        resp.result.responses?.[0] as
+          | {
+              result?: { system?: { clock_status?: { seconds_from_1970?: unknown } } };
+            }
+          | undefined
+      )?.result?.system?.clock_status?.seconds_from_1970;
       if (typeof nested === 'number') {
         return Math.floor(Date.now() / 1000) - nested;
       }
@@ -962,17 +987,22 @@ export class TapoClient {
         },
       });
 
-      const subResult = (resp.result.responses?.[0] as {
-        result?: { audio_config?: { microphone?: { encode_type?: unknown; sampling_rate?: unknown } } };
-      } | undefined)?.result?.audio_config?.microphone;
+      const subResult = (
+        resp.result.responses?.[0] as
+          | {
+              result?: { audio_config?: { microphone?: { encode_type?: unknown; sampling_rate?: unknown } } };
+            }
+          | undefined
+      )?.result?.audio_config?.microphone;
 
       const encodeType = String(subResult?.encode_type ?? '').toLowerCase();
       const sampleRateValue = subResult?.sampling_rate;
-      const sampleRate = typeof sampleRateValue === 'number'
-        ? sampleRateValue * 1000
-        : typeof sampleRateValue === 'string' && /^\d+$/.test(sampleRateValue)
-          ? Number(sampleRateValue) * 1000
-          : 8000;
+      const sampleRate =
+        typeof sampleRateValue === 'number'
+          ? sampleRateValue * 1000
+          : typeof sampleRateValue === 'string' && /^\d+$/.test(sampleRateValue)
+            ? Number(sampleRateValue) * 1000
+            : 8000;
 
       const codec: RecordingAudioOptions['codec'] = encodeType.includes('ulaw') ? 'pcmu' : 'pcma';
       return { codec, sampleRate };
@@ -1056,21 +1086,19 @@ export class TapoClient {
       search_video_results?: Array<Record<string, { startTime?: number; endTime?: number }>>;
     };
 
-    const byVideoInfo = [
-      ...(topResult.video?.video_info ?? []),
-      ...(sub?.result?.video?.video_info ?? []),
-    ];
+    const byVideoInfo = [...(topResult.video?.video_info ?? []), ...(sub?.result?.video?.video_info ?? [])];
     const fromVideoInfo = collectRanges(byVideoInfo);
 
     if (fromVideoInfo.length > 0) return fromVideoInfo;
 
-    const nestedSearch = topResult.playback?.search_video_results
-      ?? topResult.playback?.search_video_with_utc?.search_video_results
-      ?? topResult.search_video_results
-      ?? sub?.result?.playback?.search_video_results
-      ?? sub?.result?.playback?.search_video_with_utc?.search_video_results
-      ?? sub?.result?.search_video_results
-      ?? [];
+    const nestedSearch =
+      topResult.playback?.search_video_results ??
+      topResult.playback?.search_video_with_utc?.search_video_results ??
+      topResult.search_video_results ??
+      sub?.result?.playback?.search_video_results ??
+      sub?.result?.playback?.search_video_with_utc?.search_video_results ??
+      sub?.result?.search_video_results ??
+      [];
 
     const flattened = collectRanges(nestedSearch);
     if (flattened.length > 0) {
@@ -1095,7 +1123,10 @@ export class TapoClient {
       return [];
     }
 
-    const buildSearchParams = (startSec: number, endSec: number): {
+    const buildSearchParams = (
+      startSec: number,
+      endSec: number,
+    ): {
       channel: number;
       start_time: number;
       end_time: number;
@@ -1110,7 +1141,11 @@ export class TapoClient {
       end_index: 9999,
     });
 
-    const queryRange = async (startSec: number, endSec: number, stagePrefix: string): Promise<Recording[]> => {
+    const queryRange = async (
+      startSec: number,
+      endSec: number,
+      stagePrefix: string,
+    ): Promise<Recording[]> => {
       const searchParams = buildSearchParams(startSec, endSec);
       if (typeof userId === 'number') {
         searchParams.id = userId;
@@ -1132,7 +1167,10 @@ export class TapoClient {
       if (parsed.length > 0) {
         return parsed;
       }
-      if (typeof userId === 'number' && STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(resp) ?? Number.NaN)) {
+      if (
+        typeof userId === 'number' &&
+        STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(resp) ?? Number.NaN)
+      ) {
         const refreshedUserId = await this.tryResolvePlaybackUserId(date, true);
         if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
           return this.searchRecordingsWithUtcRange(date, refreshedUserId);
@@ -1155,8 +1193,17 @@ export class TapoClient {
         },
       });
       const legacyParsed = this.extractRecordingsFromResponse(legacyUtcResp);
-      this.logRecordingProbe(`${stagePrefix}:legacy:searchVideoWithUTC`, date, legacyUtcResp, legacyParsed.length);
-      if (legacyParsed.length === 0 && typeof userId === 'number' && STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(legacyUtcResp) ?? Number.NaN)) {
+      this.logRecordingProbe(
+        `${stagePrefix}:legacy:searchVideoWithUTC`,
+        date,
+        legacyUtcResp,
+        legacyParsed.length,
+      );
+      if (
+        legacyParsed.length === 0 &&
+        typeof userId === 'number' &&
+        STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(legacyUtcResp) ?? Number.NaN)
+      ) {
         const refreshedUserId = await this.tryResolvePlaybackUserId(date, true);
         if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
           return this.searchRecordingsWithUtcRange(date, refreshedUserId);
@@ -1198,9 +1245,10 @@ export class TapoClient {
       firstMethod: first.method,
       firstErrorCode,
       firstResultKeys: Object.keys(firstResult),
-      playbackKeys: firstResult.playback && typeof firstResult.playback === 'object'
-        ? Object.keys(firstResult.playback as Record<string, unknown>)
-        : [],
+      playbackKeys:
+        firstResult.playback && typeof firstResult.playback === 'object'
+          ? Object.keys(firstResult.playback as Record<string, unknown>)
+          : [],
       firstResponsePreview: firstJson.slice(0, 500),
     };
 

@@ -48,12 +48,12 @@ export function App() {
   const timelineMessage = !selectedCamera
     ? t('timeline.selectCamera')
     : recordingsError
-    ? t('timeline.queryFailed', { error: recordingsError })
-    : recordingsLoading
-    ? t('timeline.loading')
-    : recordings.length > 0
-    ? t('timeline.segmentsFound', { count: recordings.length })
-    : t('timeline.noSegments');
+      ? t('timeline.queryFailed', { error: recordingsError })
+      : recordingsLoading
+        ? t('timeline.loading')
+        : recordings.length > 0
+          ? t('timeline.segmentsFound', { count: recordings.length })
+          : t('timeline.noSegments');
 
   useEffect(() => {
     void loadCameras();
@@ -106,8 +106,14 @@ export function App() {
     }
   }, [cameras.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const openAdd = () => { setEditTarget(undefined); setShowModal(true); };
-  const openEdit = (cfg: CameraConfig) => { setEditTarget(cfg); setShowModal(true); };
+  const openAdd = () => {
+    setEditTarget(undefined);
+    setShowModal(true);
+  };
+  const openEdit = (cfg: CameraConfig) => {
+    setEditTarget(cfg);
+    setShowModal(true);
+  };
 
   const handleSave = async (cfg: CameraConfig) => {
     if (editTarget) {
@@ -123,60 +129,65 @@ export function App() {
   };
 
   return (
-    <div className={`app${showTimeline ? '' : ' app--no-timeline'}${showHeader ? '' : ' app--no-header'}`} data-testid="app-shell">
+    <div
+      className={`app${showTimeline ? '' : ' app--no-timeline'}${showHeader ? '' : ' app--no-header'}`}
+      data-testid="app-shell"
+    >
       {/* ── Header ─────────────────────────────────────── */}
       {showHeader && (
-      <header className="header">
-        <div className="header-cam-info">
-          {selectedCamera && (
-            <>
-              <button
-                type="button"
-                className="btn-icon"
-                title={selectedCamera.hlsUrl ? t('header.stopStream') : t('header.startStream')}
-                disabled={selectedCamera.status === 'connecting'}
-                onClick={() =>
-                  selectedCamera.hlsUrl
-                    ? stopStream(selectedCamera.config.id)
-                    : startStream(selectedCamera.config.id)
-                }
-              >
-                {selectedCamera.hlsUrl ? '⏹' : '▶'}
-              </button>
-              <button
-                type="button"
-                className="btn-icon"
-                title={t('header.editCamera')}
-                onClick={() => openEdit(selectedCamera.config)}
-              >
-                ✎
-              </button>
-              <button
-                type="button"
-                className="btn-icon btn-icon--danger"
-                title={t('header.removeCamera')}
-                onClick={() => void handleRemove(selectedCamera.config.id)}
-              >
-                ✕
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+        <header className="header">
+          <div className="header-cam-info">
+            {selectedCamera && (
+              <>
+                <button
+                  type="button"
+                  className="btn-icon"
+                  title={selectedCamera.hlsUrl ? t('header.stopStream') : t('header.startStream')}
+                  disabled={selectedCamera.status === 'connecting'}
+                  onClick={() =>
+                    selectedCamera.hlsUrl
+                      ? stopStream(selectedCamera.config.id)
+                      : startStream(selectedCamera.config.id)
+                  }
+                >
+                  {selectedCamera.hlsUrl ? '⏹' : '▶'}
+                </button>
+                <button
+                  type="button"
+                  className="btn-icon"
+                  title={t('header.editCamera')}
+                  onClick={() => openEdit(selectedCamera.config)}
+                >
+                  ✎
+                </button>
+                <button
+                  type="button"
+                  className="btn-icon btn-icon--danger"
+                  title={t('header.removeCamera')}
+                  onClick={() => void handleRemove(selectedCamera.config.id)}
+                >
+                  ✕
+                </button>
+              </>
+            )}
+          </div>
+        </header>
       )}
 
       {/* ── Workspace ──────────────────────────────────── */}
-      <div className={`workspace${showPreviews && cameras.length > 0 ? ` workspace--previews-${previewPosition}` : ''}`}>
+      <div
+        className={`workspace${showPreviews && cameras.length > 0 ? ` workspace--previews-${previewPosition}` : ''}`}
+      >
         {/* Main viewer */}
         <div
           className="viewer-wrap"
           data-testid="viewer-shell"
           onClick={() => {
             if (
-              playbackMode === 'live'
-              && !selectedCamera?.hlsUrl
-              && selectedCamera
-              && selectedCamera.status !== 'connecting'
+              playbackMode === 'live' &&
+              !selectedCamera?.hlsUrl &&
+              selectedCamera &&
+              selectedCamera.status !== 'connecting'
             ) {
               void startStream(selectedCamera.config.id);
             }
@@ -206,7 +217,12 @@ export function App() {
         {cameras.length === 0 && (
           <div className="empty-state" data-testid="empty-state">
             <p>{t('app.noCameras')}</p>
-            <button type="button" className="btn-primary" onClick={openAdd} data-testid="empty-state-add-camera">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={openAdd}
+              data-testid="empty-state-add-camera"
+            >
               {t('app.addFirstCamera')}
             </button>
           </div>

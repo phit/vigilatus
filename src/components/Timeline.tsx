@@ -121,7 +121,10 @@ export function Timeline({
     }
     if (dragging || !playbackEnabled) return;
     const t = clientXToTime(e.clientX);
-    if (t >= Date.now() - 5000) { onGoLive(); return; }
+    if (t >= Date.now() - 5000) {
+      onGoLive();
+      return;
+    }
     onSeek(t);
   };
 
@@ -148,15 +151,21 @@ export function Timeline({
     onSeek(t);
   }, [onGoLive, onSeek, playbackEnabled]);
 
-  useEffect(() => () => {
-    activePointerRef.current = null;
-  }, []);
+  useEffect(
+    () => () => {
+      activePointerRef.current = null;
+    },
+    [],
+  );
 
-  const handleTime = dragging && dragPreviewTime != null
-    ? dragPreviewTime
-    : playbackMode === 'playback' && playbackTime
-    ? playbackTime
-    : isToday ? Date.now() : windowEnd;
+  const handleTime =
+    dragging && dragPreviewTime != null
+      ? dragPreviewTime
+      : playbackMode === 'playback' && playbackTime
+        ? playbackTime
+        : isToday
+          ? Date.now()
+          : windowEnd;
   const handlePos = timeToPercent(handleTime);
 
   // Time axis marks (every 4h)
@@ -170,21 +179,30 @@ export function Timeline({
       <div className="timeline-header">
         <span className="timeline-title">{t('timeline.title')}</span>
         <span className="timeline-date-nav">
-          <button type="button" className="btn-date-nav" onClick={goToPreviousDay} title={t('timeline.previousDay')}>◀</button>
           <button
             type="button"
-            className="timeline-date"
-            onClick={goToToday}
-            title={t('timeline.goToToday')}
+            className="btn-date-nav"
+            onClick={goToPreviousDay}
+            title={t('timeline.previousDay')}
           >
-            {formatDateDisplay(selectedDate)}{isToday ? ` ${t('timeline.today')}` : ''}
+            ◀
           </button>
-          <button type="button" className="btn-date-nav" onClick={goToNextDay} disabled={isToday} title={t('timeline.nextDay')}>▶</button>
+          <button type="button" className="timeline-date" onClick={goToToday} title={t('timeline.goToToday')}>
+            {formatDateDisplay(selectedDate)}
+            {isToday ? ` ${t('timeline.today')}` : ''}
+          </button>
+          <button
+            type="button"
+            className="btn-date-nav"
+            onClick={goToNextDay}
+            disabled={isToday}
+            title={t('timeline.nextDay')}
+          >
+            ▶
+          </button>
         </span>
         {playbackMode === 'playback' && (
-          <span className="timeline-playback-time">
-            {playbackTime ? formatTime(playbackTime) : '—'}
-          </span>
+          <span className="timeline-playback-time">{playbackTime ? formatTime(playbackTime) : '—'}</span>
         )}
         {statusMessage && <span className="timeline-status">{statusMessage}</span>}
         <button

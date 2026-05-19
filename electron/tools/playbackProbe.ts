@@ -45,7 +45,9 @@ function loadCameras(): CameraConfig[] {
   return parsed.cameras ?? [];
 }
 
-function buildCandidates(cam: CameraConfig): Array<{ label: string; cfg: Pick<CameraConfig, 'host' | 'username' | 'password'> }> {
+function buildCandidates(
+  cam: CameraConfig,
+): Array<{ label: string; cfg: Pick<CameraConfig, 'host' | 'username' | 'password'> }> {
   const candidates: Array<{ label: string; cfg: Pick<CameraConfig, 'host' | 'username' | 'password'> }> = [];
   const seen = new Set<string>();
 
@@ -84,7 +86,7 @@ function pickClip(recordings: Recording[], clipIndex: number): Recording {
   }
 
   // Fallback to longest segment if index is out of range.
-  return [...recordings].sort((a, b) => (b.endTime - b.startTime) - (a.endTime - a.startTime))[0];
+  return [...recordings].sort((a, b) => b.endTime - b.startTime - (a.endTime - a.startTime))[0];
 }
 
 async function run(): Promise<void> {
@@ -96,7 +98,9 @@ async function run(): Promise<void> {
   }
 
   const candidates = buildCandidates(camera);
-  console.info(`[probe:playback] camera=${camera.id} date=${cli.date} candidates=${candidates.length} clipIndex=${cli.clipIndex}`);
+  console.info(
+    `[probe:playback] camera=${camera.id} date=${cli.date} candidates=${candidates.length} clipIndex=${cli.clipIndex}`,
+  );
 
   let succeeded = false;
 
@@ -106,21 +110,29 @@ async function run(): Promise<void> {
     try {
       const client = new TapoClient(candidate.cfg);
       const recordings = await client.getRecordingsForDate(cli.date);
-      console.info(`[probe:playback] candidate=${i + 1}/${candidates.length} ${candidate.label} listCount=${recordings.length}`);
+      console.info(
+        `[probe:playback] candidate=${i + 1}/${candidates.length} ${candidate.label} listCount=${recordings.length}`,
+      );
 
       const clip = pickClip(recordings, cli.clipIndex);
       const durationSec = Math.max(0, Math.floor((clip.endTime - clip.startTime) / 1000));
-      console.info(`[probe:playback] candidate=${i + 1}/${candidates.length} clipStart=${clip.startTime} clipEnd=${clip.endTime} durationSec=${durationSec}`);
+      console.info(
+        `[probe:playback] candidate=${i + 1}/${candidates.length} clipStart=${clip.startTime} clipEnd=${clip.endTime} durationSec=${durationSec}`,
+      );
 
       const output = await client.downloadRecording(clip.startTime, clip.endTime);
       const tookMs = Date.now() - startedAt;
       const stat = fs.statSync(output);
-      console.info(`[probe:playback] candidate=${i + 1}/${candidates.length} success=true tookMs=${tookMs} output=${output} size=${stat.size}`);
+      console.info(
+        `[probe:playback] candidate=${i + 1}/${candidates.length} success=true tookMs=${tookMs} output=${output} size=${stat.size}`,
+      );
       succeeded = true;
       break;
     } catch (error) {
       const tookMs = Date.now() - startedAt;
-      console.warn(`[probe:playback] candidate=${i + 1}/${candidates.length} success=false tookMs=${tookMs} error=${(error as Error).message}`);
+      console.warn(
+        `[probe:playback] candidate=${i + 1}/${candidates.length} success=false tookMs=${tookMs} error=${(error as Error).message}`,
+      );
     }
   }
 

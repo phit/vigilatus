@@ -13,10 +13,7 @@ const electronPath = path.join(
 );
 const projectRoot = path.resolve(process.cwd());
 
-async function launchElectronApp(options: {
-  fixtures: TestFixtures;
-  cameras?: CameraConfig[];
-}) {
+async function launchElectronApp(options: { fixtures: TestFixtures; cameras?: CameraConfig[] }) {
   const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tapostudio-e2e-'));
   const fixturePath = path.join(userDataDir, 'fixtures.json');
 
@@ -87,11 +84,13 @@ test('launches the real app and creates a camera through the UI', async () => {
     await expect(window.getByTestId('add-camera-modal')).toHaveCount(0);
     await expect(window.getByTestId('empty-state')).toHaveCount(0);
     await expect(window.getByTestId('preview-strip')).toBeVisible();
-    await expect(window.getByTestId('preview-strip').getByRole('button', { name: /Front Door/i })).toBeVisible();
+    await expect(
+      window.getByTestId('preview-strip').getByRole('button', { name: /Front Door/i }),
+    ).toBeVisible();
 
-    const persisted = JSON.parse(
-      await fs.readFile(path.join(userDataDir, 'cameras.json'), 'utf8'),
-    ) as { cameras?: Array<{ name: string }> };
+    const persisted = JSON.parse(await fs.readFile(path.join(userDataDir, 'cameras.json'), 'utf8')) as {
+      cameras?: Array<{ name: string }>;
+    };
     expect(persisted.cameras?.[0]?.name).toBe('Front Door');
   } finally {
     await app.close();

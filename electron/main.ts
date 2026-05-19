@@ -33,13 +33,13 @@ function setupLogging(): void {
     const originalLog = console.log;
     const originalError = console.error;
     const timestamp = () => new Date().toISOString();
-    
+
     console.log = (...args: unknown[]) => {
       const msg = `[${timestamp()}] ${args.join(' ')}\n`;
       logStream.write(msg);
       originalLog(...args);
     };
-    
+
     console.error = (...args: unknown[]) => {
       const msg = `[${timestamp()}] ERROR: ${args.join(' ')}\n`;
       logStream.write(msg);
@@ -319,7 +319,7 @@ function setApplicationMenu(): void {
     {
       label: 'Issues and Feedback',
       click: () => void shell.openExternal(projectGithubUrl + '/issues'),
-    }
+    },
   ];
 
   const template: MenuItemConstructorOptions[] = [
@@ -407,9 +407,9 @@ app.whenReady().then(async () => {
   uiDisplayState.header = persistedUiDisplay.header;
   uiDisplayState.previewPosition = persistedUiDisplay.previewPosition;
   uiDisplayState.language = persistedUiDisplay.language;
-  
+
   setupLogging();
-  
+
   try {
     await streamManager.init();
     // console.log('[main:streamManager] streamManager initialized successfully');

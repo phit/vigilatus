@@ -25,16 +25,13 @@ const DEFAULT: Omit<CameraConfig, 'id' | 'name'> = {
 
 export function AddCameraModal({ initial, onSave, onClose }: Props) {
   const { t } = useTranslation();
-  const [form, setForm] = useState<CameraConfig>(
-    initial ?? { id: randomId(), name: '', ...DEFAULT },
-  );
+  const [form, setForm] = useState<CameraConfig>(initial ?? { id: randomId(), name: '', ...DEFAULT });
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const backdropPointerDownRef = useRef(false);
 
-  const set = (field: keyof CameraConfig, value: string) =>
-    setForm((f) => ({ ...f, [field]: value }));
+  const set = (field: keyof CameraConfig, value: string) => setForm((f) => ({ ...f, [field]: value }));
 
   const handleTest = async () => {
     setTesting(true);
@@ -67,8 +64,7 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
   };
 
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const shouldClose =
-      e.button === 0 && backdropPointerDownRef.current && e.target === e.currentTarget;
+    const shouldClose = e.button === 0 && backdropPointerDownRef.current && e.target === e.currentTarget;
     backdropPointerDownRef.current = false;
     if (shouldClose) onClose();
   };
@@ -91,7 +87,9 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{initial ? t('modal.editCamera') : t('modal.addCamera')}</h2>
-          <button type="button" className="modal-close" onClick={onClose} data-testid="add-camera-close">✕</button>
+          <button type="button" className="modal-close" onClick={onClose} data-testid="add-camera-close">
+            ✕
+          </button>
         </div>
 
         <p className="modal-hint">
@@ -151,9 +149,7 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
 
           {showAdvanced && (
             <div className="form-advanced">
-              <p className="modal-hint">
-                {t('modal.streamHint')}
-              </p>
+              <p className="modal-hint">{t('modal.streamHint')}</p>
               <label>
                 {t('modal.rtspUrl')}
                 <input
@@ -219,10 +215,21 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
           )}
 
           <div className="modal-actions">
-            <button type="button" className="btn-secondary" onClick={handleTest} disabled={testing || !form.host || !form.password} data-testid="add-camera-test-connection">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={handleTest}
+              disabled={testing || !form.host || !form.password}
+              data-testid="add-camera-test-connection"
+            >
               {testing ? t('modal.testing') : t('modal.testConnection')}
             </button>
-            <button type="submit" className="btn-primary" disabled={!form.name || !form.host || !form.password} data-testid="add-camera-save">
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={!form.name || !form.host || !form.password}
+              data-testid="add-camera-save"
+            >
               {initial ? t('modal.saveChanges') : t('modal.addCameraBtn')}
             </button>
           </div>

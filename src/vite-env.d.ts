@@ -24,7 +24,13 @@ declare global {
       };
       recordings: {
         list(cameraId: string, date: string): Promise<Recording[]>;
-        play(cameraId: string, startTime: number, endTime: number, requestedTime: number, clipStartTime?: number): Promise<string>;
+        play(
+          cameraId: string,
+          startTime: number,
+          endTime: number,
+          requestedTime: number,
+          clipStartTime?: number,
+        ): Promise<string>;
       };
       diagnostics: {
         getRuntimeInfo(): Promise<RuntimeInfo>;

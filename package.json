@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Cross-platform desktop app for viewing Tapo cameras and local recordings.",
+  "author": "phit",
   "main": "dist/electron/main.js",
   "scripts": {
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron-compile\" \"npm:dev:electron-run\"",
@@ -20,7 +21,9 @@
     "release:linux": "npm run build && electron-builder --publish never --linux AppImage",
     "release:portable": "npm run build && electron-builder --publish never --win portable --linux AppImage",
     "probe:recordings": "npm run build --silent && node dist/electron/tools/recordingsProbe.js",
-    "probe:playback": "npm run build --silent && node dist/electron/tools/playbackProbe.js"
+    "probe:playback": "npm run build --silent && node dist/electron/tools/playbackProbe.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "dependencies": {
     "date-fns": "^4.2.1",
@@ -48,6 +51,7 @@
     "electron": "^42.1.0",
     "electron-builder": "^26.8.1",
     "jsdom": "^29.1.1",
+    "prettier": "^3.8.3",
     "typescript": "^6.0.3",
     "vite": "^8.0.13",
     "vitest": "^4.1.6",
