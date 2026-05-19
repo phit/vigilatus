@@ -65,6 +65,7 @@ const uiDisplayState = {
   timeline: true,
   header: false,
   previewPosition: 'right' as PreviewPosition,
+  language: 'system',
 };
 
 function sendUiEvent(channel: string, ...args: unknown[]): void {
@@ -77,6 +78,7 @@ function applyUiDisplayStateToRenderer(): void {
   sendUiEvent('ui:setTimelineVisible', uiDisplayState.timeline);
   sendUiEvent('ui:setHeaderVisible', uiDisplayState.header);
   sendUiEvent('ui:setPreviewPosition', uiDisplayState.previewPosition);
+  sendUiEvent('ui:setLanguage', uiDisplayState.language);
 }
 
 function wireExternalLinks(win: BrowserWindow): void {
@@ -261,6 +263,42 @@ function setApplicationMenu(): void {
       ],
     },
     { type: 'separator' },
+    {
+      label: 'Language',
+      submenu: [
+        {
+          label: 'System default',
+          type: 'radio',
+          checked: uiDisplayState.language === 'system',
+          click: () => {
+            uiDisplayState.language = 'system';
+            configStore.setUiDisplayPreferences({ language: 'system' });
+            sendUiEvent('ui:setLanguage', 'system');
+          },
+        },
+        {
+          label: 'English',
+          type: 'radio',
+          checked: uiDisplayState.language === 'en',
+          click: () => {
+            uiDisplayState.language = 'en';
+            configStore.setUiDisplayPreferences({ language: 'en' });
+            sendUiEvent('ui:setLanguage', 'en');
+          },
+        },
+        {
+          label: 'Deutsch',
+          type: 'radio',
+          checked: uiDisplayState.language === 'de',
+          click: () => {
+            uiDisplayState.language = 'de';
+            configStore.setUiDisplayPreferences({ language: 'de' });
+            sendUiEvent('ui:setLanguage', 'de');
+          },
+        },
+      ],
+    },
+    { type: 'separator' },
     { role: 'reload' },
     { type: 'separator' },
     { role: 'resetZoom' },
@@ -368,6 +406,7 @@ app.whenReady().then(async () => {
   uiDisplayState.timeline = persistedUiDisplay.timeline;
   uiDisplayState.header = persistedUiDisplay.header;
   uiDisplayState.previewPosition = persistedUiDisplay.previewPosition;
+  uiDisplayState.language = persistedUiDisplay.language;
   
   setupLogging();
   

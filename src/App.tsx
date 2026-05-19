@@ -1,6 +1,7 @@
 // @refresh reset
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import i18n from './i18n';
 import { useCameraStore } from './store/cameras';
 import { CameraViewer } from './components/CameraViewer';
 import { CameraPreview } from './components/CameraPreview';
@@ -78,6 +79,14 @@ export function App() {
     const offStreamsInvalidated = window.tapoStudio.ui.onStreamsInvalidated(() => {
       restartActiveStreams();
     });
+    const offSetLanguage = window.tapoStudio.ui.onSetLanguage((language) => {
+      if (language === 'system') {
+        const detected = navigator.language.split('-')[0] || 'en';
+        i18n.changeLanguage(detected);
+      } else {
+        i18n.changeLanguage(language);
+      }
+    });
 
     return () => {
       offOpenAdd();
@@ -86,6 +95,7 @@ export function App() {
       offSetHeaderVisible();
       offSetPreviewPosition();
       offStreamsInvalidated();
+      offSetLanguage();
     };
   }, [setPreviewsVisible, setTimelineVisible, setHeaderVisible, setPreviewPosition, restartActiveStreams]);
 

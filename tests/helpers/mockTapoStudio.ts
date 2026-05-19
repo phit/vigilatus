@@ -36,6 +36,7 @@ export type TapoStudioMock = {
     onSetHeaderVisible: ReturnType<typeof vi.fn<[(visible: boolean) => void], Unsubscribe>>;
     onSetPreviewPosition: ReturnType<typeof vi.fn<[(position: PreviewPosition) => void], Unsubscribe>>;
     onStreamsInvalidated: ReturnType<typeof vi.fn<[() => void], Unsubscribe>>;
+    onSetLanguage: ReturnType<typeof vi.fn<[(language: string) => void], Unsubscribe>>;
   };
 };
 
@@ -79,6 +80,7 @@ export function createTapoStudioMock(overrides: Partial<TapoStudioMock> = {}): T
       onSetHeaderVisible: vi.fn().mockImplementation(() => noop),
       onSetPreviewPosition: vi.fn().mockImplementation(() => noop),
       onStreamsInvalidated: vi.fn().mockImplementation(() => noop),
+      onSetLanguage: vi.fn().mockImplementation(() => noop),
     },
   };
 

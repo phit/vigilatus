@@ -66,5 +66,10 @@ contextBridge.exposeInMainWorld('tapoStudio', {
       ipcRenderer.on('streams:invalidated', handler);
       return () => ipcRenderer.removeListener('streams:invalidated', handler);
     },
+    onSetLanguage: (callback: (language: string) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, language: string) => callback(language);
+      ipcRenderer.on('ui:setLanguage', handler);
+      return () => ipcRenderer.removeListener('ui:setLanguage', handler);
+    },
   },
 });

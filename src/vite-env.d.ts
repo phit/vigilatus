@@ -39,6 +39,7 @@ declare global {
         onSetHeaderVisible(callback: (visible: boolean) => void): () => void;
         onSetPreviewPosition(callback: (position: PreviewPosition) => void): () => void;
         onStreamsInvalidated(callback: () => void): () => void;
+        onSetLanguage(callback: (language: string) => void): () => void;
       };
     };
   }
