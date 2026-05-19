@@ -3,6 +3,8 @@
 Desktop app for monitoring multiple TP-Link Tapo cameras.  
 Note: this app was basically fully written with the help of AI, while I did fully oversee all code changes, this is my first Electron application.
 
+![Main screen](docs/main-screen.png)
+
 ## Legal disclaimer
 
 - This project is an independent, community-driven tool and is not affiliated with, endorsed by, or sponsored by TP-Link.
