@@ -13,7 +13,8 @@ export function CameraViewer({ camera, playbackMode }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [playerError, setPlayerError] = useState<string | null>(null);
-  const [isMuted, setIsMuted] = useState(true);
+  const [volume, setVolume] = useState(0);
+  const [prevVolume, setPrevVolume] = useState(0.5);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const hlsUrl = camera?.hlsUrl;
@@ -25,9 +26,9 @@ export function CameraViewer({ camera, playbackMode }: Props) {
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    video.muted = isMuted;
-    video.volume = isMuted ? 0 : 1;
-  }, [isMuted, hlsUrl]);
+    video.muted = volume === 0;
+    video.volume = volume;
+  }, [volume, hlsUrl]);
 
   useEffect(() => {
     const onFullscreenChange = () => {
@@ -147,7 +148,18 @@ export function CameraViewer({ camera, playbackMode }: Props) {
     playerError ?? (status === 'error' ? (camera?.errorMessage ?? t('viewer.streamError')) : null);
 
   const toggleMute = () => {
-    setIsMuted((value) => !value);
+    if (volume > 0) {
+      setPrevVolume(volume);
+      setVolume(0);
+    } else {
+      setVolume(prevVolume || 0.5);
+    }
+  };
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = parseFloat(e.target.value);
+    setVolume(v);
+    if (v > 0) setPrevVolume(v);
   };
 
   const toggleFullscreen = async () => {
@@ -166,16 +178,28 @@ export function CameraViewer({ camera, playbackMode }: Props) {
     <div className="viewer">
       {hlsUrl && !displayError ? (
         <>
-          <video ref={videoRef} className="viewer-video" autoPlay muted={isMuted} playsInline />
+          <video ref={videoRef} className="viewer-video" autoPlay muted={volume === 0} playsInline />
           <div className="viewer-controls">
-            <button
-              type="button"
-              className="viewer-control-btn"
-              onClick={toggleMute}
-              title={isMuted ? t('viewer.enableAudio') : t('viewer.muteAudio')}
-            >
-              {isMuted ? t('viewer.unmute') : t('viewer.mute')}
-            </button>
+            <div className="volume-control">
+              <button
+                type="button"
+                className="viewer-control-btn volume-btn"
+                onClick={toggleMute}
+                title={volume === 0 ? t('viewer.enableAudio') : t('viewer.muteAudio')}
+              >
+                {volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊'}
+              </button>
+              <input
+                type="range"
+                className="volume-slider"
+                min="0"
+                max="1"
+                step="0.01"
+                value={volume}
+                onChange={handleVolumeChange}
+                title={t('viewer.volume')}
+              />
+            </div>
             <button
               type="button"
               className="viewer-control-btn"

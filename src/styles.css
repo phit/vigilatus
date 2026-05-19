@@ -191,6 +191,52 @@ body {
   background: rgba(15, 23, 42, 0.88);
 }
 
+.volume-control {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: rgba(0, 0, 0, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+  padding-right: 4px;
+}
+
+.volume-control .volume-btn {
+  border: none;
+  background: none;
+  backdrop-filter: none;
+  padding: 6px 6px 6px 10px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.volume-control .volume-btn:hover {
+  border: none;
+  background: none;
+}
+
+.volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 60px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text);
+  cursor: pointer;
+}
+
 .viewer-badge {
   font-size: 11px;
   font-weight: 700;
