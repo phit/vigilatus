@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { format, parse, addDays, startOfDay, isToday as isDateToday } from 'date-fns';
 import type { Recording, PlaybackMode } from '../types';
 
 interface Props {
@@ -16,45 +17,34 @@ interface Props {
   'data-testid'?: string;
 }
 
-const WINDOW_HOURS = 24;
+const DATE_FMT = 'yyyyMMdd';
 
 function toDateStr(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}${m}${day}`;
+  return format(d, DATE_FMT);
 }
 
 function todayStr(): string {
   return toDateStr(new Date());
 }
 
+function parseDate(dateStr: string): Date {
+  return parse(dateStr, DATE_FMT, new Date());
+}
+
 function shiftDate(dateStr: string, days: number): string {
-  const year = Number(dateStr.slice(0, 4));
-  const month = Number(dateStr.slice(4, 6));
-  const day = Number(dateStr.slice(6, 8));
-  const d = new Date(year, month - 1, day);
-  d.setDate(d.getDate() + days);
-  return toDateStr(d);
+  return toDateStr(addDays(parseDate(dateStr), days));
 }
 
 function formatDateDisplay(dateStr: string): string {
-  const year = Number(dateStr.slice(0, 4));
-  const month = Number(dateStr.slice(4, 6));
-  const day = Number(dateStr.slice(6, 8));
-  return new Date(year, month - 1, day).toLocaleDateString();
+  return format(parseDate(dateStr), 'PP');
 }
 
-/** Midnight (local) of the given YYYYMMDD date */
 function dateStartMs(dateStr: string): number {
-  const year = Number(dateStr.slice(0, 4));
-  const month = Number(dateStr.slice(4, 6));
-  const day = Number(dateStr.slice(6, 8));
-  return new Date(year, month - 1, day).getTime();
+  return startOfDay(parseDate(dateStr)).getTime();
 }
 
 function formatTime(ts: number): string {
-  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return format(ts, 'HH:mm');
 }
 
 export function Timeline({
@@ -77,9 +67,9 @@ export function Timeline({
   const [dragPreviewTime, setDragPreviewTime] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState(todayStr);
 
-  const isToday = selectedDate === todayStr();
+  const isToday = isDateToday(parseDate(selectedDate));
   const windowStart = dateStartMs(selectedDate);
-  const windowEnd = dateStartMs(selectedDate) + 24 * 60 * 60 * 1000;
+  const windowEnd = windowStart + 24 * 60 * 60 * 1000;
 
   // Load recordings whenever camera or date changes
   useEffect(() => {
@@ -169,7 +159,7 @@ export function Timeline({
 
   // Time axis marks (every 4h)
   const marks: number[] = [];
-  for (let h = 0; h <= WINDOW_HOURS; h += 4) {
+  for (let h = 0; h <= 24; h += 4) {
     marks.push(windowStart + h * 60 * 60 * 1000);
   }
 

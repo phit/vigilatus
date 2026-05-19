@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import path from 'node:path';
 import os from 'node:os';
+import { format, startOfDay } from 'date-fns';
 import * as configStore from '../config/store';
 import * as streamManager from '../tapo/streamManager';
 import { TapoClient } from '../tapo/client';
@@ -22,24 +23,8 @@ const MAX_PLAYBACK_WINDOW_MS = 120_000;
 
 let testFixtures: TestFixtures | null = null;
 
-function formatDateYYYYMMDD(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}${m}${day}`;
-}
-
-function previousDateYYYYMMDD(date: string): string {
-  const year = Number(date.slice(0, 4));
-  const month = Number(date.slice(4, 6));
-  const day = Number(date.slice(6, 8));
-  const d = new Date(year, month - 1, day);
-  d.setDate(d.getDate() - 1);
-  return formatDateYYYYMMDD(d);
-}
-
 function dateFromEpochMs(epochMs: number): string {
-  return formatDateYYYYMMDD(new Date(epochMs));
+  return format(epochMs, 'yyyyMMdd');
 }
 
 function primaryCredential(cam: CameraConfig): Pick<CameraConfig, 'host' | 'username' | 'password'> {
@@ -203,7 +188,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     let seekOffsetSec: number | undefined;
     if (typeof clipStartTime === 'number' && clipStartTime > 0) {
       const now = new Date();
-      const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const todayMidnight = startOfDay(now).getTime();
       if (clipStartTime >= todayMidnight) {
         seekOffsetSec = Math.max(0, Math.floor((startTime - clipStartTime) / 1000));
       }
