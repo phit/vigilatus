@@ -193,6 +193,8 @@ export function App() {
                 isSelected={cam.config.id === selectedId}
                 playbackMode={playbackMode}
                 onSelect={() => selectCamera(cam.config.id)}
+                onEdit={() => openEdit(cam.config)}
+                onRemove={() => void handleRemove(cam.config.id)}
               />
             ))}
           </aside>
