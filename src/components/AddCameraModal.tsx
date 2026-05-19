@@ -123,7 +123,11 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
           <div className="form-row">
             <label>
               Tapo API username
-              <input value={form.username} onChange={(e) => set('username', e.target.value)} />
+              <input
+                value={form.username}
+                onChange={(e) => set('username', e.target.value)}
+                placeholder="Usually admin"
+              />
             </label>
             <label>
               Tapo API password
@@ -185,7 +189,7 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
                   <input
                     value={form.streamUser}
                     onChange={(e) => set('streamUser', e.target.value)}
-                    placeholder="admin"
+                    placeholder="Camera Account username"
                   />
                 </label>
                 <label>

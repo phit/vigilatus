@@ -57,14 +57,14 @@ function isExpectedStopError(cameraId: string, err: Error): boolean {
 // ---------------------------------------------------------------------------
 
 export async function init(): Promise<void> {
-  console.log('[streamManager.init] ffmpegStatic value:', ffmpegStatic);
+  console.log('[streamManager:init] ffmpegStatic value:', ffmpegStatic);
   try {
     const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
-    console.log('[streamManager.init] Resolved ffmpeg path:', ffmpegBinary);
+    console.log('[streamManager:init] Resolved ffmpeg path:', ffmpegBinary);
     ffmpeg.setFfmpegPath(ffmpegBinary);
-    console.log('[streamManager.init] ffmpeg path set successfully');
+    console.log('[streamManager:init] ffmpeg path set successfully');
   } catch (err) {
-    console.error('[streamManager.init] Failed to resolve ffmpeg path:', err);
+    console.error('[streamManager:init] Failed to resolve ffmpeg path:', err);
     throw err;
   }
 
@@ -78,6 +78,10 @@ export async function init(): Promise<void> {
 export function cleanup(): void {
   for (const id of streams.keys()) stopStream(id);
   server?.close();
+}
+
+export function stopAllStreams(): void {
+  for (const id of streams.keys()) stopStream(id);
 }
 
 export function registerActivePlaybackAsset(filePath: string, completed: Promise<unknown>): void {
@@ -596,7 +600,7 @@ function startServer(): Promise<number> {
         return;
       }
 
-      console.info(`[http:server] serving ${reqPath} from ${safe}`);
+      // console.info(`[http:server] serving ${reqPath} from ${safe}`);
       
       // Retry logic: wait for background-created playback assets and recordings to appear.
       const isRecording = reqPath.includes('/recording/');
@@ -612,7 +616,7 @@ function startServer(): Promise<number> {
             if (retryCount < maxRetries && isDeferredAsset) {
               retryCount++;
               if (retryCount % 5 === 0) {
-                console.info(`[http:server] file not found, retrying (${retryCount}/${maxRetries})...`);
+                // console.info(`[http:server] file not found, retrying (${retryCount}/${maxRetries})...`);
               }
               setTimeout(tryRead, retryDelayMs);
               return;
@@ -627,7 +631,7 @@ function startServer(): Promise<number> {
             if (retryCount < maxRetries) {
               retryCount++;
               if (retryCount % 5 === 0) {
-                console.info(`[http:server] file empty, retrying (${retryCount}/${maxRetries})...`);
+                // console.info(`[http:server] file empty, retrying (${retryCount}/${maxRetries})...`);
               }
               setTimeout(tryRead, retryDelayMs);
               return;
@@ -642,7 +646,7 @@ function startServer(): Promise<number> {
             if (retryCount < maxRetries) {
               retryCount++;
               if (retryCount % 5 === 0) {
-                console.info(`[http:server] playback file too small, retrying (${retryCount}/${maxRetries})...`);
+                // console.info(`[http:server] playback file too small, retrying (${retryCount}/${maxRetries})...`);
               }
               setTimeout(tryRead, retryDelayMs);
               return;
@@ -694,7 +698,7 @@ function startServer(): Promise<number> {
               const rangeEnd = Math.min(end, Math.max(0, fileSize - 1));
               const length = Math.max(0, rangeEnd - start + 1);
 
-              console.info(`[http:server] 206 Partial ${safe} (bytes ${start}-${rangeEnd}/${fileSize})`);
+              // console.info(`[http:server] 206 Partial ${safe} (bytes ${start}-${rangeEnd}/${fileSize})`);
               res.writeHead(206, {
                 'Content-Type': mime,
                 'Content-Length': length,
@@ -721,7 +725,7 @@ function startServer(): Promise<number> {
               res.writeHead(404).end('Not found');
               return;
             }
-            console.info(`[http:server] 200 OK ${safe} (${data.length} bytes)`);
+            // console.info(`[http:server] 200 OK ${safe} (${data.length} bytes)`);
             res.writeHead(200, {
               'Content-Type': mime,
               'Content-Length': data.length,

@@ -167,7 +167,7 @@ export class TapoClient {
   }
 
   private logUserIdProbe(stage: string, extra: Record<string, unknown>): void {
-    console.info('[recordings:probe]', JSON.stringify({ stage, ...extra }));
+    // console.info('[recordings:probe]', JSON.stringify({ stage, ...extra }));
   }
 
   /**
@@ -181,18 +181,18 @@ export class TapoClient {
     }
 
     const nearbyDates = await this.searchDatesWithVideo(date);
-    console.info('[recordings:probe]', JSON.stringify({ stage: 'searchDateWithVideo', date, nearbyDates }));
+    // console.info('[recordings:probe]', JSON.stringify({ stage: 'searchDateWithVideo', date, nearbyDates }));
 
     for (const candidateDate of nearbyDates) {
       if (candidateDate === date) continue;
       const fromCandidate = await this.queryRecordingsForDateWithFallbacks(candidateDate);
       if (fromCandidate.length > 0) {
-        console.info('[recordings:probe]', JSON.stringify({
-          stage: 'dateFallbackSelected',
-          requestedDate: date,
-          selectedDate: candidateDate,
-          count: fromCandidate.length,
-        }));
+        // console.info('[recordings:probe]', JSON.stringify({
+        //   stage: 'dateFallbackSelected',
+        //   requestedDate: date,
+        //   selectedDate: candidateDate,
+        //   count: fromCandidate.length,
+        // }));
         return fromCandidate;
       }
     }
@@ -440,6 +440,7 @@ export class TapoClient {
     endTimeMs: number,
     outputDir: string,
     userIdOverride?: number,
+    seekOffsetSec?: number,
   ): Promise<RecordingPlaybackJob> {
     const startTime = Math.floor(startTimeMs / 1000);
     const endTime = Math.floor(endTimeMs / 1000);
@@ -483,6 +484,7 @@ export class TapoClient {
           endTime: paddedEndTime,
           outputDir,
           windowSize: isRetry ? 50 : 200,
+          seekOffsetSec,
         });
       } catch (e) {
         lastError = e;
@@ -1202,7 +1204,7 @@ export class TapoClient {
       firstResponsePreview: firstJson.slice(0, 500),
     };
 
-    console.info('[recordings:probe]', JSON.stringify(shape));
+    // console.info('[recordings:probe]', JSON.stringify(shape));
   }
 
   // -------------------------------------------------------------------------

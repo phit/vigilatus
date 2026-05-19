@@ -30,6 +30,8 @@ interface DownloadRecordingOptions {
 
 interface RecordingPlaybackStreamOptions extends Omit<DownloadRecordingOptions, 'outputPath'> {
   outputDir: string;
+  /** Seconds to skip at the start of the TS stream (workaround for cameras that ignore start_time on current-day recordings). */
+  seekOffsetSec?: number;
 }
 
 export interface RecordingPlaybackJob {
@@ -54,8 +56,9 @@ interface MediaPart {
 const DEFAULT_CLIENT_BOUNDARY = '--client-stream-boundary--';
 const DEFAULT_DEVICE_BOUNDARY = '--device-stream-boundary--';
 const NO_DATA_TIMEOUT_MS = 20_000;
-const PLAYBACK_READY_TIMEOUT_MS = 15_000;
-const MIN_PLAYBACK_READY_BYTES = 512_000;
+const PLAYBACK_READY_TIMEOUT_MS = 60_000;
+const MIN_PLAYBACK_READY_BYTES = 256_000;
+const MIN_PLAYBACK_GROWTH_BYTES = 50_000;
 const FALLBACK_WINDOW_SIZE = 50;
 
 class PesPacketReader {
@@ -453,6 +456,13 @@ class MediaSession {
       },
     });
 
+    console.info(
+      `[streamRecording] sending playback request:` +
+      ` userId=${userId}` +
+      ` start_time=${startTime} (${new Date(startTime * 1000).toISOString()})` +
+      ` end_time=${endTime} (${new Date(endTime * 1000).toISOString()})`,
+    );
+
     await this.writeMultipart(Buffer.from(payload, 'utf8'), {
       'Content-Type': 'application/json',
       'Content-Length': String(Buffer.byteLength(payload)),
@@ -789,7 +799,7 @@ export async function startRecordingDownloadToHls(
 
   const runAttempt = async (withAudio: boolean, windowSize: number): Promise<void> => {
     const modeLabel = withAudio ? 'audio+video' : 'video-only';
-    console.info(`${logPrefix} connecting to media session (${modeLabel}, windowSize=${windowSize})...`);
+    // console.info(`${logPrefix} connecting to media session (${modeLabel}, windowSize=${windowSize})...`);
 
     const session = new MediaSession(
       options.host,
@@ -799,13 +809,17 @@ export async function startRecordingDownloadToHls(
     );
     activeSession = session;
     await session.start();
-    console.info(`${logPrefix} media session connected, starting progressive MP4 stream (${modeLabel})...`);
+    // console.info(`${logPrefix} media session connected, starting progressive MP4 stream (${modeLabel})...`);
 
-    const ffmpegArgs = buildPlaybackFfmpegArgs(assetPath, withAudio ? options.audio : undefined);
+    const ffmpegArgs = buildPlaybackFfmpegArgs(assetPath, withAudio ? options.audio : undefined, options.seekOffsetSec);
+    // console.info(`${logPrefix} ffmpeg output path: ${assetPath}`);
+    // console.info(`${logPrefix} ffmpeg args: ${ffmpegArgs.join(' ')}`);
 
     const ffmpegProc = spawn(ffmpegBinary, ffmpegArgs, {
       stdio: withAudio && options.audio ? ['pipe', 'ignore', 'pipe', 'pipe'] : ['pipe', 'ignore', 'pipe'],
     });
+    // console.info(`${logPrefix} ffmpeg process started (PID: ${ffmpegProc.pid})`);
+    
     activeFfmpegProc = ffmpegProc;
     const ffmpegStdin = ffmpegProc.stdin!;
     const audioInput = withAudio && options.audio ? ffmpegProc.stdio[3] as Writable | undefined : undefined;
@@ -826,9 +840,10 @@ export async function startRecordingDownloadToHls(
     let totalDataChunks = 0;
     let totalBytes = 0;
     let tsBuffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+    let receivedAudioData = false;
 
     try {
-      console.info(`${logPrefix} starting media stream for userId=${options.userId} (${modeLabel})`);
+      // console.info(`${logPrefix} starting media stream for userId=${options.userId} (${modeLabel})`);
       await session.streamRecording(options.userId, options.startTime, options.endTime, async (part) => {
         if (ffmpegProc.exitCode !== null || ffmpegStdin.destroyed) {
           throw new Error('ffmpeg exited early during progressive playback');
@@ -837,11 +852,12 @@ export async function startRecordingDownloadToHls(
         totalDataChunks += 1;
         totalBytes += part.plaintext.length;
         if (totalDataChunks % 50 === 0) {
-          console.info(`${logPrefix} received ${totalDataChunks} chunks, ${totalBytes} bytes`);
+          // console.info(`${logPrefix} received ${totalDataChunks} chunks, ${totalBytes} bytes`);
         }
 
         tsBuffer = await writeAlignedTsPackets(tsBuffer, part.plaintext, ffmpegStdin);
         if (audioInput && part.audioPayload) {
+          receivedAudioData = true;
           await writeToWritable(audioInput, part.audioPayload);
         }
       });
@@ -850,8 +866,11 @@ export async function startRecordingDownloadToHls(
         tsBuffer = await writeAlignedTsPackets(tsBuffer, Buffer.alloc(0), ffmpegStdin);
       }
 
-      console.info(`${logPrefix} media stream ended, received ${totalDataChunks} chunks (${totalBytes} bytes) (${modeLabel})`);
+      // console.info(`${logPrefix} media stream ended, received ${totalDataChunks} chunks (${totalBytes} bytes) (${modeLabel})`);
       if (audioInput && !audioInput.destroyed) {
+        if (!receivedAudioData && withAudio) {
+          console.warn(`${logPrefix} no audio data received, closing audio pipe`);
+        }
         audioInput.end();
       }
       if (!ffmpegStdin.destroyed) {
@@ -859,6 +878,7 @@ export async function startRecordingDownloadToHls(
       }
 
       const [exitCode] = (await once(ffmpegProc, 'close')) as [number | null];
+      // console.info(`${logPrefix} ffmpeg process exited with code ${exitCode}`);
       if (cancelled) {
         throw new Error('Recording playback cancelled');
       }
@@ -867,7 +887,13 @@ export async function startRecordingDownloadToHls(
         throw new Error(stderr || `ffmpeg exited with code ${exitCode}`);
       }
 
-      console.info(`${logPrefix} finished writing progressive MP4 playback (${modeLabel})`);
+      // console.info(`${logPrefix} finished writing progressive MP4 playback (${modeLabel})`);
+      if (fs.existsSync(assetPath)) {
+        const stats = fs.statSync(assetPath);
+        // console.info(`${logPrefix} output file created: ${assetPath} (${stats.size} bytes)`);
+      } else {
+        console.error(`${logPrefix} output file NOT created: ${assetPath}`);
+      }
     } finally {
       stopActiveFfmpeg();
       await closeActiveSession();
@@ -900,36 +926,33 @@ export async function startRecordingDownloadToHls(
     throw (lastError instanceof Error ? lastError : new Error('Unable to start recording playback stream'));
   };
 
-  const ready = waitForPlaybackFileReady(assetPath, PLAYBACK_READY_TIMEOUT_MS, logPrefix).catch((error) => {
-    console.info(`${logPrefix} readiness wait timed out: ${(error as Error)?.message ?? error}`);
-    return assetPath;
-  });
+  const ready = waitForPlaybackFileReady(assetPath, PLAYBACK_READY_TIMEOUT_MS, logPrefix);
 
   const completed = (async () => {
     try {
       try {
-        await runAttemptWithRetry(true);
+        // console.info(`${logPrefix} starting with video-only stream`);
+        await runAttemptWithRetry(false);
       } catch (error) {
         if (cancelled) {
           throw error;
         }
 
         const message = (error as Error)?.message ?? String(error);
-        const audioHeaderFailure = /header missing|sample rate not set|could not write header|incorrect codec parameters|invalid argument/i.test(
-          message,
-        );
-
-        if (!audioHeaderFailure) {
-          throw error;
-        }
-
-        console.warn(`${logPrefix} audio stream is invalid, retrying progressive playback without audio`);
+        console.warn(`${logPrefix} video-only playback failed: ${message}, attempting with audio`);
         try {
           fs.rmSync(assetPath, { force: true });
         } catch {
           /* ignore */
         }
-        await runAttemptWithRetry(false);
+        
+        // Retry with audio if video-only failed
+        try {
+          await runAttemptWithRetry(true);
+        } catch (audioError) {
+          console.warn(`${logPrefix} audio playback also failed, using video-only result`);
+          throw error;
+        }
       }
 
       return assetPath;
@@ -976,22 +999,52 @@ export async function startRecordingDownloadToHls(
 function waitForPlaybackFileReady(filePath: string, timeoutMs: number, logPrefix: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
+    let lastSize = 0;
+    let lastCheckTime = start;
+    let checkCount = 0;
 
     const check = () => {
+      checkCount++;
       try {
         if (fs.existsSync(filePath)) {
           const stats = fs.statSync(filePath);
-          if (stats.size >= MIN_PLAYBACK_READY_BYTES) {
-            console.info(`${logPrefix} playback file is ready (${stats.size} bytes)`);
+          const currentSize = stats.size;
+          const currentTime = Date.now();
+          const isGrowing = currentSize > lastSize;
+          
+          if (checkCount === 1 || checkCount % 10 === 0 || isGrowing) {
+            // console.info(`${logPrefix} file check #${checkCount}: size=${currentSize}, growing=${isGrowing}`);
+          }
+          
+          // Resolve if we hit the main threshold
+          if (currentSize >= MIN_PLAYBACK_READY_BYTES) {
+            console.info(`${logPrefix} playback file is ready (${currentSize} bytes)`);
             resolve(filePath);
             return;
           }
+          
+          // Or if file exists, has some data, and is actively growing
+          if (currentSize >= MIN_PLAYBACK_GROWTH_BYTES && isGrowing && currentTime - lastCheckTime >= 400) {
+            console.info(`${logPrefix} playback file is growing (${currentSize} bytes), starting playback`);
+            resolve(filePath);
+            return;
+          }
+          
+          lastSize = currentSize;
+          if (isGrowing) {
+            lastCheckTime = currentTime;
+          }
+        } else {
+          if (checkCount === 1 || checkCount % 10 === 0) {
+            // console.info(`${logPrefix} file check #${checkCount}: file not found yet`);
+          }
         }
-      } catch {
-        /* keep polling */
+      } catch (e) {
+        console.error(`${logPrefix} file check error: ${(e as Error)?.message}`);
       }
 
       if (Date.now() - start >= timeoutMs) {
+        console.error(`${logPrefix} file check timed out after ${checkCount} checks, ${Date.now() - start}ms`);
         reject(new Error('Timed out waiting for recording playback to become ready'));
         return;
       }
@@ -1041,7 +1094,7 @@ function buildDownloadFfmpegArgs(outputPath: string, audio?: RecordingAudioOptio
   return args;
 }
 
-function buildPlaybackFfmpegArgs(outputPath: string, audio?: RecordingAudioOptions): string[] {
+function buildPlaybackFfmpegArgs(outputPath: string, audio?: RecordingAudioOptions, seekOffsetSec?: number): string[] {
   const args = [
     '-loglevel',
     'error',
@@ -1054,6 +1107,13 @@ function buildPlaybackFfmpegArgs(outputPath: string, audio?: RecordingAudioOptio
     '1000000',
     '-probesize',
     '1000000',
+  ];
+
+  if (typeof seekOffsetSec === 'number' && seekOffsetSec > 0) {
+    args.push('-ss', String(seekOffsetSec));
+  }
+
+  args.push(
     '-f',
     'mpegts',
     '-i',
@@ -1072,7 +1132,7 @@ function buildPlaybackFfmpegArgs(outputPath: string, audio?: RecordingAudioOptio
     '50',
     '-sc_threshold',
     '0',
-  ];
+  );
 
   if (audio) {
     args.push(

@@ -385,6 +385,48 @@ body {
   color: var(--text-soft);
 }
 
+.timeline-date-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-date-nav {
+  background: none;
+  border: none;
+  color: var(--text-soft);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.btn-date-nav:hover:not(:disabled) {
+  color: var(--text-primary, #fff);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.btn-date-nav:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+button.timeline-date {
+  background: none;
+  border: none;
+  color: var(--text-soft);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+button.timeline-date:hover {
+  color: var(--text-primary, #fff);
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .timeline-playback-time {
   color: #7dd3fc;
   font-weight: 600;

@@ -1,0 +1,5 @@
+- rclick camera preview to edit and remove
+- view toggle for "header" above viewer
+- remove camera name and status from "header" its duplicated from the camera overlay
+- use date-fns for all the date stuff we do
+- add l18n

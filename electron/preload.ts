@@ -26,8 +26,8 @@ contextBridge.exposeInMainWorld('tapoStudio', {
   recordings: {
     list: (cameraId: string, date: string): Promise<Recording[]> =>
       ipcRenderer.invoke('recordings:list', cameraId, date),
-    play: (cameraId: string, startTime: number, endTime: number, requestedTime: number): Promise<string> =>
-      ipcRenderer.invoke('recordings:play', cameraId, startTime, endTime, requestedTime),
+    play: (cameraId: string, startTime: number, endTime: number, requestedTime: number, clipStartTime?: number): Promise<string> =>
+      ipcRenderer.invoke('recordings:play', cameraId, startTime, endTime, requestedTime, clipStartTime),
   },
   diagnostics: {
     getRuntimeInfo: (): Promise<RuntimeInfo> => ipcRenderer.invoke('diagnostics:getRuntimeInfo'),
@@ -52,6 +52,11 @@ contextBridge.exposeInMainWorld('tapoStudio', {
       const handler = (_event: Electron.IpcRendererEvent, position: PreviewPosition) => callback(position);
       ipcRenderer.on('ui:setPreviewPosition', handler);
       return () => ipcRenderer.removeListener('ui:setPreviewPosition', handler);
+    },
+    onStreamsInvalidated: (callback: () => void): (() => void) => {
+      const handler = () => callback();
+      ipcRenderer.on('streams:invalidated', handler);
+      return () => ipcRenderer.removeListener('streams:invalidated', handler);
     },
   },
 });

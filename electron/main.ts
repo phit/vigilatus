@@ -5,6 +5,7 @@ import {
   Menu,
   type MenuItemConstructorOptions,
   nativeTheme,
+  powerMonitor,
   shell,
 } from 'electron';
 import path from 'node:path';
@@ -341,9 +342,9 @@ app.whenReady().then(async () => {
   
   try {
     await streamManager.init();
-    console.log('streamManager initialized successfully');
+    // console.log('[main:streamManager] streamManager initialized successfully');
   } catch (err) {
-    console.error('Failed to initialize streamManager:', err);
+    console.error('[main:streamManager] Failed to initialize streamManager:', err);
   }
 
   const testFixtures = loadTestFixtures();
@@ -351,6 +352,12 @@ app.whenReady().then(async () => {
   setApplicationMenu();
 
   createWindow();
+
+  powerMonitor.on('resume', () => {
+    console.log('[main:powerMonitor] System resumed from sleep, invalidating streams');
+    streamManager.stopAllStreams();
+    sendUiEvent('streams:invalidated');
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

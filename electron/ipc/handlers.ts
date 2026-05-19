@@ -171,25 +171,9 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
 
     const credential = recordingsCredentialCache.get(cameraId) ?? primaryCredential(cam);
     const client = recordingsClientCache.get(cameraId) ?? new TapoClient(credential);
-    console.info(`[recordings:list:${cameraId}] fetching date=${date} user=${credential.username}`);
+    // console.info(`[recordings:list:${cameraId}] fetching date=${date} user=${credential.username}`);
 
-    let recordings = await client.getRecordingsForDate(date);
-
-    if (date === formatDateYYYYMMDD(new Date())) {
-      const previousDate = previousDateYYYYMMDD(date);
-      try {
-        const previousDayRecordings = await client.getRecordingsForDate(previousDate);
-        if (previousDayRecordings.length > 0) {
-          const dedup = new Map<string, (typeof recordings)[number]>();
-          for (const rec of [...previousDayRecordings, ...recordings]) {
-            dedup.set(`${rec.startTime}:${rec.endTime}`, rec);
-          }
-          recordings = Array.from(dedup.values()).sort((a, b) => a.startTime - b.startTime);
-        }
-      } catch {
-        // Keep today's recordings even if previous day lookup fails.
-      }
-    }
+    const recordings = await client.getRecordingsForDate(date);
 
     recordingsCredentialCache.set(cameraId, credential);
     recordingsClientCache.set(cameraId, client);
@@ -197,11 +181,11 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     if (typeof resolvedUserId === 'number') {
       recordingsUserIdCache.set(cameraId, resolvedUserId);
     }
-    console.info(`[recordings:list:${cameraId}] fetched ${recordings.length} segments`);
+    // console.info(`[recordings:list:${cameraId}] fetched ${recordings.length} segments`);
     return recordings;
   });
 
-  ipcMain.handle('recordings:play', async (_e, cameraId: string, startTime: number, endTime: number, requestedTime?: number) => {
+  ipcMain.handle('recordings:play', async (_e, cameraId: string, startTime: number, endTime: number, requestedTime?: number, clipStartTime?: number) => {
     if (testFixtures?.playbackUrls) {
       return testFixtures.playbackUrls[cameraId] ?? 'about:blank';
     }
@@ -212,6 +196,18 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     const playbackWindow = normalizePlaybackWindow(startTime, endTime, requestedTime ?? startTime);
     startTime = playbackWindow.startTime;
     endTime = playbackWindow.endTime;
+
+    // Workaround: Tapo cameras ignore start_time for current-day (in-progress) recordings
+    // and stream from the beginning of the daily recording file. Compute an ffmpeg -ss offset
+    // so the output MP4 starts at the correct position.
+    let seekOffsetSec: number | undefined;
+    if (typeof clipStartTime === 'number' && clipStartTime > 0) {
+      const now = new Date();
+      const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      if (clipStartTime >= todayMidnight) {
+        seekOffsetSec = Math.max(0, Math.floor((startTime - clipStartTime) / 1000));
+      }
+    }
 
     let lastError: unknown = null;
     const cachedUserId = recordingsUserIdCache.get(cameraId);
@@ -233,7 +229,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
         const clipKey = `${Math.floor(attempt.start / 1000)}-${Math.floor(attempt.end / 1000)}`;
         const outputDir = path.join(os.tmpdir(), 'tapostudio-playback', cameraId, clipKey);
         try {
-          const job = await client.startRecordingPlayback(attempt.start, attempt.end, outputDir, userIdHint);
+          const job = await client.startRecordingPlayback(attempt.start, attempt.end, outputDir, userIdHint, seekOffsetSec);
           await job.ready;
           return job;
         } catch (e) {
@@ -290,9 +286,17 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     let playbackJob: (ActiveRecordingPlaybackJob & { ready: Promise<string>; assetPath?: string }) | null = null;
 
     stopRecordingPlayback(cameraId);
+    // Ensure the live stream process is stopped before requesting playback.
+    // Some camera firmware returns incorrect clip content when live and playback
+    // are requested concurrently for the same camera.
+    streamManager.stopStream(cameraId);
 
     console.info(
-      `[recordings:play:${cameraId}] starting foreground download window=${new Date(startTime).toISOString()}..${new Date(endTime).toISOString()} requested=${new Date(requestedTime ?? startTime).toISOString()}`,
+      `[recordings:play:${cameraId}] starting foreground download` +
+      ` window=${new Date(startTime).toISOString()}..${new Date(endTime).toISOString()}` +
+      ` requested=${new Date(requestedTime ?? startTime).toISOString()}` +
+      ` clipStart=${clipStartTime ? new Date(clipStartTime).toISOString() : 'N/A'}` +
+      ` seekOffset=${seekOffsetSec ?? 'none'}`,
     );
 
     const cachedClient = recordingsClientCache.get(cameraId);
@@ -347,9 +351,6 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
         ? lastError
         : new Error('Failed to download recording clip'));
     }
-
-    // Ensure live ffmpeg process is not holding this slot while playing back a local clip.
-    streamManager.stopStream(cameraId);
 
     activeRecordingPlaybackJobs.set(cameraId, playbackJob);
     if (playbackJob.assetPath) {

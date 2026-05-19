@@ -21,7 +21,7 @@ export type TapoStudioMock = {
   };
   recordings: {
     list: ReturnType<typeof vi.fn<[string, string], Promise<Recording[]>>>;
-    play: ReturnType<typeof vi.fn<[string, number, number, number], Promise<string>>>;
+    play: ReturnType<typeof vi.fn<[string, number, number, number, number | undefined], Promise<string>>>;
   };
   diagnostics: {
     getRuntimeInfo: ReturnType<typeof vi.fn<[], Promise<RuntimeInfo>>>;
@@ -31,6 +31,7 @@ export type TapoStudioMock = {
     onSetPreviewsVisible: ReturnType<typeof vi.fn<[(visible: boolean) => void], Unsubscribe>>;
     onSetTimelineVisible: ReturnType<typeof vi.fn<[(visible: boolean) => void], Unsubscribe>>;
     onSetPreviewPosition: ReturnType<typeof vi.fn<[(position: PreviewPosition) => void], Unsubscribe>>;
+    onStreamsInvalidated: ReturnType<typeof vi.fn<[() => void], Unsubscribe>>;
   };
 };
 
@@ -69,6 +70,7 @@ export function createTapoStudioMock(overrides: Partial<TapoStudioMock> = {}): T
       onSetPreviewsVisible: vi.fn().mockImplementation(() => noop),
       onSetTimelineVisible: vi.fn().mockImplementation(() => noop),
       onSetPreviewPosition: vi.fn().mockImplementation(() => noop),
+      onStreamsInvalidated: vi.fn().mockImplementation(() => noop),
     },
   };
 

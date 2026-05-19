@@ -24,6 +24,7 @@ interface CamerasStore {
   selectCamera(id: string): void;
   startStream(id: string): Promise<void>;
   stopStream(id: string): void;
+  restartActiveStreams(): void;
   updateSnapshot(id: string, dataUrl: string): void;
   setStatus(id: string, status: CameraState['status'], error?: string): void;
 
@@ -128,6 +129,22 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
     }));
   },
 
+  restartActiveStreams() {
+    const liveIds = get().cameras
+      .filter((c) => c.status === 'live' || c.status === 'connecting')
+      .map((c) => c.config.id);
+    if (liveIds.length === 0) return;
+    console.log('[cameras] restarting streams after resume:', liveIds);
+    set((s) => ({
+      cameras: s.cameras.map((c) =>
+        liveIds.includes(c.config.id) ? { ...c, status: 'idle', hlsUrl: undefined } : c,
+      ),
+    }));
+    for (const id of liveIds) {
+      void get().startStream(id);
+    }
+  },
+
   updateSnapshot(id, dataUrl) {
     set((s) => ({
       cameras: s.cameras.map((c) =>
@@ -184,9 +201,18 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
 
     const clip = recordings.find((r) => time >= r.startTime && time <= r.endTime);
     if (!clip) {
+      console.info('[cameras:seekTo] no clip found for time', new Date(time).toISOString(), 'recordings:', recordings.length);
       set({ playbackMode: 'live', playbackTime: null });
       return;
     }
+
+    console.info('[cameras:seekTo] clip found:', {
+      clickedTime: new Date(time).toISOString(),
+      clipStart: new Date(clip.startTime).toISOString(),
+      clipEnd: new Date(clip.endTime).toISOString(),
+      clipStartMs: clip.startTime,
+      clipEndMs: clip.endTime,
+    });
 
     set({ playbackMode: 'playback', playbackTime: time });
 
@@ -213,6 +239,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
         requestedStartTime,
         requestedEndTime,
         time,
+        clip.startTime,
       );
       set((s) => ({
         cameras: s.cameras.map((c) =>
@@ -228,7 +255,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
 
   goLive() {
     const { selectedId } = get();
-    set({ playbackMode: 'live', playbackTime: null, recordings: [], recordingsLoading: false, recordingsError: null });
+    set({ playbackMode: 'live', playbackTime: null });
     if (selectedId) void get().startStream(selectedId);
   },
 }));

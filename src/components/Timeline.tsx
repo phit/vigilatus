@@ -18,12 +18,39 @@ interface Props {
 
 const WINDOW_HOURS = 24;
 
-function toDateStr(ts: number): string {
-  const d = new Date(ts);
+function toDateStr(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}${m}${day}`;
+}
+
+function todayStr(): string {
+  return toDateStr(new Date());
+}
+
+function shiftDate(dateStr: string, days: number): string {
+  const year = Number(dateStr.slice(0, 4));
+  const month = Number(dateStr.slice(4, 6));
+  const day = Number(dateStr.slice(6, 8));
+  const d = new Date(year, month - 1, day);
+  d.setDate(d.getDate() + days);
+  return toDateStr(d);
+}
+
+function formatDateDisplay(dateStr: string): string {
+  const year = Number(dateStr.slice(0, 4));
+  const month = Number(dateStr.slice(4, 6));
+  const day = Number(dateStr.slice(6, 8));
+  return new Date(year, month - 1, day).toLocaleDateString();
+}
+
+/** Midnight (local) of the given YYYYMMDD date */
+function dateStartMs(dateStr: string): number {
+  const year = Number(dateStr.slice(0, 4));
+  const month = Number(dateStr.slice(4, 6));
+  const day = Number(dateStr.slice(6, 8));
+  return new Date(year, month - 1, day).getTime();
 }
 
 function formatTime(ts: number): string {
@@ -48,21 +75,37 @@ export function Timeline({
   const suppressClickRef = useRef(false);
   const [dragging, setDragging] = useState(false);
   const [dragPreviewTime, setDragPreviewTime] = useState<number | null>(null);
-  const [windowEnd, setWindowEnd] = useState(() => Date.now());
-  const windowStart = windowEnd - WINDOW_HOURS * 60 * 60 * 1000;
+  const [selectedDate, setSelectedDate] = useState(todayStr);
 
-  // Auto-advance windowEnd every 30s when live
-  useEffect(() => {
-    if (playbackMode !== 'live') return;
-    const id = setInterval(() => setWindowEnd(Date.now()), 30_000);
-    return () => clearInterval(id);
-  }, [playbackMode]);
+  const isToday = selectedDate === todayStr();
+  const windowStart = dateStartMs(selectedDate);
+  const windowEnd = dateStartMs(selectedDate) + 24 * 60 * 60 * 1000;
 
-  // Load recordings for today whenever camera changes
+  // Load recordings whenever camera or date changes
   useEffect(() => {
     if (!selectedCameraId) return;
-    onLoadDate(toDateStr(windowEnd));
-  }, [selectedCameraId]); // eslint-disable-line react-hooks/exhaustive-deps
+    onLoadDate(selectedDate);
+  }, [selectedCameraId, selectedDate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset to today when camera changes
+  useEffect(() => {
+    setSelectedDate(todayStr());
+  }, [selectedCameraId]);
+
+  const goToPreviousDay = () => {
+    setSelectedDate((d) => shiftDate(d, -1));
+  };
+
+  const goToNextDay = () => {
+    setSelectedDate((d) => {
+      const next = shiftDate(d, 1);
+      return next <= todayStr() ? next : d;
+    });
+  };
+
+  const goToToday = () => {
+    setSelectedDate(todayStr());
+  };
 
   const timeToPercent = useCallback(
     (t: number) => Math.max(0, Math.min(100, ((t - windowStart) / (windowEnd - windowStart)) * 100)),
@@ -121,7 +164,7 @@ export function Timeline({
     ? dragPreviewTime
     : playbackMode === 'playback' && playbackTime
     ? playbackTime
-    : Date.now();
+    : isToday ? Date.now() : windowEnd;
   const handlePos = timeToPercent(handleTime);
 
   // Time axis marks (every 4h)
@@ -134,7 +177,18 @@ export function Timeline({
     <div className="timeline" data-testid={testId}>
       <div className="timeline-header">
         <span className="timeline-title">Timeline</span>
-        <span className="timeline-date">{new Date(windowEnd).toLocaleDateString()}</span>
+        <span className="timeline-date-nav">
+          <button type="button" className="btn-date-nav" onClick={goToPreviousDay} title="Previous day">◀</button>
+          <button
+            type="button"
+            className="timeline-date"
+            onClick={goToToday}
+            title="Go to today"
+          >
+            {formatDateDisplay(selectedDate)}{isToday ? ' (Today)' : ''}
+          </button>
+          <button type="button" className="btn-date-nav" onClick={goToNextDay} disabled={isToday} title="Next day">▶</button>
+        </span>
         {playbackMode === 'playback' && (
           <span className="timeline-playback-time">
             {playbackTime ? formatTime(playbackTime) : '—'}

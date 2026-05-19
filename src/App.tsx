@@ -26,6 +26,7 @@ export function App() {
     selectCamera,
     startStream,
     stopStream,
+    restartActiveStreams,
     setPreviewsVisible,
     setTimelineVisible,
     setPreviewPosition,
@@ -78,14 +79,18 @@ export function App() {
     const offSetPreviewPosition = window.tapoStudio.ui.onSetPreviewPosition((position: PreviewPosition) => {
       setPreviewPosition(position);
     });
+    const offStreamsInvalidated = window.tapoStudio.ui.onStreamsInvalidated(() => {
+      restartActiveStreams();
+    });
 
     return () => {
       offOpenAdd();
       offSetPreviewsVisible();
       offSetTimelineVisible();
       offSetPreviewPosition();
+      offStreamsInvalidated();
     };
-  }, [setPreviewsVisible, setTimelineVisible, setPreviewPosition]);
+  }, [setPreviewsVisible, setTimelineVisible, setPreviewPosition, restartActiveStreams]);
 
   // Auto-select + start first camera on load
   useEffect(() => {

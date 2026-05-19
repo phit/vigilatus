@@ -24,7 +24,7 @@ declare global {
       };
       recordings: {
         list(cameraId: string, date: string): Promise<Recording[]>;
-        play(cameraId: string, startTime: number, endTime: number, requestedTime: number): Promise<string>;
+        play(cameraId: string, startTime: number, endTime: number, requestedTime: number, clipStartTime?: number): Promise<string>;
       };
       diagnostics: {
         getRuntimeInfo(): Promise<RuntimeInfo>;
@@ -34,6 +34,7 @@ declare global {
         onSetPreviewsVisible(callback: (visible: boolean) => void): () => void;
         onSetTimelineVisible(callback: (visible: boolean) => void): () => void;
         onSetPreviewPosition(callback: (position: PreviewPosition) => void): () => void;
+        onStreamsInvalidated(callback: () => void): () => void;
       };
     };
   }

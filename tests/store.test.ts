@@ -76,7 +76,7 @@ describe('useCameraStore', () => {
 
     await useCameraStore.getState().seekTo(150_000);
 
-    expect(mock.recordings.play).toHaveBeenCalledWith('cam-1', 145_000, 250_000, 150_000);
+    expect(mock.recordings.play).toHaveBeenCalledWith('cam-1', 145_000, 250_000, 150_000, 100_000);
     expect(useCameraStore.getState().playbackMode).toBe('playback');
     expect(useCameraStore.getState().playbackTime).toBe(150_000);
     expect(useCameraStore.getState().cameras[0]?.hlsUrl).toBe('blob:recording-playback');

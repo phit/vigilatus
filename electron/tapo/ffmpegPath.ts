@@ -45,23 +45,23 @@ export function resolveFfmpegBinaryPath(ffmpegPath: string | null): string {
     candidates.add(resourcesPath);
   }
 
-  console.log('[ffmpegPath] Input:', ffmpegPath);
-  console.log('[ffmpegPath] Candidates:', Array.from(candidates));
-  console.log('[ffmpegPath] app.isPackaged:', app.isPackaged);
+  // console.log('[ffmpegPath] Input:', ffmpegPath);
+  // console.log('[ffmpegPath] Candidates:', Array.from(candidates));
+  // console.log('[ffmpegPath] app.isPackaged:', app.isPackaged);
 
   for (const candidate of candidates) {
-    console.log('[ffmpegPath] Checking:', candidate, '- exists:', fs.existsSync(candidate));
+    // console.log('[ffmpegPath] Checking:', candidate, '- exists:', fs.existsSync(candidate));
     if (!fs.existsSync(candidate)) {
       continue;
     }
 
     if (app.isPackaged && isAsarArchivePath(candidate)) {
-      console.log('[ffmpegPath] Found in app.asar, extracting to a real file for execution');
+      // console.log('[ffmpegPath] Found in app.asar, extracting to a real file for execution');
       return extractBinaryFromAsar(candidate);
     }
 
     if (fs.statSync(candidate).isFile()) {
-      console.log('[ffmpegPath] Found at:', candidate);
+      // console.log('[ffmpegPath] Found at:', candidate);
       return candidate;
     }
   }
