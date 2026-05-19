@@ -29,6 +29,9 @@ declare global {
       diagnostics: {
         getRuntimeInfo(): Promise<RuntimeInfo>;
       };
+      contextMenu: {
+        showCameraMenu(): Promise<string | null>;
+      };
       ui: {
         onOpenAddCamera(callback: () => void): () => void;
         onSetPreviewsVisible(callback: (visible: boolean) => void): () => void;

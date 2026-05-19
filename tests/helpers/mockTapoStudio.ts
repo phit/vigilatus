@@ -26,6 +26,9 @@ export type TapoStudioMock = {
   diagnostics: {
     getRuntimeInfo: ReturnType<typeof vi.fn<[], Promise<RuntimeInfo>>>;
   };
+  contextMenu: {
+    showCameraMenu: ReturnType<typeof vi.fn<[], Promise<string | null>>>;
+  };
   ui: {
     onOpenAddCamera: ReturnType<typeof vi.fn<[() => void], Unsubscribe>>;
     onSetPreviewsVisible: ReturnType<typeof vi.fn<[(visible: boolean) => void], Unsubscribe>>;
@@ -65,6 +68,9 @@ export function createTapoStudioMock(overrides: Partial<TapoStudioMock> = {}): T
         isDevelopment: true,
         isPackaged: false,
       }),
+    },
+    contextMenu: {
+      showCameraMenu: vi.fn().mockResolvedValue(null),
     },
     ui: {
       onOpenAddCamera: vi.fn().mockImplementation(() => noop),

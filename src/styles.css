@@ -262,41 +262,6 @@ body {
   box-shadow: 0 0 0 2px rgba(94, 234, 212, 0.25);
 }
 
-/* Context menu for preview cards */
-.context-menu {
-  z-index: 1000;
-  background: var(--surface, #1e293b);
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 6px;
-  padding: 4px 0;
-  min-width: 120px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-}
-
-.context-menu-item {
-  display: block;
-  width: 100%;
-  padding: 6px 12px;
-  background: none;
-  border: none;
-  color: var(--text-primary, #e2e8f0);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.context-menu-item:hover {
-  background: rgba(148, 163, 184, 0.15);
-}
-
-.context-menu-item--danger {
-  color: #f87171;
-}
-
-.context-menu-item--danger:hover {
-  background: rgba(248, 113, 113, 0.15);
-}
-
 .preview-thumb {
   width: 100%;
   aspect-ratio: 16/9;

@@ -15,7 +15,6 @@ const REFRESH_BASE_MS = 5000;
 export function CameraPreview({ camera, isSelected, playbackMode, onSelect, onEdit, onRemove }: Props) {
   const [snapshot, setSnapshot] = useState<string | null>(camera.snapshotDataUrl ?? null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,22 +50,19 @@ export function CameraPreview({ camera, isSelected, playbackMode, onSelect, onEd
     ? 'Loading recording...'
     : status;
 
-  useEffect(() => {
-    if (!menuPos) return;
-    const close = () => setMenuPos(null);
-    window.addEventListener('click', close);
-    return () => window.removeEventListener('click', close);
-  }, [menuPos]);
+  const handleContextMenu = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    const action = await window.tapoStudio.contextMenu.showCameraMenu();
+    if (action === 'edit') onEdit();
+    else if (action === 'remove') onRemove();
+  };
 
   return (
     <button
       type="button"
       className={`preview-card${isSelected ? ' preview-card--selected' : ''}`}
       onClick={onSelect}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        setMenuPos({ x: e.clientX, y: e.clientY });
-      }}
+      onContextMenu={handleContextMenu}
       title={`Switch to ${name}`}
     >
       <div className="preview-thumb">
@@ -83,20 +79,6 @@ export function CameraPreview({ camera, isSelected, playbackMode, onSelect, onEd
         <span className={`preview-dot dot-${status}`} title={statusLabel} />
       </div>
 
-      {menuPos && (
-        <div
-          className="context-menu"
-          style={{ position: 'fixed', left: menuPos.x, top: menuPos.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button type="button" className="context-menu-item" onClick={() => { setMenuPos(null); onEdit(); }}>
-            ✎ Edit
-          </button>
-          <button type="button" className="context-menu-item context-menu-item--danger" onClick={() => { setMenuPos(null); onRemove(); }}>
-            ✕ Remove
-          </button>
-        </div>
-      )}
     </button>
   );
 }

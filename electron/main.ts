@@ -63,7 +63,7 @@ let licensesWindow: BrowserWindow | null = null;
 const uiDisplayState = {
   previews: true,
   timeline: true,
-  header: true,
+  header: false,
   previewPosition: 'right' as PreviewPosition,
 };
 
@@ -206,7 +206,7 @@ function setApplicationMenu(): void {
       },
     },
     {
-      label: 'Header',
+      label: 'Statusbar',
       type: 'checkbox',
       checked: uiDisplayState.header,
       click: (menuItem) => {
@@ -340,6 +340,24 @@ ipcMain.handle('diagnostics:getRuntimeInfo', () => ({
   isDevelopment,
   isPackaged: app.isPackaged,
 }));
+
+ipcMain.handle('ui:showCameraContextMenu', (_e): Promise<string | null> => {
+  const win = BrowserWindow.getFocusedWindow();
+  if (!win) return Promise.resolve(null);
+
+  return new Promise((resolve) => {
+    const menu = Menu.buildFromTemplate([
+      { label: 'Edit', click: () => resolve('edit') },
+      { type: 'separator' },
+      { label: 'Remove', click: () => resolve('remove') },
+    ]);
+    menu.once('menu-will-close', () => {
+      // Resolve null if nothing was clicked (menu dismissed)
+      setTimeout(() => resolve(null), 50);
+    });
+    menu.popup({ window: win });
+  });
+});
 
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark';

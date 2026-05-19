@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('tapoStudio', {
   diagnostics: {
     getRuntimeInfo: (): Promise<RuntimeInfo> => ipcRenderer.invoke('diagnostics:getRuntimeInfo'),
   },
+  contextMenu: {
+    showCameraMenu: (): Promise<string | null> => ipcRenderer.invoke('ui:showCameraContextMenu'),
+  },
   ui: {
     onOpenAddCamera: (callback: () => void): (() => void) => {
       const handler = () => callback();
