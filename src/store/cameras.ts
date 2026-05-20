@@ -210,15 +210,24 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
 
   async loadRecordings(cameraId, date) {
     set({ recordingsLoading: true, recordingsError: null });
-    try {
-      const recs = await window.vigilatus.recordings.list(cameraId, date);
-      set({ recordings: recs, recordingsLoading: false, recordingsError: null });
-    } catch (e) {
-      set({
-        recordings: [],
-        recordingsLoading: false,
-        recordingsError: (e as Error)?.message ?? 'Failed to load recordings',
-      });
+    const maxRetries = 3;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const recs = await window.vigilatus.recordings.list(cameraId, date);
+        set({ recordings: recs, recordingsLoading: false, recordingsError: null });
+        return;
+      } catch (e) {
+        const msg = (e as Error)?.message ?? 'Failed to load recordings';
+        if (attempt < maxRetries && msg.includes('unreachable')) {
+          await new Promise((r) => setTimeout(r, 2000));
+          continue;
+        }
+        set({
+          recordings: [],
+          recordingsLoading: false,
+          recordingsError: msg,
+        });
+      }
     }
   },
 

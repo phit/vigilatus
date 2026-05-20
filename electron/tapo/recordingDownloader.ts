@@ -763,10 +763,10 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
     const stderrChunks: Buffer[] = [];
     ffmpegStderr?.on('data', (chunk: Buffer) => {
       stderrChunks.push(chunk);
-      const message = chunk.toString('utf8').trim();
-      if (message) {
-        console.info(`${logPrefix} ffmpeg: ${message}`);
-      }
+      // const message = chunk.toString('utf8').trim();
+      // if (message) {
+      //   console.info(`${logPrefix} ffmpeg: ${message}`);
+      // }
     });
 
     let tsBuffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
@@ -928,10 +928,10 @@ export async function startRecordingDownloadToHls(
     const stderrChunks: Buffer[] = [];
     ffmpegStderr?.on('data', (chunk: Buffer) => {
       stderrChunks.push(chunk);
-      const message = chunk.toString('utf8').trim();
-      if (message) {
-        console.info(`${logPrefix} ffmpeg: ${message}`);
-      }
+      // const message = chunk.toString('utf8').trim();
+      // if (message) {
+      //   console.info(`${logPrefix} ffmpeg: ${message}`);
+      // }
     });
 
     let totalDataChunks = 0;

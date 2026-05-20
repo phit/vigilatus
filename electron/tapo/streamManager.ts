@@ -543,7 +543,7 @@ async function attemptHttpStream(
     ffmpegProc.stderr?.on('data', (chunk: Buffer) => {
       const line = chunk.toString('utf8').trim();
       if (line) {
-        console.error(`[stream:${cameraId}] ffmpeg: ${line}`);
+        // console.error(`[stream:${cameraId}] ffmpeg: ${line}`);
         stderrLines.push(line);
       }
       if (stderrLines.length > STDERR_HISTORY_LIMIT) stderrLines.shift();
