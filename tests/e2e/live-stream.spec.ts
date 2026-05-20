@@ -8,6 +8,8 @@
  * Set CAMERA_ID env var to target a specific camera, otherwise the first HTTP camera is used.
  */
 import { _electron as electron, expect, test } from '@playwright/test';
+
+test.skip(!process.env.REAL_CAMERA, 'Requires a real camera (set REAL_CAMERA=1)');
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
