@@ -160,7 +160,11 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
                   <option value="http">{t('modal.protocolHttp')}</option>
                 </select>
               </label>
-              <p className="modal-hint">{(form.streamProtocol ?? 'rtsp') === 'rtsp' ? t('modal.streamHint') : t('modal.httpStreamHint')}</p>
+              <p className="modal-hint">
+                {(form.streamProtocol ?? 'rtsp') === 'rtsp'
+                  ? t('modal.streamHint')
+                  : t('modal.httpStreamHint')}
+              </p>
               {(form.streamProtocol ?? 'rtsp') === 'rtsp' && (
                 <>
                   <label>

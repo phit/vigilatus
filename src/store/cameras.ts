@@ -218,14 +218,17 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
     const { selectedId, recordings } = get();
     if (!selectedId) return;
 
-    const clip = recordings.find((r) => time >= r.startTime && time <= r.endTime);
+    let clip = recordings.find((r) => time >= r.startTime && time <= r.endTime);
+    if (!clip && recordings.length > 0) {
+      // Snap to the nearest recording clip
+      clip = recordings.reduce((best, r) => {
+        const dist = Math.min(Math.abs(time - r.startTime), Math.abs(time - r.endTime));
+        const bestDist = Math.min(Math.abs(time - best.startTime), Math.abs(time - best.endTime));
+        return dist < bestDist ? r : best;
+      });
+      time = time < clip.startTime ? clip.startTime : clip.endTime - 1000;
+    }
     if (!clip) {
-      console.info(
-        '[cameras:seekTo] no clip found for time',
-        new Date(time).toISOString(),
-        'recordings:',
-        recordings.length,
-      );
       set({ playbackMode: 'live', playbackTime: null });
       return;
     }

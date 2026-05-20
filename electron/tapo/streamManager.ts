@@ -13,6 +13,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
+import type { Writable } from 'node:stream';
 import type { AddressInfo } from 'node:net';
 import type { CameraConfig } from '../types';
 import { resolveFfmpegBinaryPath } from './ffmpegPath';
@@ -112,12 +113,9 @@ function purgeOldRecordings(): void {
 }
 
 export async function init(): Promise<void> {
-  console.log('[streamManager:init] ffmpegStatic value:', ffmpegStatic);
   try {
     const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
-    console.log('[streamManager:init] Resolved ffmpeg path:', ffmpegBinary);
     ffmpeg.setFfmpegPath(ffmpegBinary);
-    console.log('[streamManager:init] ffmpeg path set successfully');
   } catch (err) {
     console.error('[streamManager:init] Failed to resolve ffmpeg path:', err);
     throw err;
@@ -262,9 +260,7 @@ function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<string> {
   const streamReady = (async () => {
     // Use previously discovered hash method first, then try both
     const cachedMethod = cfg.httpHashMethod;
-    const hashMethods: HashMethod[] = cachedMethod
-      ? [cachedMethod]
-      : ['md5', 'sha256'];
+    const hashMethods: HashMethod[] = cachedMethod ? [cachedMethod] : ['md5', 'sha256'];
     let lastError: Error | null = null;
 
     for (const method of hashMethods) {
@@ -280,9 +276,7 @@ function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<string> {
         return url;
       } catch (err) {
         lastError = err as Error;
-        console.warn(
-          `[stream:${cameraId}] HTTP stream with ${method} failed: ${(err as Error).message}`,
-        );
+        console.warn(`[stream:${cameraId}] HTTP stream with ${method} failed: ${(err as Error).message}`);
         // Clean up before retry
         stopStream(cameraId);
         fs.mkdirSync(segDir, { recursive: true });
@@ -329,10 +323,16 @@ async function attemptHttpStream(
 
   const cleanup = () => {
     if (ffmpegProc && !ffmpegProc.killed) {
-      try { ffmpegProc.kill('SIGKILL'); } catch { /* ignore */ }
+      try {
+        ffmpegProc.kill('SIGKILL');
+      } catch {
+        /* ignore */
+      }
     }
     if (session) {
-      void session.close().catch(() => { /* ignore */ });
+      void session.close().catch(() => {
+        /* ignore */
+      });
       session = null;
     }
     streams.delete(cameraId);
@@ -343,36 +343,164 @@ async function attemptHttpStream(
     await session.start();
     console.info(`[stream:${cameraId}] HTTP media session connected`);
 
-    ffmpegProc = spawn(ffmpegBinary, [
-      '-loglevel', 'warning',
-      '-fflags', '+genpts+discardcorrupt',
-      '-err_detect', 'ignore_err',
-      '-analyzeduration', '2000000',
-      '-probesize', '1000000',
-      '-f', 'mpegts',
-      '-i', 'pipe:0',
-      '-map', '0:v:0?',
-      '-map', '0:a:0?',
-      '-c:v', 'libx264',
-      '-preset', 'ultrafast',
-      '-tune', 'zerolatency',
-      '-pix_fmt', 'yuv420p',
-      '-g', '50',
-      '-sc_threshold', '0',
-      '-c:a', 'aac',
-      '-ac', '1',
-      '-ar', '44100',
-      '-f', 'hls',
-      '-hls_time', '2',
-      '-hls_list_size', '5',
-      '-hls_flags', 'delete_segments+append_list+independent_segments',
-      '-hls_segment_filename', path.join(segDir, 'segment-%03d.ts'),
-      '-start_number', '0',
+    // --- Phase 1: buffer initial chunks to detect audio codec ---------------
+    interface BufferedPart {
+      plaintext: Buffer;
+      audioPayload?: Buffer;
+    }
+    const buffered: BufferedPart[] = [];
+    let detectedAudioCodec: 'pcma' | 'pcmu' | undefined;
+    const DETECT_LIMIT = 30; // examine up to 30 chunks
+
+    let resolveDetection: () => void;
+    const detectionDone = new Promise<void>((r) => {
+      resolveDetection = r;
+    });
+
+    let firstDataReceived = false;
+    const noDataTimeout = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        if (!firstDataReceived) {
+          reject(new Error('No video data received within 5s — likely wrong hash method'));
+        }
+      }, 5000);
+    });
+
+    // Start streaming and buffer initial chunks
+    let streamingCallback:
+      | ((part: {
+          mimetype: string;
+          plaintext: Buffer;
+          audioPayload?: Buffer;
+          audioPayloadType?: 'pcma' | 'pcmu';
+        }) => Promise<void>)
+      | null = null;
+
+    const streamPromise = session
+      .streamPreview(async (part) => {
+        if (streamingCallback) {
+          await streamingCallback(part);
+          return;
+        }
+
+        // Detection phase
+        if (!firstDataReceived) {
+          firstDataReceived = true;
+          console.info(`[stream:${cameraId}] first video data received (${part.plaintext.length} bytes)`);
+        }
+
+        buffered.push({ plaintext: part.plaintext, audioPayload: part.audioPayload });
+
+        if (!detectedAudioCodec && part.audioPayloadType) {
+          detectedAudioCodec = part.audioPayloadType;
+          console.info(`[stream:${cameraId}] detected audio codec: ${detectedAudioCodec}`);
+          resolveDetection!();
+        }
+
+        if (buffered.length >= DETECT_LIMIT && !detectedAudioCodec) {
+          console.info(
+            `[stream:${cameraId}] no audio detected after ${DETECT_LIMIT} chunks, proceeding video-only`,
+          );
+          resolveDetection!();
+        }
+      })
+      .catch((err) => {
+        if (!expectedStops.has(cameraId)) {
+          console.error(`[stream:${cameraId}] http media session error:`, (err as Error).message);
+          cleanup();
+        }
+      });
+
+    // Wait for audio detection or timeout
+    await Promise.race([detectionDone, noDataTimeout]);
+
+    // --- Phase 2: spawn ffmpeg with correct args ----------------------------
+    const audioCodec = detectedAudioCodec;
+    const audioRate = audioCodec === 'pcmu' ? 16000 : 8000;
+
+    const ffmpegArgs = [
+      '-loglevel',
+      'warning',
+      '-fflags',
+      '+genpts+discardcorrupt',
+      '-err_detect',
+      'ignore_err',
+      '-analyzeduration',
+      '2000000',
+      '-probesize',
+      '1000000',
+      '-f',
+      'mpegts',
+      '-i',
+      'pipe:0',
+    ];
+
+    if (audioCodec) {
+      ffmpegArgs.push(
+        '-analyzeduration',
+        '0',
+        '-probesize',
+        '32',
+        '-f',
+        audioCodec === 'pcmu' ? 'mulaw' : 'alaw',
+        '-ar',
+        String(audioRate),
+        '-ac',
+        '1',
+        '-i',
+        'pipe:3',
+      );
+    }
+
+    ffmpegArgs.push(
+      '-map',
+      '0:v:0?',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'ultrafast',
+      '-tune',
+      'zerolatency',
+      '-pix_fmt',
+      'yuv420p',
+      '-g',
+      '50',
+      '-sc_threshold',
+      '0',
+    );
+
+    if (audioCodec) {
+      ffmpegArgs.push('-map', '1:a:0', '-c:a', 'aac', '-b:a', '128k');
+    }
+
+    ffmpegArgs.push(
+      '-f',
+      'hls',
+      '-hls_time',
+      '2',
+      '-hls_list_size',
+      '5',
+      '-hls_flags',
+      'delete_segments+append_list+independent_segments',
+      '-hls_segment_filename',
+      path.join(segDir, 'segment-%03d.ts'),
+      '-start_number',
+      '0',
       m3u8,
-    ], { stdio: ['pipe', 'ignore', 'pipe'] });
+    );
+
+    ffmpegProc = spawn(ffmpegBinary, ffmpegArgs, {
+      stdio: audioCodec ? ['pipe', 'ignore', 'pipe', 'pipe'] : ['pipe', 'ignore', 'pipe'],
+    });
 
     const ffmpegStdin = ffmpegProc.stdin!;
-    let totalChunks = 0;
+    const audioInput = audioCodec ? (ffmpegProc.stdio[3] as Writable | undefined) : undefined;
+
+    // Absorb EPIPE errors on both pipes
+    ffmpegStdin.on('error', () => {});
+    audioInput?.on('error', () => {});
+
+    let totalChunks = buffered.length;
     let tsBuffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
 
     const entry: StreamEntry = {
@@ -384,32 +512,30 @@ async function attemptHttpStream(
     };
     streams.set(cameraId, entry);
 
-    // Detect wrong hash method: if no data arrives within 5s, bail out early
-    let firstDataReceived = false;
-    const noDataTimeout = new Promise<never>((_, reject) => {
-      setTimeout(() => {
-        if (!firstDataReceived) {
-          reject(new Error('No video data received within 5s — likely wrong hash method'));
-        }
-      }, 5000);
-    });
+    // Flush buffered chunks to ffmpeg
+    for (const buf of buffered) {
+      if (ffmpegStdin.destroyed) break;
+      tsBuffer = await writeAlignedTsPackets(tsBuffer, buf.plaintext, ffmpegStdin);
+      if (audioInput && !audioInput.destroyed && buf.audioPayload) {
+        audioInput.write(buf.audioPayload);
+      }
+    }
+    buffered.length = 0;
 
-    // Start piping media session data to ffmpeg in the background
-    session.streamPreview(async (part) => {
+    // Switch the streaming callback to feed ffmpeg directly
+    streamingCallback = async (part) => {
       if (ffmpegStdin.destroyed) return;
       totalChunks++;
-      if (totalChunks === 1) {
-        firstDataReceived = true;
-        console.info(`[stream:${cameraId}] first video data received (${part.plaintext.length} bytes)`);
-      }
       tsBuffer = await writeAlignedTsPackets(tsBuffer, part.plaintext, ffmpegStdin);
-    }).catch((err) => {
-      if (!expectedStops.has(cameraId)) {
-        console.error(`[stream:${cameraId}] http media session error:`, (err as Error).message);
-        cleanup();
+      if (audioInput && !audioInput.destroyed && part.audioPayload) {
+        audioInput.write(part.audioPayload);
       }
-    }).finally(() => {
+    };
+
+    // Handle stream end
+    void streamPromise.finally(() => {
       if (ffmpegStdin && !ffmpegStdin.destroyed) ffmpegStdin.end();
+      if (audioInput && !audioInput.destroyed) audioInput.end();
     });
 
     // Wait for HLS to become ready
@@ -429,10 +555,7 @@ async function attemptHttpStream(
       }
     });
 
-    await Promise.race([
-      waitForHlsReady(m3u8, HTTP_STREAM_READY_TIMEOUT_MS, stderrLines),
-      noDataTimeout,
-    ]);
+    await Promise.race([waitForHlsReady(m3u8, HTTP_STREAM_READY_TIMEOUT_MS, stderrLines), noDataTimeout]);
     console.info(`[stream:${cameraId}] HTTP stream ready, received ${totalChunks} chunks so far`);
     return hlsUrl;
   } catch (err) {
@@ -448,10 +571,16 @@ export function stopStream(cameraId: string): void {
 
   // Stop HTTP Media Session resources if present
   if (entry.httpFfmpeg && !entry.httpFfmpeg.killed) {
-    try { entry.httpFfmpeg.kill('SIGKILL'); } catch { /* ignore */ }
+    try {
+      entry.httpFfmpeg.kill('SIGKILL');
+    } catch {
+      /* ignore */
+    }
   }
   if (entry.httpSession) {
-    void entry.httpSession.close().catch(() => { /* ignore */ });
+    void entry.httpSession.close().catch(() => {
+      /* ignore */
+    });
   }
 
   // Stop RTSP ffmpeg process if present
@@ -614,25 +743,29 @@ async function snapshotFromHls(cameraId: string): Promise<string | null> {
 
   return new Promise<string | null>((resolve) => {
     const timer = setTimeout(() => {
-      try { proc.kill('SIGKILL'); } catch { /* ignore */ }
+      try {
+        proc.kill('SIGKILL');
+      } catch {
+        /* ignore */
+      }
       resolve(null);
     }, 5000);
 
-    const proc = spawn(ffmpegBinary, [
-      '-loglevel', 'error',
-      '-sseof', '-1',
-      '-i', m3u8,
-      '-frames:v', '1',
-      '-q:v', '5',
-      '-y',
-      outFile,
-    ], { stdio: ['ignore', 'ignore', 'ignore'] });
+    const proc = spawn(
+      ffmpegBinary,
+      ['-loglevel', 'error', '-sseof', '-1', '-i', m3u8, '-frames:v', '1', '-q:v', '5', '-y', outFile],
+      { stdio: ['ignore', 'ignore', 'ignore'] },
+    );
 
     proc.on('close', () => {
       clearTimeout(timer);
       try {
         const buf = fs.readFileSync(outFile);
-        try { fs.unlinkSync(outFile); } catch { /* ignore */ }
+        try {
+          fs.unlinkSync(outFile);
+        } catch {
+          /* ignore */
+        }
         resolve(`data:image/jpeg;base64,${buf.toString('base64')}`);
       } catch {
         resolve(null);
@@ -709,20 +842,34 @@ async function captureHttpSnapshot(cameraId: string, cfg: CameraConfig): Promise
       session = new MediaSession(cfg.host, cfg.username || 'admin', hashedPassword, 50);
       await session.start();
 
-      const ffmpegProc = spawn(ffmpegBinary, [
-        '-loglevel', 'warning',
-        '-fflags', '+genpts+discardcorrupt',
-        '-err_detect', 'ignore_err',
-        '-analyzeduration', '1000000',
-        '-probesize', '500000',
-        '-f', 'mpegts',
-        '-i', 'pipe:0',
-        '-map', '0:v:0?',
-        '-frames:v', '1',
-        '-q:v', '5',
-        '-y',
-        outFile,
-      ], { stdio: ['pipe', 'ignore', 'pipe'] });
+      const ffmpegProc = spawn(
+        ffmpegBinary,
+        [
+          '-loglevel',
+          'warning',
+          '-fflags',
+          '+genpts+discardcorrupt',
+          '-err_detect',
+          'ignore_err',
+          '-analyzeduration',
+          '1000000',
+          '-probesize',
+          '500000',
+          '-f',
+          'mpegts',
+          '-i',
+          'pipe:0',
+          '-map',
+          '0:v:0?',
+          '-frames:v',
+          '1',
+          '-q:v',
+          '5',
+          '-y',
+          outFile,
+        ],
+        { stdio: ['pipe', 'ignore', 'pipe'] },
+      );
 
       const ffmpegStdin = ffmpegProc.stdin!;
       ffmpegStdin.on('error', () => {}); // suppress EPIPE after ffmpeg exits
@@ -737,15 +884,17 @@ async function captureHttpSnapshot(cameraId: string, cfg: CameraConfig): Promise
       }, 15000);
 
       // Pipe data to ffmpeg; it exits after capturing 1 frame
-      session.streamPreview(async (part) => {
-        if (ffmpegStdin.destroyed) return;
-        const ok = ffmpegStdin.write(part.plaintext);
-        if (!ok) {
-          await new Promise<void>((res) => ffmpegStdin.once('drain', res));
-        }
-      }).catch(() => {
-        // Expected: session closed after ffmpeg got its frame
-      });
+      session
+        .streamPreview(async (part) => {
+          if (ffmpegStdin.destroyed) return;
+          const ok = ffmpegStdin.write(part.plaintext);
+          if (!ok) {
+            await new Promise<void>((res) => ffmpegStdin.once('drain', res));
+          }
+        })
+        .catch(() => {
+          // Expected: session closed after ffmpeg got its frame
+        });
 
       await ffmpegExited;
       clearTimeout(timer);
@@ -756,7 +905,11 @@ async function captureHttpSnapshot(cameraId: string, cfg: CameraConfig): Promise
 
       try {
         const buf = fs.readFileSync(outFile);
-        try { fs.unlinkSync(outFile); } catch { /* ignore */ }
+        try {
+          fs.unlinkSync(outFile);
+        } catch {
+          /* ignore */
+        }
         if (cfg.httpHashMethod !== method) {
           configStore.updateCamera(cameraId, { httpHashMethod: method });
         }

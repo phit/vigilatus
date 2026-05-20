@@ -756,6 +756,10 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
       throw new Error('ffmpeg stdin is not available for recording download');
     }
 
+    // Absorb EPIPE errors (ffmpeg may exit while we still write)
+    ffmpegStdin.on('error', () => {});
+    audioInput?.on('error', () => {});
+
     const stderrChunks: Buffer[] = [];
     ffmpegStderr?.on('data', (chunk: Buffer) => {
       stderrChunks.push(chunk);
@@ -778,8 +782,8 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
           console.info(`${logPrefix} received ${totalDataChunks} chunks, ${totalBytes} bytes`);
         }
         tsBuffer = await writeAlignedTsPackets(tsBuffer, part.plaintext, ffmpegStdin);
-        if (audioInput && part.audioPayload) {
-          await writeToWritable(audioInput, part.audioPayload);
+        if (audioInput && !audioInput.destroyed && part.audioPayload) {
+          audioInput.write(part.audioPayload);
         }
       });
 
@@ -902,7 +906,6 @@ export async function startRecordingDownloadToHls(
       withAudio ? options.audio : undefined,
       options.seekOffsetSec,
     );
-    // console.info(`${logPrefix} ffmpeg output path: ${assetPath}`);
     // console.info(`${logPrefix} ffmpeg args: ${ffmpegArgs.join(' ')}`);
 
     const ffmpegProc = spawn(ffmpegBinary, ffmpegArgs, {
@@ -917,6 +920,10 @@ export async function startRecordingDownloadToHls(
     if (!ffmpegStdin) {
       throw new Error('ffmpeg stdin is not available for recording playback');
     }
+
+    // Absorb EPIPE errors (ffmpeg may exit while we still write)
+    ffmpegStdin.on('error', () => {});
+    audioInput?.on('error', () => {});
 
     const stderrChunks: Buffer[] = [];
     ffmpegStderr?.on('data', (chunk: Buffer) => {
@@ -946,9 +953,9 @@ export async function startRecordingDownloadToHls(
         }
 
         tsBuffer = await writeAlignedTsPackets(tsBuffer, part.plaintext, ffmpegStdin);
-        if (audioInput && part.audioPayload) {
+        if (audioInput && !audioInput.destroyed && part.audioPayload) {
           receivedAudioData = true;
-          await writeToWritable(audioInput, part.audioPayload);
+          audioInput.write(part.audioPayload);
         }
       });
 
@@ -1023,26 +1030,24 @@ export async function startRecordingDownloadToHls(
   const completed = (async () => {
     try {
       try {
-        // console.info(`${logPrefix} starting with video-only stream`);
-        await runAttemptWithRetry(false);
+        await runAttemptWithRetry(true);
       } catch (error) {
         if (cancelled) {
           throw error;
         }
 
         const message = (error as Error)?.message ?? String(error);
-        console.warn(`${logPrefix} video-only playback failed: ${message}, attempting with audio`);
+        console.warn(`${logPrefix} audio+video playback failed: ${message}, falling back to video-only`);
         try {
           fs.rmSync(assetPath, { force: true });
         } catch {
           /* ignore */
         }
 
-        // Retry with audio if video-only failed
         try {
-          await runAttemptWithRetry(true);
-        } catch (audioError) {
-          console.warn(`${logPrefix} audio playback also failed, using video-only result`);
+          await runAttemptWithRetry(false);
+        } catch (videoError) {
+          console.warn(`${logPrefix} video-only playback also failed, using audio+video error`);
           throw error;
         }
       }
@@ -1151,14 +1156,22 @@ function waitForPlaybackFileReady(filePath: string, timeoutMs: number, logPrefix
 }
 
 function buildDownloadFfmpegArgs(outputPath: string, audio?: RecordingAudioOptions): string[] {
-  const args = ['-loglevel', 'error', '-y', '-f', 'mpegts', '-i', 'pipe:0'];
+  const args = ['-loglevel', 'error', '-y'];
+
+  args.push('-f', 'mpegts', '-i', 'pipe:0');
 
   if (audio) {
     args.push(
+      '-analyzeduration',
+      '0',
+      '-probesize',
+      '32',
       '-f',
       audio.codec === 'pcmu' ? 'mulaw' : 'alaw',
       '-ar',
       String(audio.sampleRate),
+      '-ac',
+      '1',
       '-i',
       'pipe:3',
       '-map',
@@ -1203,11 +1216,26 @@ function buildPlaybackFfmpegArgs(
     args.push('-ss', String(seekOffsetSec));
   }
 
+  args.push('-f', 'mpegts', '-i', 'pipe:0');
+
+  if (audio) {
+    args.push(
+      '-analyzeduration',
+      '0',
+      '-probesize',
+      '32',
+      '-f',
+      audio.codec === 'pcmu' ? 'mulaw' : 'alaw',
+      '-ar',
+      String(audio.sampleRate),
+      '-ac',
+      '1',
+      '-i',
+      'pipe:3',
+    );
+  }
+
   args.push(
-    '-f',
-    'mpegts',
-    '-i',
-    'pipe:0',
     '-map',
     '0:v:0',
     '-c:v',
@@ -1225,27 +1253,14 @@ function buildPlaybackFfmpegArgs(
   );
 
   if (audio) {
-    args.push(
-      '-f',
-      audio.codec === 'pcmu' ? 'mulaw' : 'alaw',
-      '-ar',
-      String(audio.sampleRate),
-      '-i',
-      'pipe:3',
-      '-map',
-      '1:a:0',
-      '-c:a',
-      'aac',
-      '-b:a',
-      '128k',
-    );
+    args.push('-map', '1:a:0', '-c:a', 'aac', '-b:a', '128k');
   }
 
   args.push('-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', outputPath);
   return args;
 }
 
-async function writeToWritable(writable: Writable, chunk: Buffer): Promise<void> {
+export async function writeToWritable(writable: Writable, chunk: Buffer): Promise<void> {
   if (chunk.length === 0 || writable.destroyed) {
     return;
   }
@@ -1292,7 +1307,11 @@ function isRetryableRecordingStreamError(message: string): boolean {
   );
 }
 
-export async function writeAlignedTsPackets(buffer: Buffer, chunk: Buffer, writable: Writable): Promise<Buffer> {
+export async function writeAlignedTsPackets(
+  buffer: Buffer,
+  chunk: Buffer,
+  writable: Writable,
+): Promise<Buffer> {
   let nextBuffer = chunk.length > 0 ? Buffer.concat([buffer, chunk]) : buffer;
 
   while (nextBuffer.length >= 188 && nextBuffer[0] !== 0x47) {
@@ -1304,6 +1323,7 @@ export async function writeAlignedTsPackets(buffer: Buffer, chunk: Buffer, writa
   }
 
   while (nextBuffer.length >= 188) {
+    if (writable.destroyed) break;
     const packet = nextBuffer.subarray(0, 188);
     nextBuffer = nextBuffer.subarray(188);
     writable.write(packet);
