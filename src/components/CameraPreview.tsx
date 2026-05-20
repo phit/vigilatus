@@ -11,15 +11,22 @@ interface Props {
   onRemove(): void;
 }
 
-const REFRESH_BASE_MS = 5000;
+const REFRESH_BASE_MS = 20_000;
+const REFRESH_HTTP_BASE_MS = 120_000; // 2 minutes for battery-powered HTTP cameras
 
 export function CameraPreview({ camera, isSelected, playbackMode, onSelect, onEdit, onRemove }: Props) {
   const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState<string | null>(camera.snapshotDataUrl ?? null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isHttp = camera.config.streamProtocol === 'http';
 
   useEffect(() => {
+    // When selected, the stream is active — pause polling for HTTP cameras
+    // (the backend grabs from HLS anyway, but no point waking the camera).
+    if (isHttp && isSelected) return;
+
     let cancelled = false;
+    const interval = isHttp ? REFRESH_HTTP_BASE_MS : REFRESH_BASE_MS;
 
     const refresh = async () => {
       if (cancelled) return;
@@ -34,7 +41,7 @@ export function CameraPreview({ camera, isSelected, playbackMode, onSelect, onEd
       if (!cancelled) {
         // Stagger: add small jitter so all cameras don't hit ffmpeg at once
         const jitter = Math.random() * 2000;
-        timerRef.current = setTimeout(refresh, REFRESH_BASE_MS + jitter);
+        timerRef.current = setTimeout(refresh, interval + jitter);
       }
     };
 
@@ -44,7 +51,7 @@ export function CameraPreview({ camera, isSelected, playbackMode, onSelect, onEd
       cancelled = true;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [camera.config.id]);
+  }, [camera.config.id, isHttp, isSelected]);
 
   const { name } = camera.config;
   const { status } = camera;

@@ -746,6 +746,32 @@ button {
   border-color: var(--accent);
 }
 
+.modal-form select {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238896b3' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+  cursor: pointer;
+}
+
+.modal-form select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.modal-form select option {
+  background: #0d1428;
+  color: var(--text);
+}
+
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;

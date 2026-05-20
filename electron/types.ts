@@ -12,6 +12,9 @@ export interface CameraConfig {
   rtspUsername?: string;
   rtspPassword?: string;
   model?: string;
+  streamProtocol?: 'rtsp' | 'http';
+  /** Auto-detected password hash method for HTTP media session (md5 or sha256) */
+  httpHashMethod?: 'md5' | 'sha256';
 }
 
 export interface Recording {

@@ -21,6 +21,7 @@ const DEFAULT: Omit<CameraConfig, 'id' | 'name'> = {
   rtspUrl: '',
   rtspUsername: '',
   rtspPassword: '',
+  streamProtocol: 'rtsp',
 };
 
 export function AddCameraModal({ initial, onSave, onClose }: Props) {
@@ -93,7 +94,7 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
         </div>
 
         <p className="modal-hint">
-          <Trans i18nKey="modal.hint" />
+          <Trans i18nKey="modal.hint" components={{ strong: <strong />, em: <em /> }} />
         </p>
 
         <form onSubmit={handleSubmit} className="modal-form">
@@ -149,53 +150,67 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
 
           {showAdvanced && (
             <div className="form-advanced">
-              <p className="modal-hint">{t('modal.streamHint')}</p>
               <label>
-                {t('modal.rtspUrl')}
-                <input
-                  value={form.rtspUrl ?? ''}
-                  onChange={(e) => set('rtspUrl', e.target.value)}
-                  placeholder={t('modal.rtspUrlPlaceholder')}
-                />
+                {t('modal.streamProtocol')}
+                <select
+                  value={form.streamProtocol ?? 'rtsp'}
+                  onChange={(e) => set('streamProtocol', e.target.value as 'rtsp' | 'http')}
+                >
+                  <option value="rtsp">{t('modal.protocolRtsp')}</option>
+                  <option value="http">{t('modal.protocolHttp')}</option>
+                </select>
               </label>
-              <div className="form-row">
-                <label>
-                  {t('modal.proxyUsername')}
-                  <input
-                    value={form.rtspUsername ?? ''}
-                    onChange={(e) => set('rtspUsername', e.target.value)}
-                    placeholder={t('modal.proxyUsernamePlaceholder')}
-                  />
-                </label>
-                <label>
-                  {t('modal.proxyPassword')}
-                  <input
-                    type="password"
-                    value={form.rtspPassword ?? ''}
-                    onChange={(e) => set('rtspPassword', e.target.value)}
-                    placeholder={t('modal.proxyPasswordPlaceholder')}
-                  />
-                </label>
-              </div>
-              <div className="form-row">
-                <label>
-                  {t('modal.camAccountUsername')}
-                  <input
-                    value={form.streamUser}
-                    onChange={(e) => set('streamUser', e.target.value)}
-                    placeholder={t('modal.camAccountUsername')}
-                  />
-                </label>
-                <label>
-                  {t('modal.camAccountPassword')}
-                  <input
-                    type="password"
-                    value={form.streamPassword}
-                    onChange={(e) => set('streamPassword', e.target.value)}
-                    placeholder={t('modal.camAccountPassword')}
-                  />
-                </label>
-              </div>
+              <p className="modal-hint">{(form.streamProtocol ?? 'rtsp') === 'rtsp' ? t('modal.streamHint') : t('modal.httpStreamHint')}</p>
+              {(form.streamProtocol ?? 'rtsp') === 'rtsp' && (
+                <>
+                  <label>
+                    {t('modal.rtspUrl')}
+                    <input
+                      value={form.rtspUrl ?? ''}
+                      onChange={(e) => set('rtspUrl', e.target.value)}
+                      placeholder={t('modal.rtspUrlPlaceholder')}
+                    />
+                  </label>
+                  <div className="form-row">
+                    <label>
+                      {t('modal.proxyUsername')}
+                      <input
+                        value={form.rtspUsername ?? ''}
+                        onChange={(e) => set('rtspUsername', e.target.value)}
+                        placeholder={t('modal.proxyUsernamePlaceholder')}
+                      />
+                    </label>
+                    <label>
+                      {t('modal.proxyPassword')}
+                      <input
+                        type="password"
+                        value={form.rtspPassword ?? ''}
+                        onChange={(e) => set('rtspPassword', e.target.value)}
+                        placeholder={t('modal.proxyPasswordPlaceholder')}
+                      />
+                    </label>
+                  </div>
+                  <div className="form-row">
+                    <label>
+                      {t('modal.camAccountUsername')}
+                      <input
+                        value={form.streamUser}
+                        onChange={(e) => set('streamUser', e.target.value)}
+                        placeholder={t('modal.camAccountUsername')}
+                      />
+                    </label>
+                    <label>
+                      {t('modal.camAccountPassword')}
+                      <input
+                        type="password"
+                        value={form.streamPassword}
+                        onChange={(e) => set('streamPassword', e.target.value)}
+                        placeholder={t('modal.camAccountPassword')}
+                      />
+                    </label>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

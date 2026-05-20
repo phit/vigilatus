@@ -358,7 +358,14 @@ class MediaCipher {
   }
 }
 
-class MediaSession {
+export function hashMediaPassword(password: string, method: EncryptionMethod = 'md5'): string {
+  if (method === 'sha256') {
+    return crypto.createHash('sha256').update(password).digest('hex').toUpperCase();
+  }
+  return crypto.createHash('md5').update(password).digest('hex').toUpperCase();
+}
+
+export class MediaSession {
   private readonly socket: net.Socket;
   private readonly reader: BufferedSocketReader;
   private readonly clientBoundary = DEFAULT_CLIENT_BOUNDARY;
@@ -432,6 +439,67 @@ class MediaSession {
 
   async close(): Promise<void> {
     this.socket.destroy();
+  }
+
+  async streamPreview(
+    onPart: (part: MediaPart) => Promise<void>,
+    options?: { quality?: string },
+  ): Promise<void> {
+    const payload = JSON.stringify({
+      type: 'request',
+      seq: crypto.randomInt(1000, 0x7fff),
+      params: {
+        preview: {
+          channels: [0],
+          resolutions: [options?.quality ?? 'HD'],
+          audio: ['default'],
+        },
+        method: 'get',
+      },
+    });
+
+    // console.info(`[streamPreview] sending preview request`);
+
+    await this.writeMultipart(Buffer.from(payload, 'utf8'), {
+      'Content-Type': 'application/json',
+      'Content-Length': String(Buffer.byteLength(payload)),
+      'X-Data-Window-Size': String(this.windowSize),
+    });
+
+    let sessionId: number | undefined;
+
+    while (true) {
+      let part: MediaPart;
+      try {
+        part = await this.readPart();
+      } catch (error) {
+        const msg = String((error as Error)?.message ?? error ?? '');
+        if (msg.includes('Camera closed')) break;
+        throw error;
+      }
+
+      if (part.sessionId !== undefined) sessionId = part.sessionId;
+
+      if (
+        part.seq !== undefined &&
+        sessionId !== undefined &&
+        part.seq > 0 &&
+        part.seq % this.windowSize === 0
+      ) {
+        await this.sendAck(sessionId, this.windowSize * Math.floor(part.seq / this.windowSize));
+      }
+
+      if (part.mimetype === 'video/mp2t') {
+        await onPart(part);
+        continue;
+      }
+
+      if (part.mimetype !== 'application/json' || !part.json) continue;
+
+      const params = (part.json.params ?? {}) as Record<string, unknown>;
+      if (typeof params.session_id === 'number') sessionId = params.session_id;
+      if (params.event_type === 'stream_status' && params.status === 'finished') break;
+    }
   }
 
   async streamRecording(
@@ -1224,7 +1292,7 @@ function isRetryableRecordingStreamError(message: string): boolean {
   );
 }
 
-async function writeAlignedTsPackets(buffer: Buffer, chunk: Buffer, writable: Writable): Promise<Buffer> {
+export async function writeAlignedTsPackets(buffer: Buffer, chunk: Buffer, writable: Writable): Promise<Buffer> {
   let nextBuffer = chunk.length > 0 ? Buffer.concat([buffer, chunk]) : buffer;
 
   while (nextBuffer.length >= 188 && nextBuffer[0] !== 0x47) {

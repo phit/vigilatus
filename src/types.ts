@@ -17,6 +17,10 @@ export interface CameraConfig {
   /** Optional basic auth password for the external RTSP source */
   rtspPassword?: string;
   model?: string;
+  /** Stream protocol: 'rtsp' (default) or 'http' (Tapo HTTP Media Session on port 8800) */
+  streamProtocol?: 'rtsp' | 'http';
+  /** Auto-detected password hash method for HTTP media session (md5 or sha256) */
+  httpHashMethod?: 'md5' | 'sha256';
 }
 
 export type CameraStatus = 'idle' | 'connecting' | 'live' | 'error' | 'offline';

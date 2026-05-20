@@ -12,9 +12,14 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn, type ChildProcess } from 'node:child_process';
 import type { AddressInfo } from 'node:net';
 import type { CameraConfig } from '../types';
 import { resolveFfmpegBinaryPath } from './ffmpegPath';
+import { MediaSession, hashMediaPassword, writeAlignedTsPackets } from './recordingDownloader';
+import * as configStore from '../config/store';
+
+type HashMethod = 'md5' | 'sha256';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -29,9 +34,12 @@ const PLAYBACK_DIR = path.join(os.tmpdir(), 'vigilatus-playback');
 // ---------------------------------------------------------------------------
 
 interface StreamEntry {
-  proc: ffmpeg.FfmpegCommand;
+  proc: ffmpeg.FfmpegCommand | null;
   hlsUrl: string;
   ready: Promise<string>;
+  /** HTTP Media Session resources (non-RTSP streams) */
+  httpSession?: MediaSession;
+  httpFfmpeg?: ChildProcess;
 }
 
 const streams = new Map<string, StreamEntry>();
@@ -43,6 +51,7 @@ let server: http.Server | null = null;
 let hlsPort = 0;
 
 const STREAM_READY_TIMEOUT_MS = 15_000;
+const HTTP_STREAM_READY_TIMEOUT_MS = 30_000;
 const STREAM_READY_POLL_MS = 250;
 const STDERR_HISTORY_LIMIT = 24;
 const MIN_PLAYBACK_FILE_BYTES = 512_000;
@@ -163,6 +172,14 @@ export function startStream(cameraId: string, cfg: CameraConfig): Promise<string
   const existing = streams.get(cameraId);
   if (existing) return existing.ready;
 
+  if (cfg.streamProtocol === 'http') {
+    return startHttpStream(cameraId, cfg);
+  }
+
+  return startRtspStream(cameraId, cfg);
+}
+
+function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
   const segDir = path.join(HLS_DIR, cameraId);
   fs.mkdirSync(segDir, { recursive: true });
   const m3u8 = path.join(segDir, 'stream.m3u8');
@@ -236,14 +253,214 @@ export function startStream(cameraId: string, cfg: CameraConfig): Promise<string
   return streamReady;
 }
 
+function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<string> {
+  const segDir = path.join(HLS_DIR, cameraId);
+  fs.mkdirSync(segDir, { recursive: true });
+  const m3u8 = path.join(segDir, 'stream.m3u8');
+  const hlsUrl = `http://127.0.0.1:${hlsPort}/${cameraId}/stream.m3u8`;
+
+  const streamReady = (async () => {
+    // Use previously discovered hash method first, then try both
+    const cachedMethod = cfg.httpHashMethod;
+    const hashMethods: HashMethod[] = cachedMethod
+      ? [cachedMethod]
+      : ['md5', 'sha256'];
+    let lastError: Error | null = null;
+
+    for (const method of hashMethods) {
+      const hashedPassword = hashMediaPassword(cfg.password, method);
+      console.info(`[stream:${cameraId}] trying HTTP media session with ${method} password hash...`);
+
+      try {
+        const url = await attemptHttpStream(cameraId, cfg, hashedPassword, segDir, m3u8, hlsUrl);
+        // Persist the working hash method so we skip the wrong one next time
+        if (cfg.httpHashMethod !== method) {
+          configStore.updateCamera(cameraId, { httpHashMethod: method });
+        }
+        return url;
+      } catch (err) {
+        lastError = err as Error;
+        console.warn(
+          `[stream:${cameraId}] HTTP stream with ${method} failed: ${(err as Error).message}`,
+        );
+        // Clean up before retry
+        stopStream(cameraId);
+        fs.mkdirSync(segDir, { recursive: true });
+      }
+    }
+
+    // If cached method failed, retry with the other one
+    if (cachedMethod) {
+      const fallback: HashMethod = cachedMethod === 'md5' ? 'sha256' : 'md5';
+      const hashedPassword = hashMediaPassword(cfg.password, fallback);
+      console.info(`[stream:${cameraId}] retrying HTTP media session with ${fallback} password hash...`);
+
+      try {
+        const url = await attemptHttpStream(cameraId, cfg, hashedPassword, segDir, m3u8, hlsUrl);
+        configStore.updateCamera(cameraId, { httpHashMethod: fallback });
+        return url;
+      } catch (err) {
+        lastError = err as Error;
+        console.warn(
+          `[stream:${cameraId}] HTTP stream with ${fallback} also failed: ${(err as Error).message}`,
+        );
+        stopStream(cameraId);
+      }
+    }
+
+    throw lastError ?? new Error('HTTP media session stream failed');
+  })();
+
+  streams.set(cameraId, { proc: null, hlsUrl, ready: streamReady });
+  return streamReady;
+}
+
+async function attemptHttpStream(
+  cameraId: string,
+  cfg: CameraConfig,
+  hashedPassword: string,
+  segDir: string,
+  m3u8: string,
+  hlsUrl: string,
+): Promise<string> {
+  const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
+  let session: MediaSession | null = null;
+  let ffmpegProc: ChildProcess | null = null;
+
+  const cleanup = () => {
+    if (ffmpegProc && !ffmpegProc.killed) {
+      try { ffmpegProc.kill('SIGKILL'); } catch { /* ignore */ }
+    }
+    if (session) {
+      void session.close().catch(() => { /* ignore */ });
+      session = null;
+    }
+    streams.delete(cameraId);
+  };
+
+  try {
+    session = new MediaSession(cfg.host, cfg.username || 'admin', hashedPassword, 200);
+    await session.start();
+    console.info(`[stream:${cameraId}] HTTP media session connected`);
+
+    ffmpegProc = spawn(ffmpegBinary, [
+      '-loglevel', 'warning',
+      '-fflags', '+genpts+discardcorrupt',
+      '-err_detect', 'ignore_err',
+      '-analyzeduration', '2000000',
+      '-probesize', '1000000',
+      '-f', 'mpegts',
+      '-i', 'pipe:0',
+      '-map', '0:v:0?',
+      '-map', '0:a:0?',
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-tune', 'zerolatency',
+      '-pix_fmt', 'yuv420p',
+      '-g', '50',
+      '-sc_threshold', '0',
+      '-c:a', 'aac',
+      '-ac', '1',
+      '-ar', '44100',
+      '-f', 'hls',
+      '-hls_time', '2',
+      '-hls_list_size', '5',
+      '-hls_flags', 'delete_segments+append_list+independent_segments',
+      '-hls_segment_filename', path.join(segDir, 'segment-%03d.ts'),
+      '-start_number', '0',
+      m3u8,
+    ], { stdio: ['pipe', 'ignore', 'pipe'] });
+
+    const ffmpegStdin = ffmpegProc.stdin!;
+    let totalChunks = 0;
+    let tsBuffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+
+    const entry: StreamEntry = {
+      proc: null,
+      hlsUrl,
+      ready: Promise.resolve(hlsUrl),
+      httpSession: session,
+      httpFfmpeg: ffmpegProc,
+    };
+    streams.set(cameraId, entry);
+
+    // Detect wrong hash method: if no data arrives within 5s, bail out early
+    let firstDataReceived = false;
+    const noDataTimeout = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        if (!firstDataReceived) {
+          reject(new Error('No video data received within 5s — likely wrong hash method'));
+        }
+      }, 5000);
+    });
+
+    // Start piping media session data to ffmpeg in the background
+    session.streamPreview(async (part) => {
+      if (ffmpegStdin.destroyed) return;
+      totalChunks++;
+      if (totalChunks === 1) {
+        firstDataReceived = true;
+        console.info(`[stream:${cameraId}] first video data received (${part.plaintext.length} bytes)`);
+      }
+      tsBuffer = await writeAlignedTsPackets(tsBuffer, part.plaintext, ffmpegStdin);
+    }).catch((err) => {
+      if (!expectedStops.has(cameraId)) {
+        console.error(`[stream:${cameraId}] http media session error:`, (err as Error).message);
+        cleanup();
+      }
+    }).finally(() => {
+      if (ffmpegStdin && !ffmpegStdin.destroyed) ffmpegStdin.end();
+    });
+
+    // Wait for HLS to become ready
+    const stderrLines: string[] = [];
+    ffmpegProc.stderr?.on('data', (chunk: Buffer) => {
+      const line = chunk.toString('utf8').trim();
+      if (line) {
+        console.error(`[stream:${cameraId}] ffmpeg: ${line}`);
+        stderrLines.push(line);
+      }
+      if (stderrLines.length > STDERR_HISTORY_LIMIT) stderrLines.shift();
+    });
+
+    ffmpegProc.on('exit', (code) => {
+      if (!expectedStops.has(cameraId)) {
+        console.error(`[stream:${cameraId}] http ffmpeg exited with code ${code}`);
+      }
+    });
+
+    await Promise.race([
+      waitForHlsReady(m3u8, HTTP_STREAM_READY_TIMEOUT_MS, stderrLines),
+      noDataTimeout,
+    ]);
+    console.info(`[stream:${cameraId}] HTTP stream ready, received ${totalChunks} chunks so far`);
+    return hlsUrl;
+  } catch (err) {
+    cleanup();
+    throw err;
+  }
+}
+
 export function stopStream(cameraId: string): void {
   const entry = streams.get(cameraId);
   if (!entry) return;
   expectedStops.add(cameraId);
-  try {
-    entry.proc.kill('SIGKILL');
-  } catch {
-    /* ignore */
+
+  // Stop HTTP Media Session resources if present
+  if (entry.httpFfmpeg && !entry.httpFfmpeg.killed) {
+    try { entry.httpFfmpeg.kill('SIGKILL'); } catch { /* ignore */ }
+  }
+  if (entry.httpSession) {
+    void entry.httpSession.close().catch(() => { /* ignore */ });
+  }
+
+  // Stop RTSP ffmpeg process if present
+  if (entry.proc) {
+    try {
+      entry.proc.kill('SIGKILL');
+    } catch {
+      /* ignore */
+    }
   }
   streams.delete(cameraId);
 
@@ -380,7 +597,60 @@ export async function getSnapshot(cameraId: string, cfg: CameraConfig): Promise<
   return promise;
 }
 
+/**
+ * If a live HLS stream is running for the camera, grab a frame from
+ * the latest segment instead of opening a new connection.
+ */
+async function snapshotFromHls(cameraId: string): Promise<string | null> {
+  const entry = streams.get(cameraId);
+  if (!entry) return null;
+
+  const segDir = path.join(HLS_DIR, cameraId);
+  const m3u8 = path.join(segDir, 'stream.m3u8');
+  if (!fs.existsSync(m3u8)) return null;
+
+  const outFile = path.join(SNAP_DIR, `${cameraId}.jpg`);
+  const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
+
+  return new Promise<string | null>((resolve) => {
+    const timer = setTimeout(() => {
+      try { proc.kill('SIGKILL'); } catch { /* ignore */ }
+      resolve(null);
+    }, 5000);
+
+    const proc = spawn(ffmpegBinary, [
+      '-loglevel', 'error',
+      '-sseof', '-1',
+      '-i', m3u8,
+      '-frames:v', '1',
+      '-q:v', '5',
+      '-y',
+      outFile,
+    ], { stdio: ['ignore', 'ignore', 'ignore'] });
+
+    proc.on('close', () => {
+      clearTimeout(timer);
+      try {
+        const buf = fs.readFileSync(outFile);
+        try { fs.unlinkSync(outFile); } catch { /* ignore */ }
+        resolve(`data:image/jpeg;base64,${buf.toString('base64')}`);
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
+
 async function captureSnapshot(cameraId: string, cfg: CameraConfig): Promise<string | null> {
+  // If a live stream is active, grab a frame from HLS — avoids opening a
+  // second media session (which solar cameras may not support).
+  const fromHls = await snapshotFromHls(cameraId);
+  if (fromHls) return fromHls;
+
+  if (cfg.streamProtocol === 'http') {
+    return captureHttpSnapshot(cameraId, cfg);
+  }
+
   const outFile = path.join(SNAP_DIR, `${cameraId}.jpg`);
   const rtsp = buildRtspUrl(cfg, 'sub');
 
@@ -419,6 +689,89 @@ async function captureSnapshot(cameraId: string, cfg: CameraConfig): Promise<str
 
     proc.save(outFile);
   });
+}
+
+async function captureHttpSnapshot(cameraId: string, cfg: CameraConfig): Promise<string | null> {
+  const outFile = path.join(SNAP_DIR, `${cameraId}.jpg`);
+  const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
+
+  // Use cached method first, then try both
+  const cachedMethod = cfg.httpHashMethod;
+  const hashMethods: HashMethod[] = cachedMethod
+    ? [cachedMethod, cachedMethod === 'md5' ? 'sha256' : 'md5']
+    : ['md5', 'sha256'];
+
+  for (const method of hashMethods) {
+    const hashedPassword = hashMediaPassword(cfg.password, method);
+    let session: MediaSession | null = null;
+
+    try {
+      session = new MediaSession(cfg.host, cfg.username || 'admin', hashedPassword, 50);
+      await session.start();
+
+      const ffmpegProc = spawn(ffmpegBinary, [
+        '-loglevel', 'warning',
+        '-fflags', '+genpts+discardcorrupt',
+        '-err_detect', 'ignore_err',
+        '-analyzeduration', '1000000',
+        '-probesize', '500000',
+        '-f', 'mpegts',
+        '-i', 'pipe:0',
+        '-map', '0:v:0?',
+        '-frames:v', '1',
+        '-q:v', '5',
+        '-y',
+        outFile,
+      ], { stdio: ['pipe', 'ignore', 'pipe'] });
+
+      const ffmpegStdin = ffmpegProc.stdin!;
+      ffmpegStdin.on('error', () => {}); // suppress EPIPE after ffmpeg exits
+
+      const ffmpegExited = new Promise<void>((res) => {
+        ffmpegProc.on('close', () => res());
+      });
+
+      const timer = setTimeout(() => {
+        if (session) void session.close().catch(() => {});
+        if (!ffmpegProc.killed) ffmpegProc.kill('SIGKILL');
+      }, 15000);
+
+      // Pipe data to ffmpeg; it exits after capturing 1 frame
+      session.streamPreview(async (part) => {
+        if (ffmpegStdin.destroyed) return;
+        const ok = ffmpegStdin.write(part.plaintext);
+        if (!ok) {
+          await new Promise<void>((res) => ffmpegStdin.once('drain', res));
+        }
+      }).catch(() => {
+        // Expected: session closed after ffmpeg got its frame
+      });
+
+      await ffmpegExited;
+      clearTimeout(timer);
+
+      // ffmpeg done — close the session to stop streaming
+      void session.close().catch(() => {});
+      session = null;
+
+      try {
+        const buf = fs.readFileSync(outFile);
+        try { fs.unlinkSync(outFile); } catch { /* ignore */ }
+        if (cfg.httpHashMethod !== method) {
+          configStore.updateCamera(cameraId, { httpHashMethod: method });
+        }
+        return `data:image/jpeg;base64,${buf.toString('base64')}`;
+      } catch {
+        return null;
+      }
+    } catch (err) {
+      console.warn(`[snapshot:${cameraId}] http snapshot with ${method} failed:`, (err as Error).message);
+    } finally {
+      if (session) void session.close().catch(() => {});
+    }
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
