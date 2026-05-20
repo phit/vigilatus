@@ -43,6 +43,8 @@ export type VigilatusMock = {
     onSetPreviewPosition: ReturnType<typeof vi.fn<[(position: PreviewPosition) => void], Unsubscribe>>;
     onStreamsInvalidated: ReturnType<typeof vi.fn<[() => void], Unsubscribe>>;
     onSetLanguage: ReturnType<typeof vi.fn<[(language: string) => void], Unsubscribe>>;
+    onSetVolume: ReturnType<typeof vi.fn<[(volume: number) => void], Unsubscribe>>;
+    saveVolume: ReturnType<typeof vi.fn<[number], void>>;
   };
 };
 
@@ -88,6 +90,8 @@ export function createVigilatusMock(overrides: Partial<VigilatusMock> = {}): Vig
       onSetPreviewPosition: vi.fn().mockImplementation(() => noop),
       onStreamsInvalidated: vi.fn().mockImplementation(() => noop),
       onSetLanguage: vi.fn().mockImplementation(() => noop),
+      onSetVolume: vi.fn().mockImplementation(() => noop),
+      saveVolume: vi.fn(),
     },
   };
 
