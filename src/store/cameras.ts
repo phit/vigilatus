@@ -36,6 +36,8 @@ interface CamerasStore {
   setHeaderVisible(visible: boolean): void;
   setDebugOverlayVisible(visible: boolean): void;
   setPreviewPosition(position: PreviewPosition): void;
+  setVolume(volume: number): void;
+  volume: number;
   loadRecordings(cameraId: string, date: string): Promise<void>;
   seekTo(time: number): Promise<void>;
   goLive(): void;
@@ -51,6 +53,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   previewPosition: 'right',
   playbackMode: 'live',
   playbackTime: null,
+  volume: 0,
   recordings: [],
   recordingsLoading: false,
   recordingsError: null,
@@ -196,6 +199,11 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
     set({ previewPosition: position });
   },
 
+  setVolume(volume) {
+    set({ volume });
+    window.vigilatus.ui.saveVolume(volume);
+  },
+
   // ------------------------------------------------------------------
   // Recordings + timeline
   // ------------------------------------------------------------------
@@ -281,8 +289,13 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   },
 
   goLive() {
-    const { selectedId } = get();
+    const { selectedId, playbackMode } = get();
     set({ playbackMode: 'live', playbackTime: null });
-    if (selectedId) void get().startStream(selectedId);
+    if (selectedId) {
+      if (playbackMode === 'live') {
+        get().stopStream(selectedId);
+      }
+      void get().startStream(selectedId);
+    }
   },
 }));

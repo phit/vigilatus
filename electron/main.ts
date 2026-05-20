@@ -71,6 +71,7 @@ const uiDisplayState = {
   previewPosition: 'right' as PreviewPosition,
   language: 'system',
   debugOverlay: false,
+  volume: 0,
 };
 
 function sendUiEvent(channel: string, ...args: unknown[]): void {
@@ -84,6 +85,7 @@ function applyUiDisplayStateToRenderer(): void {
   sendUiEvent('ui:setHeaderVisible', uiDisplayState.header);
   sendUiEvent('ui:setPreviewPosition', uiDisplayState.previewPosition);
   sendUiEvent('ui:setLanguage', uiDisplayState.language);
+  sendUiEvent('ui:setVolume', uiDisplayState.volume);
 }
 
 function wireExternalLinks(win: BrowserWindow): void {
@@ -409,15 +411,20 @@ ipcMain.handle('diagnostics:getRuntimeInfo', () => ({
   isPackaged: app.isPackaged,
 }));
 
+ipcMain.on('ui:saveVolume', (_e, volume: number) => {
+  uiDisplayState.volume = volume;
+  configStore.setUiDisplayPreferences({ volume });
+});
+
 ipcMain.handle('ui:showCameraContextMenu', (_e): Promise<string | null> => {
   const win = BrowserWindow.getFocusedWindow();
   if (!win) return Promise.resolve(null);
 
   return new Promise((resolve) => {
     const menu = Menu.buildFromTemplate([
-      { label: 'Edit', click: () => resolve('edit') },
+      { label: t('contextMenu.edit'), click: () => resolve('edit') },
       { type: 'separator' },
-      { label: 'Remove', click: () => resolve('remove') },
+      { label: t('contextMenu.remove'), click: () => resolve('remove') },
     ]);
     menu.once('menu-will-close', () => {
       // Resolve null if nothing was clicked (menu dismissed)
@@ -468,6 +475,7 @@ app.whenReady().then(async () => {
   uiDisplayState.header = persistedUiDisplay.header;
   uiDisplayState.previewPosition = persistedUiDisplay.previewPosition;
   uiDisplayState.language = persistedUiDisplay.language;
+  uiDisplayState.volume = persistedUiDisplay.volume;
   setLanguage(uiDisplayState.language);
 
   setupLogging();

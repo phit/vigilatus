@@ -47,6 +47,8 @@ declare global {
         onSetPreviewPosition(callback: (position: PreviewPosition) => void): () => void;
         onStreamsInvalidated(callback: () => void): () => void;
         onSetLanguage(callback: (language: string) => void): () => void;
+        onSetVolume(callback: (volume: number) => void): () => void;
+        saveVolume(volume: number): void;
       };
     };
   }

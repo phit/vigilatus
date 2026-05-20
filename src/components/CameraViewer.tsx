@@ -22,11 +22,13 @@ export function CameraViewer({ camera, playbackMode }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [playerError, setPlayerError] = useState<string | null>(null);
-  const [volume, setVolume] = useState(0);
   const [prevVolume, setPrevVolume] = useState(0.5);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [videoStats, setVideoStats] = useState<VideoStats | null>(null);
   const showDebugOverlay = useCameraStore((s) => s.showDebugOverlay);
+  const volume = useCameraStore((s) => s.volume);
+  const setVolume = useCameraStore((s) => s.setVolume);
 
   const hlsUrl = camera?.hlsUrl;
   const isHlsSource = Boolean(hlsUrl && hlsUrl.toLowerCase().includes('.m3u8'));
@@ -99,6 +101,7 @@ export function CameraViewer({ camera, playbackMode }: Props) {
 
   useEffect(() => {
     setPlayerError(null);
+    setIsPaused(false);
 
     const video = videoRef.current;
     if (!video) return;
@@ -214,6 +217,18 @@ export function CameraViewer({ camera, playbackMode }: Props) {
     }
   };
 
+  const togglePause = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      video.play().catch(() => {});
+      setIsPaused(false);
+    } else {
+      video.pause();
+      setIsPaused(true);
+    }
+  };
+
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = parseFloat(e.target.value);
     setVolume(v);
@@ -323,6 +338,14 @@ export function CameraViewer({ camera, playbackMode }: Props) {
         <>
           <video ref={videoRef} className="viewer-video" autoPlay muted={volume === 0} playsInline />
           <div className="viewer-controls">
+            <button
+              type="button"
+              className="viewer-control-btn"
+              onClick={togglePause}
+              title={isPaused ? t('viewer.play') : t('viewer.pause')}
+            >
+              {isPaused ? '▶' : '⏸'}
+            </button>
             <div className="volume-control">
               <button
                 type="button"

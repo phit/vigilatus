@@ -84,5 +84,13 @@ contextBridge.exposeInMainWorld('vigilatus', {
       ipcRenderer.on('ui:setLanguage', handler);
       return () => ipcRenderer.removeListener('ui:setLanguage', handler);
     },
+    onSetVolume: (callback: (volume: number) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, volume: number) => callback(volume);
+      ipcRenderer.on('ui:setVolume', handler);
+      return () => ipcRenderer.removeListener('ui:setVolume', handler);
+    },
+    saveVolume: (volume: number): void => {
+      ipcRenderer.send('ui:saveVolume', volume);
+    },
   },
 });

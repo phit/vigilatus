@@ -12,6 +12,7 @@ interface Config {
     header: boolean;
     previewPosition: PreviewPosition;
     language: string;
+    volume: number;
   };
 }
 
@@ -24,6 +25,7 @@ let config: Config = {
     header: true,
     previewPosition: 'right',
     language: 'system',
+    volume: 0,
   },
 };
 
@@ -56,6 +58,7 @@ export function init(userDataPath: string): void {
           header: parsed.uiDisplay?.header ?? true,
           previewPosition: parsed.uiDisplay?.previewPosition ?? 'right',
           language: parsed.uiDisplay?.language ?? 'system',
+          volume: parsed.uiDisplay?.volume ?? 0,
         },
       };
     } catch {
@@ -67,6 +70,7 @@ export function init(userDataPath: string): void {
           header: true,
           previewPosition: 'right',
           language: 'system',
+          volume: 0,
         },
       };
     }
@@ -101,6 +105,7 @@ export function getUiDisplayPreferences(): {
   header: boolean;
   previewPosition: PreviewPosition;
   language: string;
+  volume: number;
 } {
   return { ...config.uiDisplay };
 }
@@ -112,6 +117,7 @@ export function setUiDisplayPreferences(
     header: boolean;
     previewPosition: PreviewPosition;
     language: string;
+    volume: number;
   }>,
 ): void {
   config.uiDisplay = {
@@ -120,6 +126,7 @@ export function setUiDisplayPreferences(
     header: preferences.header ?? config.uiDisplay.header,
     previewPosition: preferences.previewPosition ?? config.uiDisplay.previewPosition,
     language: preferences.language ?? config.uiDisplay.language,
+    volume: preferences.volume ?? config.uiDisplay.volume,
   };
   save();
 }

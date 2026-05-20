@@ -35,6 +35,7 @@ export function App() {
     setHeaderVisible,
     setDebugOverlayVisible,
     setPreviewPosition,
+    setVolume,
     loadRecordings,
     seekTo,
     goLive,
@@ -91,6 +92,9 @@ export function App() {
         i18n.changeLanguage(language);
       }
     });
+    const offSetVolume = window.vigilatus.ui.onSetVolume((volume) => {
+      setVolume(volume);
+    });
 
     return () => {
       offOpenAdd();
@@ -101,6 +105,7 @@ export function App() {
       offSetPreviewPosition();
       offStreamsInvalidated();
       offSetLanguage();
+      offSetVolume();
     };
   }, [
     setPreviewsVisible,
@@ -108,6 +113,7 @@ export function App() {
     setHeaderVisible,
     setDebugOverlayVisible,
     setPreviewPosition,
+    setVolume,
     restartActiveStreams,
   ]);
 
