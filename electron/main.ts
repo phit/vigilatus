@@ -513,6 +513,11 @@ app.whenReady().then(async () => {
     sendUiEvent('streams:invalidated');
   });
 
+  streamManager.setOnStreamDied((cameraId) => {
+    console.info(`[main] stream died for ${cameraId}, notifying renderer`);
+    sendUiEvent('stream:died', cameraId);
+  });
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

@@ -167,8 +167,8 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
   // ------------------------------------------------------------------
 
   ipcMain.handle('recordings:list', async (_e, cameraId: string, date: string) => {
-    if (testFixtures?.recordings) {
-      return testFixtures.recordings[cameraId] ?? [];
+    if (testFixtures) {
+      return testFixtures.recordings?.[cameraId] ?? [];
     }
     const cam = configStore.getCameras().find((c) => c.id === cameraId);
     if (!cam) return [];
@@ -195,8 +195,8 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
   ipcMain.handle(
     'recordings:events',
     async (_e, cameraId: string, date: string): Promise<RecordingEvent[]> => {
-      if (testFixtures?.recordingEvents) {
-        return testFixtures.recordingEvents[cameraId] ?? [];
+      if (testFixtures) {
+        return testFixtures.recordingEvents?.[cameraId] ?? [];
       }
 
       const cooldown = recordingEventsCooldownCache.get(cameraId);

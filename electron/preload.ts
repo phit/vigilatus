@@ -79,6 +79,11 @@ contextBridge.exposeInMainWorld('vigilatus', {
       ipcRenderer.on('streams:invalidated', handler);
       return () => ipcRenderer.removeListener('streams:invalidated', handler);
     },
+    onStreamDied: (callback: (cameraId: string) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, cameraId: string) => callback(cameraId);
+      ipcRenderer.on('stream:died', handler);
+      return () => ipcRenderer.removeListener('stream:died', handler);
+    },
     onSetLanguage: (callback: (language: string) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, language: string) => callback(language);
       ipcRenderer.on('ui:setLanguage', handler);

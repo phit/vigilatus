@@ -9,6 +9,60 @@ import { Timeline } from './components/Timeline';
 import { AddCameraModal } from './components/AddCameraModal';
 import type { CameraConfig, PreviewPosition } from './types';
 
+/** Per-camera exponential backoff state for auto-restart after stream death. */
+const streamRestartBackoff = new Map<
+  string,
+  { attempt: number; delay: number; timer: ReturnType<typeof setTimeout> }
+>();
+const RESTART_INITIAL_DELAY_MS = 2_000;
+const RESTART_MAX_DELAY_MS = 10 * 60 * 1000; // 10 minutes
+
+function scheduleStreamRestart(cameraId: string, startStream: (id: string) => Promise<void>): void {
+  const existing = streamRestartBackoff.get(cameraId);
+  const delay = existing ? Math.min(existing.delay * 2, RESTART_MAX_DELAY_MS) : RESTART_INITIAL_DELAY_MS;
+  const attempt = (existing?.attempt ?? 0) + 1;
+  if (existing) clearTimeout(existing.timer);
+
+  console.warn(
+    `[App] stream restart scheduled for ${cameraId}: attempt ${attempt} in ${(delay / 1000).toFixed(0)}s`,
+  );
+  const timer = setTimeout(async () => {
+    const state = useCameraStore.getState();
+    const cam = state.cameras.find((c) => c.config.id === cameraId);
+    // Only restart if the camera was live/connecting or failed during a previous
+    // restart attempt (status 'error'). Skip if the user manually stopped it ('idle').
+    if (!cam || cam.status === 'idle') {
+      streamRestartBackoff.delete(cameraId);
+      console.info(`[App] stream restart stopped for ${cameraId}: camera is idle or missing`);
+      return;
+    }
+
+    console.info(`[App] stream restart attempt ${attempt} starting for ${cameraId}`);
+    try {
+      await startStream(cameraId);
+    } catch (error) {
+      console.warn(
+        `[App] stream restart attempt ${attempt} threw for ${cameraId}:`,
+        (error as Error).message,
+      );
+    }
+
+    // Check whether the restart actually succeeded
+    const after = useCameraStore.getState().cameras.find((c) => c.config.id === cameraId);
+    if (after?.status === 'live') {
+      streamRestartBackoff.delete(cameraId);
+      console.info(`[App] stream restart recovered ${cameraId} on attempt ${attempt}`);
+    } else if (!after || after.status === 'idle') {
+      streamRestartBackoff.delete(cameraId);
+      console.info(`[App] stream restart stopped for ${cameraId}: camera is idle or missing`);
+    } else {
+      // Restart failed — schedule another attempt with increased backoff
+      scheduleStreamRestart(cameraId, startStream);
+    }
+  }, delay);
+  streamRestartBackoff.set(cameraId, { attempt, delay, timer });
+}
+
 export function App() {
   const {
     cameras,
@@ -85,6 +139,9 @@ export function App() {
     const offStreamsInvalidated = window.vigilatus.ui.onStreamsInvalidated(() => {
       restartActiveStreams();
     });
+    const offStreamDied = window.vigilatus.ui.onStreamDied((cameraId) => {
+      scheduleStreamRestart(cameraId, startStream);
+    });
     const offSetLanguage = window.vigilatus.ui.onSetLanguage((language) => {
       if (language === 'system') {
         const detected = navigator.language.split('-')[0] || 'en';
@@ -105,6 +162,7 @@ export function App() {
       offSetDebugOverlayVisible();
       offSetPreviewPosition();
       offStreamsInvalidated();
+      offStreamDied();
       offSetLanguage();
       offSetVolume();
     };
@@ -116,6 +174,7 @@ export function App() {
     setPreviewPosition,
     setVolume,
     restartActiveStreams,
+    startStream,
   ]);
 
   // Auto-select + start first camera on load

@@ -11,6 +11,7 @@ import type {
 const PLAYBACK_PREROLL_MS = 5_000;
 const PLAYBACK_WINDOW_MS = 120_000;
 const RECORDINGS_CACHE_TTL_MS = 2 * 60_000;
+const HTTP_STREAM_LINGER_MS = 60_000;
 
 type RecordingsCacheEntry = {
   recordings: Recording[];
@@ -55,6 +56,11 @@ function clearRecordingsCache(cameraId: string): void {
 export function resetRecordingsCache(): void {
   recordingsCache.clear();
 }
+
+/** Pending timers to stop deselected HTTP streams after a grace period. */
+const httpStopTimers = new Map<string, ReturnType<typeof setTimeout>>();
+/** Renderer-side in-flight start operations keyed by camera id. */
+const pendingStreamStarts = new Map<string, Promise<void>>();
 
 interface CamerasStore {
   cameras: CameraState[];
@@ -153,6 +159,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
 
   selectCamera(id) {
     const cached = getFreshRecordingsCache(id, getCurrentDateString());
+    const prevId = get().selectedId;
     set({
       selectedId: id,
       playbackMode: 'live',
@@ -163,42 +170,98 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
       recordingsLoading: false,
       recordingsError: null,
     });
-    void get().startStream(id);
-  },
 
-  async startStream(id) {
-    get().setStatus(id, 'connecting');
-    try {
-      const hlsUrl = await window.vigilatus.stream.start(id);
-      if (!hlsUrl) {
-        set((s) => ({
-          cameras: s.cameras.map((c) =>
-            c.config.id === id ? { ...c, status: 'idle', hlsUrl: undefined, errorMessage: undefined } : c,
-          ),
-        }));
-        return;
-      }
+    // Cancel any pending stop for the newly selected camera
+    const pending = httpStopTimers.get(id);
+    if (pending) {
+      clearTimeout(pending);
+      httpStopTimers.delete(id);
+    }
 
-      set((s) => ({
-        cameras: s.cameras.map((c) =>
-          c.config.id === id ? { ...c, status: 'live', hlsUrl, errorMessage: undefined } : c,
-        ),
-      }));
-    } catch (e) {
-      const msg = (e as Error).message;
-      if (msg.includes('Stream start cancelled')) {
-        set((s) => ({
-          cameras: s.cameras.map((c) =>
-            c.config.id === id ? { ...c, status: 'idle', hlsUrl: undefined, errorMessage: undefined } : c,
-          ),
-        }));
-        return;
+    // Schedule stop for the previously selected HTTP camera after a grace period
+    if (prevId && prevId !== id) {
+      const prev = get().cameras.find((c) => c.config.id === prevId);
+      if (
+        prev?.config.streamProtocol === 'http' &&
+        (prev.status === 'live' || prev.status === 'connecting')
+      ) {
+        const timer = setTimeout(() => {
+          httpStopTimers.delete(prevId);
+          // Only stop if still not selected
+          if (get().selectedId !== prevId) {
+            get().stopStream(prevId);
+          }
+        }, HTTP_STREAM_LINGER_MS);
+        httpStopTimers.set(prevId, timer);
       }
-      get().setStatus(id, 'error', msg);
+    }
+
+    const selected = get().cameras.find((c) => c.config.id === id);
+    if (!selected?.hlsUrl) {
+      void get().startStream(id);
     }
   },
 
+  async startStream(id) {
+    const existingStart = pendingStreamStarts.get(id);
+    set((s) => ({
+      cameras: s.cameras.map((c) =>
+        c.config.id === id
+          ? {
+              ...c,
+              status: 'connecting',
+              hlsUrl: existingStart ? c.hlsUrl : undefined,
+              errorMessage: undefined,
+            }
+          : c,
+      ),
+    }));
+    if (existingStart) {
+      return existingStart;
+    }
+
+    let startPromise: Promise<void> | undefined;
+    startPromise = (async () => {
+      try {
+        const hlsUrl = await window.vigilatus.stream.start(id);
+        if (!hlsUrl) {
+          set((s) => ({
+            cameras: s.cameras.map((c) =>
+              c.config.id === id ? { ...c, status: 'idle', hlsUrl: undefined, errorMessage: undefined } : c,
+            ),
+          }));
+          return;
+        }
+
+        set((s) => ({
+          cameras: s.cameras.map((c) =>
+            c.config.id === id ? { ...c, status: 'live', hlsUrl, errorMessage: undefined } : c,
+          ),
+        }));
+      } catch (e) {
+        const msg = (e as Error).message;
+        if (msg.includes('Stream start cancelled')) {
+          set((s) => ({
+            cameras: s.cameras.map((c) =>
+              c.config.id === id ? { ...c, status: 'idle', hlsUrl: undefined, errorMessage: undefined } : c,
+            ),
+          }));
+          return;
+        }
+        get().setStatus(id, 'error', msg);
+      } finally {
+        if (pendingStreamStarts.get(id) === startPromise) {
+          pendingStreamStarts.delete(id);
+        }
+      }
+    })();
+
+    pendingStreamStarts.set(id, startPromise);
+    return startPromise;
+  },
+
   stopStream(id) {
+    pendingStreamStarts.delete(id);
     void window.vigilatus.stream.stop(id);
     set((s) => ({
       cameras: s.cameras.map((c) => (c.config.id === id ? { ...c, status: 'idle', hlsUrl: undefined } : c)),

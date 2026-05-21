@@ -50,6 +50,13 @@ const activePlaybackAssets = new Map<string, Promise<unknown>>();
 let server: http.Server | null = null;
 let hlsPort = 0;
 
+let onStreamDiedCallback: ((cameraId: string) => void) | null = null;
+
+/** Register a callback invoked when a live stream dies unexpectedly. */
+export function setOnStreamDied(callback: (cameraId: string) => void): void {
+  onStreamDiedCallback = callback;
+}
+
 const STREAM_READY_TIMEOUT_MS = 15_000;
 const HTTP_STREAM_READY_TIMEOUT_MS = 30_000;
 const STREAM_READY_POLL_MS = 250;
@@ -220,12 +227,18 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
       if (!settled) {
         settled = true;
         reject(new Error(message));
+      } else {
+        onStreamDiedCallback?.(cameraId);
       }
     });
 
     proc.on('end', () => {
+      const wasExpected = expectedStops.has(cameraId);
       expectedStops.delete(cameraId);
       streams.delete(cameraId);
+      if (!wasExpected && settled) {
+        onStreamDiedCallback?.(cameraId);
+      }
     });
 
     void ready
@@ -323,6 +336,7 @@ async function attemptHttpStream(
   let ffmpegProc: ChildProcess | null = null;
 
   const cleanup = () => {
+    expectedStops.add(cameraId);
     if (ffmpegProc && !ffmpegProc.killed) {
       try {
         ffmpegProc.kill('SIGKILL');
@@ -409,6 +423,7 @@ async function attemptHttpStream(
         if (!expectedStops.has(cameraId)) {
           console.error(`[stream:${cameraId}] http media session error:`, (err as Error).message);
           cleanup();
+          onStreamDiedCallback?.(cameraId);
         }
       });
 
@@ -572,6 +587,8 @@ async function attemptHttpStream(
     ffmpegProc.on('exit', (code) => {
       if (!expectedStops.has(cameraId)) {
         console.error(`[stream:${cameraId}] http ffmpeg exited with code ${code}`);
+        streams.delete(cameraId);
+        onStreamDiedCallback?.(cameraId);
       }
     });
 
