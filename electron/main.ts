@@ -3,9 +3,11 @@ import {
   BrowserWindow,
   ipcMain,
   Menu,
+  type BrowserWindowConstructorOptions,
   type MenuItemConstructorOptions,
   nativeTheme,
   powerMonitor,
+  screen,
   session,
   shell,
 } from 'electron';
@@ -44,6 +46,13 @@ let mainWindow: BrowserWindow | null = null;
 let aboutWindow: BrowserWindow | null = null;
 let licensesWindow: BrowserWindow | null = null;
 let logPath: string | null = null;
+let persistMainWindowStateTimer: NodeJS.Timeout | null = null;
+const persistMainWindowStateDebounceMs = 1000;
+const defaultMainWindowBounds = {
+  width: 1680,
+  height: 1024,
+};
+type WindowBounds = Pick<BrowserWindowConstructorOptions, 'x' | 'y' | 'width' | 'height'>;
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
@@ -130,6 +139,78 @@ function loadDialogPage(win: BrowserWindow, fileName: string, query: Record<stri
   }
 
   void win.loadFile(path.join(__dirname, '../renderer/system', fileName), { query });
+}
+
+function getRestoredMainWindowBounds(): WindowBounds {
+  const windowState = configStore.getWindowState();
+  const { x: savedX, y: savedY, width, height } = windowState;
+
+  if (width <= 0 || height <= 0) {
+    return { ...defaultMainWindowBounds };
+  }
+
+  const savedBounds = {
+    x: typeof savedX === 'number' ? savedX : 0,
+    y: typeof savedY === 'number' ? savedY : 0,
+    width,
+    height,
+  };
+  const area = screen.getDisplayMatching(savedBounds).workArea;
+  const restoredWidth = Math.min(width, area.width);
+  const restoredHeight = Math.min(height, area.height);
+  const hasSavedPosition = typeof savedX === 'number' && typeof savedY === 'number';
+  const clampedX = hasSavedPosition
+    ? Math.max(area.x, Math.min(savedX, area.x + area.width - restoredWidth))
+    : area.x;
+  const clampedY = hasSavedPosition
+    ? Math.max(area.y, Math.min(savedY, area.y + area.height - restoredHeight))
+    : area.y;
+  const positionIsFullyInsideWorkArea =
+    hasSavedPosition &&
+    clampedX >= area.x &&
+    clampedY >= area.y &&
+    clampedX + restoredWidth <= area.x + area.width &&
+    clampedY + restoredHeight <= area.y + area.height;
+
+  if (positionIsFullyInsideWorkArea) {
+    return {
+      x: clampedX,
+      y: clampedY,
+      width: restoredWidth,
+      height: restoredHeight,
+    };
+  }
+
+  return {
+    x: area.x + Math.floor((area.width - restoredWidth) / 2),
+    y: area.y + Math.floor((area.height - restoredHeight) / 2),
+    width: restoredWidth,
+    height: restoredHeight,
+  };
+}
+
+function persistMainWindowState(win: BrowserWindow): void {
+  const bounds = win.isMaximized() || win.isFullScreen() ? win.getNormalBounds() : win.getBounds();
+  configStore.setWindowState({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    isMaximized: win.isMaximized(),
+  });
+}
+
+function schedulePersistMainWindowState(win: BrowserWindow): void {
+  if (persistMainWindowStateTimer) {
+    clearTimeout(persistMainWindowStateTimer);
+  }
+
+  persistMainWindowStateTimer = setTimeout(() => {
+    persistMainWindowStateTimer = null;
+    if (!win.isDestroyed()) {
+      persistMainWindowState(win);
+    }
+  }, persistMainWindowStateDebounceMs);
 }
 
 function openAboutWindow(): void {
@@ -377,9 +458,13 @@ function setApplicationMenu(): void {
 }
 
 function createWindow(): void {
+  const restoredBounds = getRestoredMainWindowBounds();
+  const persistedWindowState = configStore.getWindowState();
+  let allowWindowStatePersistence = false;
   const win = new BrowserWindow({
-    width: 1680,
-    height: 1024,
+    width: restoredBounds.width,
+    height: restoredBounds.height,
+    show: false,
     minWidth: 1200,
     minHeight: 800,
     backgroundColor: '#070b16',
@@ -412,10 +497,66 @@ function createWindow(): void {
     }
   });
 
+  win.once('ready-to-show', () => {
+    win.show();
+
+    if (
+      typeof restoredBounds.x === 'number' &&
+      typeof restoredBounds.y === 'number' &&
+      typeof restoredBounds.width === 'number' &&
+      typeof restoredBounds.height === 'number'
+    ) {
+      win.setBounds({
+        x: restoredBounds.x,
+        y: restoredBounds.y,
+        width: restoredBounds.width,
+        height: restoredBounds.height,
+      });
+    }
+
+    if (persistedWindowState.isMaximized) {
+      win.maximize();
+    }
+
+    setTimeout(() => {
+      if (!win.isDestroyed()) {
+        allowWindowStatePersistence = true;
+      }
+    }, 1000);
+  });
+
   win.on('closed', () => {
     if (mainWindow === win) {
       mainWindow = null;
     }
+  });
+
+  win.on('resize', () => {
+    if (!allowWindowStatePersistence) return;
+    schedulePersistMainWindowState(win);
+  });
+
+  win.on('move', () => {
+    if (!allowWindowStatePersistence) return;
+    schedulePersistMainWindowState(win);
+  });
+
+  win.on('maximize', () => {
+    if (!allowWindowStatePersistence) return;
+    schedulePersistMainWindowState(win);
+  });
+
+  win.on('unmaximize', () => {
+    if (!allowWindowStatePersistence) return;
+    schedulePersistMainWindowState(win);
+  });
+
+  win.on('close', () => {
+    if (persistMainWindowStateTimer) {
+      clearTimeout(persistMainWindowStateTimer);
+      persistMainWindowStateTimer = null;
+    }
+    persistMainWindowState(win);
   });
 
   mainWindow = win;

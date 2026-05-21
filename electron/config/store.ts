@@ -4,6 +4,14 @@ import type { CameraConfig } from '../types';
 
 type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';
 
+interface WindowState {
+  x?: number;
+  y?: number;
+  width: number;
+  height: number;
+  isMaximized: boolean;
+}
+
 interface Config {
   cameras: CameraConfig[];
   uiDisplay: {
@@ -14,7 +22,14 @@ interface Config {
     language: string;
     volume: number;
   };
+  windowState: WindowState;
 }
+
+const defaultWindowState: WindowState = {
+  width: 1680,
+  height: 1024,
+  isMaximized: false,
+};
 
 let configPath = '';
 let config: Config = {
@@ -27,6 +42,7 @@ let config: Config = {
     language: 'system',
     volume: 0,
   },
+  windowState: defaultWindowState,
 };
 
 export function init(userDataPath: string): void {
@@ -60,6 +76,13 @@ export function init(userDataPath: string): void {
           language: parsed.uiDisplay?.language ?? 'system',
           volume: parsed.uiDisplay?.volume ?? 0,
         },
+        windowState: {
+          x: parsed.windowState?.x,
+          y: parsed.windowState?.y,
+          width: parsed.windowState?.width ?? defaultWindowState.width,
+          height: parsed.windowState?.height ?? defaultWindowState.height,
+          isMaximized: parsed.windowState?.isMaximized ?? defaultWindowState.isMaximized,
+        },
       };
     } catch {
       config = {
@@ -72,6 +95,7 @@ export function init(userDataPath: string): void {
           language: 'system',
           volume: 0,
         },
+        windowState: defaultWindowState,
       };
     }
   }
@@ -128,6 +152,15 @@ export function setUiDisplayPreferences(
     language: preferences.language ?? config.uiDisplay.language,
     volume: preferences.volume ?? config.uiDisplay.volume,
   };
+  save();
+}
+
+export function getWindowState(): WindowState {
+  return { ...config.windowState };
+}
+
+export function setWindowState(windowState: WindowState): void {
+  config.windowState = { ...windowState };
   save();
 }
 
