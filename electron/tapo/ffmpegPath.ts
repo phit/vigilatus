@@ -49,7 +49,9 @@ function resolve(): string {
   if (app.isPackaged) {
     const appPath = app.getAppPath();
     const ext = process.platform === 'win32' ? '.exe' : '';
-    candidates.push(path.join(path.dirname(appPath), 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', 'ffmpeg' + ext));
+    candidates.push(
+      path.join(path.dirname(appPath), 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', 'ffmpeg' + ext),
+    );
   }
 
   candidates.push(ffmpegStatic);
@@ -63,7 +65,7 @@ function resolve(): string {
 
   throw new Error(
     'ffmpeg binary not found. Install ffmpeg on your system or ensure ffmpeg-static is unpacked. Checked: ' +
-    candidates.join(', ')
+      candidates.join(', '),
   );
 }
 
