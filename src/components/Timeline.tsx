@@ -169,6 +169,8 @@ export function Timeline({
           ? Date.now()
           : windowEnd;
   const handlePos = timeToPercent(handleTime);
+  const showHandleTime = dragging || playbackMode === 'playback';
+  const handleTimeLabel = formatTime(handleTime);
 
   // Time axis marks (every 4h)
   const marks: number[] = [];
@@ -300,6 +302,7 @@ export function Timeline({
           }}
         >
           <div className="timeline-needle" />
+          {showHandleTime && <div className="timeline-handle-time">{handleTimeLabel}</div>}
         </div>
       </div>
 

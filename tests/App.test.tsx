@@ -14,6 +14,7 @@ function resetStore(): void {
     previewPosition: 'right',
     playbackMode: 'live',
     playbackTime: null,
+    playbackStartTime: null,
     recordings: [],
     recordingEvents: [],
     recordingsLoading: false,

@@ -66,6 +66,7 @@ interface CamerasStore {
   previewPosition: PreviewPosition;
   playbackMode: PlaybackMode;
   playbackTime: number | null;
+  playbackStartTime: number | null;
   recordings: Recording[];
   recordingEvents: RecordingEvent[];
   recordingsLoading: boolean;
@@ -90,6 +91,7 @@ interface CamerasStore {
   setDebugOverlayVisible(visible: boolean): void;
   setPreviewPosition(position: PreviewPosition): void;
   setVolume(volume: number): void;
+  setPlaybackTime(time: number | null): void;
   volume: number;
   loadRecordings(cameraId: string, date: string): Promise<void>;
   seekTo(time: number): Promise<void>;
@@ -106,6 +108,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   previewPosition: 'right',
   playbackMode: 'live',
   playbackTime: null,
+  playbackStartTime: null,
   volume: 0,
   recordings: [],
   recordingEvents: [],
@@ -154,6 +157,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
       selectedId: id,
       playbackMode: 'live',
       playbackTime: null,
+      playbackStartTime: null,
       recordings: cached?.recordings ?? [],
       recordingEvents: cached?.recordingEvents ?? [],
       recordingsLoading: false,
@@ -262,6 +266,10 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
     window.vigilatus.ui.saveVolume(volume);
   },
 
+  setPlaybackTime(time) {
+    set({ playbackTime: time });
+  },
+
   // ------------------------------------------------------------------
   // Recordings + timeline
   // ------------------------------------------------------------------
@@ -329,7 +337,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
       time = time < clip.startTime ? clip.startTime : clip.endTime - 1000;
     }
     if (!clip) {
-      set({ playbackMode: 'live', playbackTime: null });
+      set({ playbackMode: 'live', playbackTime: null, playbackStartTime: null });
       return;
     }
 
@@ -341,13 +349,13 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
       clipEndMs: clip.endTime,
     });
 
-    set({ playbackMode: 'playback', playbackTime: time });
-
     const requestedStartTime = Math.max(clip.startTime, time - PLAYBACK_PREROLL_MS);
     const requestedEndTime = Math.min(
       clip.endTime,
       Math.max(requestedStartTime + 15_000, requestedStartTime + PLAYBACK_WINDOW_MS),
     );
+
+    set({ playbackMode: 'playback', playbackTime: time, playbackStartTime: requestedStartTime });
 
     // Clear live source immediately while recording clip is being prepared.
     // Do not stop the live process here because it can race with an in-flight
@@ -376,13 +384,13 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
     } catch (e) {
       const msg = (e as Error).message;
       get().setStatus(selectedId, 'error', msg || 'Failed to start recording playback');
-      set({ playbackMode: 'live', playbackTime: null });
+      set({ playbackMode: 'live', playbackTime: null, playbackStartTime: null });
     }
   },
 
   goLive() {
     const { selectedId, playbackMode } = get();
-    set({ playbackMode: 'live', playbackTime: null });
+    set({ playbackMode: 'live', playbackTime: null, playbackStartTime: null });
     if (selectedId) {
       if (playbackMode === 'live') {
         get().stopStream(selectedId);

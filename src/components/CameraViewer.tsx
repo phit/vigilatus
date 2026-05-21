@@ -29,6 +29,8 @@ export function CameraViewer({ camera, playbackMode }: Props) {
   const showDebugOverlay = useCameraStore((s) => s.showDebugOverlay);
   const volume = useCameraStore((s) => s.volume);
   const setVolume = useCameraStore((s) => s.setVolume);
+  const playbackStartTime = useCameraStore((s) => s.playbackStartTime);
+  const setPlaybackTime = useCameraStore((s) => s.setPlaybackTime);
 
   const hlsUrl = camera?.hlsUrl;
   const isHlsSource = Boolean(hlsUrl && hlsUrl.toLowerCase().includes('.m3u8'));
@@ -207,6 +209,28 @@ export function CameraViewer({ camera, playbackMode }: Props) {
       });
     }
   }, [hlsUrl, isHlsSource, t]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const syncPlaybackTime = () => {
+      if (playbackMode !== 'playback' || playbackStartTime == null) {
+        return;
+      }
+      setPlaybackTime(playbackStartTime + Math.floor(video.currentTime * 1000));
+    };
+
+    video.addEventListener('timeupdate', syncPlaybackTime);
+    video.addEventListener('seeking', syncPlaybackTime);
+    video.addEventListener('loadedmetadata', syncPlaybackTime);
+
+    return () => {
+      video.removeEventListener('timeupdate', syncPlaybackTime);
+      video.removeEventListener('seeking', syncPlaybackTime);
+      video.removeEventListener('loadedmetadata', syncPlaybackTime);
+    };
+  }, [playbackMode, playbackStartTime, setPlaybackTime, hlsUrl]);
 
   const label = camera?.config.name ?? t('viewer.noCamera');
 
