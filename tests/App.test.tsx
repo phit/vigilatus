@@ -15,6 +15,7 @@ function resetStore(): void {
     playbackMode: 'live',
     playbackTime: null,
     recordings: [],
+    recordingEvents: [],
     recordingsLoading: false,
     recordingsError: null,
   });

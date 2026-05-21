@@ -40,6 +40,14 @@ export interface Recording {
   endTime: number;
 }
 
+export interface RecordingEvent {
+  /** Unix ms */
+  startTime: number;
+  /** Unix ms */
+  endTime: number;
+  alarmType?: number;
+}
+
 export type PlaybackMode = 'live' | 'playback';
 
 export type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';

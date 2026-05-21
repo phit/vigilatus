@@ -562,6 +562,21 @@ button.timeline-date:hover {
   pointer-events: none;
 }
 
+.timeline-event {
+  position: absolute;
+  top: -4px;
+  height: 6px;
+  background: rgba(251, 191, 36, 0.9);
+  border-radius: 999px;
+  pointer-events: none;
+  z-index: 1;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.25);
+}
+
+.timeline-event--alarm-2 {
+  background: rgba(248, 113, 113, 0.95);
+}
+
 .timeline-handle {
   position: absolute;
   top: 50%;

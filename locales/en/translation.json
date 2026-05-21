@@ -47,6 +47,7 @@
     "goToToday": "Go to today",
     "today": "(Today)",
     "live": "● Live",
+    "activity": "Activity",
     "scrubber": "Timeline scrubber",
     "segmentsFound_one": "{{count}} recording segment found. Drag or click the timeline to open a clip.",
     "segmentsFound_other": "{{count}} recording segments found. Drag or click the timeline to open a clip.",

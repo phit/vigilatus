@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import type { CameraConfig, PreviewPosition, Recording, RuntimeInfo } from './types';
+import type { CameraConfig, PreviewPosition, Recording, RecordingEvent, RuntimeInfo } from './types';
 
 declare global {
   interface Window {
@@ -24,6 +24,7 @@ declare global {
       };
       recordings: {
         list(cameraId: string, date: string): Promise<Recording[]>;
+        events(cameraId: string, date: string): Promise<RecordingEvent[]>;
         play(
           cameraId: string,
           startTime: number,

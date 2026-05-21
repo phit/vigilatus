@@ -1,6 +1,6 @@
 import { waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useCameraStore } from '../src/store/cameras';
+import { resetRecordingsCache, useCameraStore } from '../src/store/cameras';
 import type { CameraConfig } from '../src/types';
 import { createVigilatusMock, installVigilatusMock } from './helpers/mockVigilatus';
 
@@ -14,6 +14,7 @@ function resetStore(): void {
     playbackMode: 'live',
     playbackTime: null,
     recordings: [],
+    recordingEvents: [],
     recordingsLoading: false,
     recordingsError: null,
   });
@@ -21,6 +22,7 @@ function resetStore(): void {
 
 describe('useCameraStore', () => {
   beforeEach(() => {
+    resetRecordingsCache();
     installVigilatusMock(createVigilatusMock());
     resetStore();
   });
@@ -80,6 +82,51 @@ describe('useCameraStore', () => {
     expect(useCameraStore.getState().playbackMode).toBe('playback');
     expect(useCameraStore.getState().playbackTime).toBe(150_000);
     expect(useCameraStore.getState().cameras[0]?.hlsUrl).toBe('blob:recording-playback');
+  });
+
+  it('loads recording events alongside recordings', async () => {
+    const mock = createVigilatusMock();
+    mock.recordings.list.mockResolvedValueOnce([{ startTime: 100_000, endTime: 250_000 }]);
+    mock.recordings.events.mockResolvedValueOnce([{ startTime: 120_000, endTime: 140_000, alarmType: 2 }]);
+    installVigilatusMock(mock);
+
+    await useCameraStore.getState().loadRecordings('cam-1', '20260521');
+
+    expect(mock.recordings.list).toHaveBeenCalledWith('cam-1', '20260521');
+    expect(mock.recordings.events).toHaveBeenCalledWith('cam-1', '20260521');
+    expect(useCameraStore.getState().recordings).toEqual([{ startTime: 100_000, endTime: 250_000 }]);
+    expect(useCameraStore.getState().recordingEvents).toEqual([
+      { startTime: 120_000, endTime: 140_000, alarmType: 2 },
+    ]);
+  });
+
+  it('reuses cached recordings for the same camera and date within the cooldown window', async () => {
+    const mock = createVigilatusMock();
+    mock.recordings.list.mockResolvedValue([{ startTime: 100_000, endTime: 250_000 }]);
+    mock.recordings.events.mockResolvedValue([{ startTime: 120_000, endTime: 140_000, alarmType: 2 }]);
+    installVigilatusMock(mock);
+
+    await useCameraStore.getState().loadRecordings('cam-1', '20260521');
+    await useCameraStore.getState().loadRecordings('cam-1', '20260521');
+
+    expect(mock.recordings.list).toHaveBeenCalledTimes(1);
+    expect(mock.recordings.events).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears previous camera timeline data when switching to an uncached camera', async () => {
+    const mock = createVigilatusMock();
+    mock.stream.start.mockResolvedValue(null);
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({
+      recordings: [{ startTime: 100_000, endTime: 250_000 }],
+      recordingEvents: [{ startTime: 120_000, endTime: 140_000, alarmType: 2 }],
+    });
+
+    useCameraStore.getState().selectCamera('cam-2');
+
+    expect(useCameraStore.getState().recordings).toEqual([]);
+    expect(useCameraStore.getState().recordingEvents).toEqual([]);
   });
 });
 

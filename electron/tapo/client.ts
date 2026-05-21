@@ -20,7 +20,7 @@ import https from 'node:https';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import type { Recording } from '../types';
+import type { Recording, RecordingEvent } from '../types';
 import {
   downloadRecordingToMp4,
   startRecordingDownloadToHls,
@@ -119,6 +119,7 @@ export class TapoClient {
   private passwordMethod?: 'md5' | 'sha256';
   private triedSecureDowngrade = false;
   private cachedUserId?: number;
+  private loginPromise?: Promise<void>;
 
   constructor(cfg: TapoClientConfig) {
     this.host = cfg.host;
@@ -204,6 +205,66 @@ export class TapoClient {
     }
 
     return [];
+  }
+
+  async getRecordingEventsForDate(date: string): Promise<RecordingEvent[]> {
+    const year = Number(date.slice(0, 4));
+    const month = Number(date.slice(4, 6));
+    const day = Number(date.slice(6, 8));
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+      return [];
+    }
+
+    const localStartSec = Math.floor(new Date(year, month - 1, day, 0, 0, 0).getTime() / 1000);
+    const localEndSec = Math.floor(new Date(year, month - 1, day, 23, 59, 59).getTime() / 1000);
+    const timeCorrection = await this.getTimeCorrection();
+
+    const queryStartSec = localStartSec - timeCorrection;
+    const queryEndSec = localEndSec - timeCorrection;
+
+    const directResp = await this.apiRequest({
+      method: 'searchDetectionList',
+      params: {
+        playback: {
+          search_detection_list: {
+            start_index: 0,
+            channel: 0,
+            start_time: queryStartSec,
+            end_time: queryEndSec,
+            end_index: 999,
+          },
+        },
+      },
+    });
+
+    const directEvents = this.extractRecordingEventsFromResponse(directResp, timeCorrection);
+    if (directEvents.length > 0) {
+      return directEvents;
+    }
+
+    const nestedResp = await this.apiRequest({
+      method: 'multipleRequest',
+      params: {
+        requests: [
+          {
+            method: 'searchDetectionList',
+            params: {
+              playback: {
+                search_detection_list: {
+                  start_index: 0,
+                  channel: 0,
+                  start_time: queryStartSec,
+                  end_time: queryEndSec,
+                  end_index: 999,
+                },
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    return this.extractRecordingEventsFromResponse(nestedResp, timeCorrection);
   }
 
   private async queryRecordingsForDateWithFallbacks(date: string): Promise<Recording[]> {
@@ -672,7 +733,14 @@ export class TapoClient {
 
   async getStok(retryCount = 0): Promise<string> {
     if (this.stok) return this.stok;
-    await this.refreshStok(retryCount);
+
+    if (!this.loginPromise) {
+      this.loginPromise = this.refreshStok(retryCount).finally(() => {
+        this.loginPromise = undefined;
+      });
+    }
+
+    await this.loginPromise;
     if (!this.stok) throw new Error('Failed to obtain stok');
     return this.stok;
   }
@@ -1108,6 +1176,86 @@ export class TapoClient {
     // Last-chance parse from top-level result object values when firmware omits expected wrappers.
     const fromTopLevelValues = collectRanges(Object.values(topResult));
     return fromTopLevelValues;
+  }
+
+  private extractRecordingEventsFromResponse(resp: ApiResponse, timeCorrection: number): RecordingEvent[] {
+    const parseAlarmType = (value: unknown): number | undefined => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+      }
+      if (typeof value === 'string' && /^\d+$/.test(value)) {
+        return Number(value);
+      }
+      return undefined;
+    };
+
+    const toEvent = (value: unknown): RecordingEvent | null => {
+      if (!value || typeof value !== 'object') return null;
+
+      const event = value as {
+        startTime?: unknown;
+        endTime?: unknown;
+        start_time?: unknown;
+        end_time?: unknown;
+        alarm_type?: unknown;
+      };
+
+      const startRaw = event.startTime ?? event.start_time;
+      const endRaw = event.endTime ?? event.end_time;
+      if (typeof startRaw !== 'number' || typeof endRaw !== 'number') {
+        return null;
+      }
+
+      const startSec = startRaw < 10_000_000_000 ? startRaw + timeCorrection : Math.floor(startRaw / 1000);
+      const endSec = endRaw < 10_000_000_000 ? endRaw + timeCorrection : Math.floor(endRaw / 1000);
+      const startTime = startSec * 1000;
+      const endTime = endSec * 1000;
+      if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime <= startTime) {
+        return null;
+      }
+
+      return {
+        startTime,
+        endTime,
+        alarmType: parseAlarmType(event.alarm_type),
+      };
+    };
+
+    const collectEvents = (items: unknown[]): RecordingEvent[] => {
+      const events: RecordingEvent[] = [];
+      for (const item of items) {
+        const direct = toEvent(item);
+        if (direct) {
+          events.push(direct);
+          continue;
+        }
+
+        if (item && typeof item === 'object') {
+          for (const nestedValue of Object.values(item)) {
+            const nested = toEvent(nestedValue);
+            if (nested) {
+              events.push(nested);
+            }
+          }
+        }
+      }
+      return events;
+    };
+
+    const topResult = (resp.result ?? {}) as {
+      playback?: { search_detection_list?: unknown[] };
+    };
+    const nestedResult = (
+      resp.result.responses?.[0] as
+        | {
+            result?: { playback?: { search_detection_list?: unknown[] } };
+          }
+        | undefined
+    )?.result;
+
+    const candidates =
+      topResult.playback?.search_detection_list ?? nestedResult?.playback?.search_detection_list ?? [];
+    return collectEvents(candidates);
   }
 
   private firstResponseErrorCode(resp: ApiResponse): number | undefined {

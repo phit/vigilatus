@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { preloadBindings } from 'i18next-electron-fs-backend';
-import type { CameraConfig, PreviewPosition, Recording, RuntimeInfo } from './types';
+import type { CameraConfig, PreviewPosition, Recording, RecordingEvent, RuntimeInfo } from './types';
 
 contextBridge.exposeInMainWorld('vigilatus', {
   i18nextElectronBackend: preloadBindings(ipcRenderer, process),
@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('vigilatus', {
   recordings: {
     list: (cameraId: string, date: string): Promise<Recording[]> =>
       ipcRenderer.invoke('recordings:list', cameraId, date),
+    events: (cameraId: string, date: string): Promise<RecordingEvent[]> =>
+      ipcRenderer.invoke('recordings:events', cameraId, date),
     play: (
       cameraId: string,
       startTime: number,

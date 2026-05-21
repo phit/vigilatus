@@ -5,7 +5,7 @@ import { format, startOfDay } from 'date-fns';
 import * as configStore from '../config/store';
 import * as streamManager from '../tapo/streamManager';
 import { TapoClient } from '../tapo/client';
-import type { CameraConfig, Recording } from '../types';
+import type { CameraConfig, Recording, RecordingEvent } from '../types';
 import type { TestFixtures } from '../testing/fixtures';
 
 type ActiveRecordingPlaybackJob = {
@@ -17,9 +17,11 @@ type ActiveRecordingPlaybackJob = {
 const recordingsCredentialCache = new Map<string, Pick<CameraConfig, 'host' | 'username' | 'password'>>();
 const recordingsClientCache = new Map<string, TapoClient>();
 const recordingsUserIdCache = new Map<string, number>();
+const recordingEventsCooldownCache = new Map<string, { until: number; reason: string }>();
 const activeRecordingPlaybackJobs = new Map<string, ActiveRecordingPlaybackJob>();
 const MIN_PLAYBACK_WINDOW_MS = 15_000;
 const MAX_PLAYBACK_WINDOW_MS = 120_000;
+const RECORDING_EVENTS_RETRY_COOLDOWN_MS = 5 * 60_000;
 
 let testFixtures: TestFixtures | null = null;
 
@@ -29,6 +31,17 @@ function dateFromEpochMs(epochMs: number): string {
 
 function primaryCredential(cam: CameraConfig): Pick<CameraConfig, 'host' | 'username' | 'password'> {
   return { host: cam.host, username: cam.username || 'admin', password: cam.password };
+}
+
+function classifyRecordingEventsFailure(error: unknown): string {
+  const message = (error as Error)?.message ?? String(error ?? 'unknown error');
+  if (message.includes('socket hang up') || message.includes('ECONNRESET')) {
+    return 'connection-reset';
+  }
+  if (message.includes('Secure login: no stok in step-2 response')) {
+    return 'login-failed';
+  }
+  return message;
 }
 
 function stopRecordingPlayback(cameraId: string): void {
@@ -82,6 +95,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     recordingsCredentialCache.delete(id);
     recordingsClientCache.delete(id);
     recordingsUserIdCache.delete(id);
+    recordingEventsCooldownCache.delete(id);
     configStore.updateCamera(id, updates);
   });
 
@@ -91,6 +105,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     recordingsCredentialCache.delete(id);
     recordingsClientCache.delete(id);
     recordingsUserIdCache.delete(id);
+    recordingEventsCooldownCache.delete(id);
     configStore.removeCamera(id);
   });
 
@@ -159,13 +174,16 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     if (!cam) return [];
 
     const credential = recordingsCredentialCache.get(cameraId) ?? primaryCredential(cam);
-    const client = recordingsClientCache.get(cameraId) ?? new TapoClient(credential);
+    let client = recordingsClientCache.get(cameraId);
+    if (!client) {
+      client = new TapoClient(credential);
+      recordingsCredentialCache.set(cameraId, credential);
+      recordingsClientCache.set(cameraId, client);
+    }
     // console.info(`[recordings:list:${cameraId}] fetching date=${date} user=${credential.username}`);
 
     const recordings = await client.getRecordingsForDate(date);
 
-    recordingsCredentialCache.set(cameraId, credential);
-    recordingsClientCache.set(cameraId, client);
     const resolvedUserId = client.getCachedUserId();
     if (typeof resolvedUserId === 'number') {
       recordingsUserIdCache.set(cameraId, resolvedUserId);
@@ -173,6 +191,51 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     // console.info(`[recordings:list:${cameraId}] fetched ${recordings.length} segments`);
     return recordings;
   });
+
+  ipcMain.handle(
+    'recordings:events',
+    async (_e, cameraId: string, date: string): Promise<RecordingEvent[]> => {
+      if (testFixtures?.recordingEvents) {
+        return testFixtures.recordingEvents[cameraId] ?? [];
+      }
+
+      const cooldown = recordingEventsCooldownCache.get(cameraId);
+      if (cooldown && cooldown.until > Date.now()) {
+        return [];
+      }
+
+      const cam = configStore.getCameras().find((c) => c.id === cameraId);
+      if (!cam) return [];
+
+      const credential = recordingsCredentialCache.get(cameraId) ?? primaryCredential(cam);
+      let client = recordingsClientCache.get(cameraId);
+      if (!client) {
+        client = new TapoClient(credential);
+        recordingsCredentialCache.set(cameraId, credential);
+        recordingsClientCache.set(cameraId, client);
+      }
+
+      try {
+        const events = await client.getRecordingEventsForDate(date);
+        recordingEventsCooldownCache.delete(cameraId);
+        const resolvedUserId = client.getCachedUserId();
+        if (typeof resolvedUserId === 'number') {
+          recordingsUserIdCache.set(cameraId, resolvedUserId);
+        }
+        return events;
+      } catch (error) {
+        const reason = classifyRecordingEventsFailure(error);
+        recordingEventsCooldownCache.set(cameraId, {
+          until: Date.now() + RECORDING_EVENTS_RETRY_COOLDOWN_MS,
+          reason,
+        });
+        // console.info(
+        //   `[recordings:events:${cameraId}] suppressing event queries for ${Math.round(RECORDING_EVENTS_RETRY_COOLDOWN_MS / 60000)}m after ${reason}`,
+        // );
+        return [];
+      }
+    },
+  );
 
   ipcMain.handle(
     'recordings:play',

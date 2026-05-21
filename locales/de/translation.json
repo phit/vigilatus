@@ -47,6 +47,7 @@
     "goToToday": "Zu heute springen",
     "today": "(Heute)",
     "live": "● Live",
+    "activity": "Aktivität",
     "scrubber": "Zeitleisten-Regler",
     "segmentsFound_one": "{{count}} Aufnahmesegment gefunden. Ziehen oder klicke auf der Zeitleiste, um einen Clip zu öffnen.",
     "segmentsFound_other": "{{count}} Aufnahmesegmente gefunden. Ziehen oder klicke auf der Zeitleiste, um einen Clip zu öffnen.",

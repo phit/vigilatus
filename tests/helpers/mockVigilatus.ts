@@ -1,50 +1,51 @@
-import { vi } from 'vitest';
-import type { CameraConfig, PreviewPosition, Recording, RuntimeInfo } from '../../src/types';
+import { vi, type Mock } from 'vitest';
+import type { CameraConfig, PreviewPosition, Recording, RecordingEvent, RuntimeInfo } from '../../src/types';
 
 type Unsubscribe = () => void;
+type FnMock<Args extends unknown[], Result> = Mock<(...args: Args) => Result>;
 
 export type VigilatusMock = {
   cameras: {
-    getAll: ReturnType<typeof vi.fn<[], Promise<CameraConfig[]>>>;
-    add: ReturnType<typeof vi.fn<[CameraConfig], Promise<void>>>;
-    update: ReturnType<typeof vi.fn<[string, Partial<CameraConfig>], Promise<void>>>;
-    remove: ReturnType<typeof vi.fn<[string], Promise<void>>>;
-    test: ReturnType<
-      typeof vi.fn<
-        [Pick<CameraConfig, 'host' | 'username' | 'password'>],
-        Promise<{ success: boolean; error?: string }>
-      >
+    getAll: FnMock<[], Promise<CameraConfig[]>>;
+    add: FnMock<[CameraConfig], Promise<void>>;
+    update: FnMock<[string, Partial<CameraConfig>], Promise<void>>;
+    remove: FnMock<[string], Promise<void>>;
+    test: FnMock<
+      [Pick<CameraConfig, 'host' | 'username' | 'password'>],
+      Promise<{ success: boolean; error?: string }>
     >;
   };
   stream: {
-    start: ReturnType<typeof vi.fn<[string], Promise<string | null>>>;
-    stop: ReturnType<typeof vi.fn<[string], Promise<void>>>;
-    startPlayback: ReturnType<typeof vi.fn<[string, number], Promise<string>>>;
+    start: FnMock<[string], Promise<string | null>>;
+    stop: FnMock<[string], Promise<void>>;
+    startPlayback: FnMock<[string, number], Promise<string>>;
   };
   snapshot: {
-    get: ReturnType<typeof vi.fn<[string], Promise<string | null>>>;
+    get: FnMock<[string], Promise<string | null>>;
   };
   recordings: {
-    list: ReturnType<typeof vi.fn<[string, string], Promise<Recording[]>>>;
-    play: ReturnType<typeof vi.fn<[string, number, number, number, number | undefined], Promise<string>>>;
+    list: FnMock<[string, string], Promise<Recording[]>>;
+    events: FnMock<[string, string], Promise<RecordingEvent[]>>;
+    play: FnMock<[string, number, number, number, number | undefined], Promise<string>>;
   };
   diagnostics: {
-    getRuntimeInfo: ReturnType<typeof vi.fn<[], Promise<RuntimeInfo>>>;
+    getRuntimeInfo: FnMock<[], Promise<RuntimeInfo>>;
   };
   contextMenu: {
-    showCameraMenu: ReturnType<typeof vi.fn<[], Promise<string | null>>>;
+    showCameraMenu: FnMock<[], Promise<string | null>>;
   };
   ui: {
-    onOpenAddCamera: ReturnType<typeof vi.fn<[() => void], Unsubscribe>>;
-    onSetPreviewsVisible: ReturnType<typeof vi.fn<[(visible: boolean) => void], Unsubscribe>>;
-    onSetTimelineVisible: ReturnType<typeof vi.fn<[(visible: boolean) => void], Unsubscribe>>;
-    onSetHeaderVisible: ReturnType<typeof vi.fn<[(visible: boolean) => void], Unsubscribe>>;
-    onSetDebugOverlayVisible: ReturnType<typeof vi.fn<[(visible: boolean) => void], Unsubscribe>>;
-    onSetPreviewPosition: ReturnType<typeof vi.fn<[(position: PreviewPosition) => void], Unsubscribe>>;
-    onStreamsInvalidated: ReturnType<typeof vi.fn<[() => void], Unsubscribe>>;
-    onSetLanguage: ReturnType<typeof vi.fn<[(language: string) => void], Unsubscribe>>;
-    onSetVolume: ReturnType<typeof vi.fn<[(volume: number) => void], Unsubscribe>>;
-    saveVolume: ReturnType<typeof vi.fn<[number], void>>;
+    onOpenAddCamera: FnMock<[() => void], Unsubscribe>;
+    onSetPreviewsVisible: FnMock<[(visible: boolean) => void], Unsubscribe>;
+    onSetTimelineVisible: FnMock<[(visible: boolean) => void], Unsubscribe>;
+    onSetHeaderVisible: FnMock<[(visible: boolean) => void], Unsubscribe>;
+    onSetDebugOverlayVisible: FnMock<[(visible: boolean) => void], Unsubscribe>;
+    onSetPreviewPosition: FnMock<[(position: PreviewPosition) => void], Unsubscribe>;
+    onStreamsInvalidated: FnMock<[() => void], Unsubscribe>;
+    onStreamDied: FnMock<[(cameraId: string) => void], Unsubscribe>;
+    onSetLanguage: FnMock<[(language: string) => void], Unsubscribe>;
+    onSetVolume: FnMock<[(volume: number) => void], Unsubscribe>;
+    saveVolume: FnMock<[number], void>;
   };
 };
 
@@ -68,6 +69,7 @@ export function createVigilatusMock(overrides: Partial<VigilatusMock> = {}): Vig
     },
     recordings: {
       list: vi.fn().mockResolvedValue([]),
+      events: vi.fn().mockResolvedValue([]),
       play: vi.fn().mockResolvedValue('blob:playback'),
     },
     diagnostics: {
@@ -89,6 +91,7 @@ export function createVigilatusMock(overrides: Partial<VigilatusMock> = {}): Vig
       onSetDebugOverlayVisible: vi.fn().mockImplementation(() => noop),
       onSetPreviewPosition: vi.fn().mockImplementation(() => noop),
       onStreamsInvalidated: vi.fn().mockImplementation(() => noop),
+      onStreamDied: vi.fn().mockImplementation(() => noop),
       onSetLanguage: vi.fn().mockImplementation(() => noop),
       onSetVolume: vi.fn().mockImplementation(() => noop),
       saveVolume: vi.fn(),

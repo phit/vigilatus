@@ -20,6 +20,7 @@ export function App() {
     playbackMode,
     playbackTime,
     recordings,
+    recordingEvents,
     recordingsLoading,
     recordingsError,
     loadCameras,
@@ -252,6 +253,7 @@ export function App() {
         <Timeline
           data-testid="timeline"
           recordings={recordings}
+          recordingEvents={recordingEvents}
           playbackMode={playbackMode}
           playbackTime={playbackTime}
           playbackEnabled={playbackEnabled}

@@ -22,6 +22,12 @@ export interface Recording {
   endTime: number; // unix ms
 }
 
+export interface RecordingEvent {
+  startTime: number; // unix ms
+  endTime: number; // unix ms
+  alarmType?: number;
+}
+
 export type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';
 
 export interface RuntimeInfo {

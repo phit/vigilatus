@@ -1,8 +1,60 @@
 import { create } from 'zustand';
-import type { CameraConfig, CameraState, Recording, PlaybackMode, PreviewPosition } from '../types';
+import type {
+  CameraConfig,
+  CameraState,
+  Recording,
+  RecordingEvent,
+  PlaybackMode,
+  PreviewPosition,
+} from '../types';
 
 const PLAYBACK_PREROLL_MS = 5_000;
 const PLAYBACK_WINDOW_MS = 120_000;
+const RECORDINGS_CACHE_TTL_MS = 2 * 60_000;
+
+type RecordingsCacheEntry = {
+  recordings: Recording[];
+  recordingEvents: RecordingEvent[];
+  fetchedAt: number;
+};
+
+const recordingsCache = new Map<string, RecordingsCacheEntry>();
+
+function getRecordingsCacheKey(cameraId: string, date: string): string {
+  return `${cameraId}:${date}`;
+}
+
+function getCurrentDateString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}${month}${day}`;
+}
+
+function getFreshRecordingsCache(cameraId: string, date: string): RecordingsCacheEntry | null {
+  const cached = recordingsCache.get(getRecordingsCacheKey(cameraId, date));
+  if (!cached) {
+    return null;
+  }
+  if (Date.now() - cached.fetchedAt >= RECORDINGS_CACHE_TTL_MS) {
+    recordingsCache.delete(getRecordingsCacheKey(cameraId, date));
+    return null;
+  }
+  return cached;
+}
+
+function clearRecordingsCache(cameraId: string): void {
+  for (const key of Array.from(recordingsCache.keys())) {
+    if (key.startsWith(`${cameraId}:`)) {
+      recordingsCache.delete(key);
+    }
+  }
+}
+
+export function resetRecordingsCache(): void {
+  recordingsCache.clear();
+}
 
 interface CamerasStore {
   cameras: CameraState[];
@@ -15,6 +67,7 @@ interface CamerasStore {
   playbackMode: PlaybackMode;
   playbackTime: number | null;
   recordings: Recording[];
+  recordingEvents: RecordingEvent[];
   recordingsLoading: boolean;
   recordingsError: string | null;
 
@@ -55,6 +108,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   playbackTime: null,
   volume: 0,
   recordings: [],
+  recordingEvents: [],
   recordingsLoading: false,
   recordingsError: null,
 
@@ -76,11 +130,13 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
 
   async updateCamera(id, updates) {
     await window.vigilatus.cameras.update(id, updates);
+    clearRecordingsCache(id);
     await get().loadCameras();
   },
 
   async removeCamera(id) {
     await window.vigilatus.cameras.remove(id);
+    clearRecordingsCache(id);
     set((s) => {
       const cameras = s.cameras.filter((c) => c.config.id !== id);
       const selectedId = s.selectedId === id ? (cameras[0]?.config.id ?? null) : s.selectedId;
@@ -93,11 +149,13 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   // ------------------------------------------------------------------
 
   selectCamera(id) {
+    const cached = getFreshRecordingsCache(id, getCurrentDateString());
     set({
       selectedId: id,
       playbackMode: 'live',
       playbackTime: null,
-      recordings: [],
+      recordings: cached?.recordings ?? [],
+      recordingEvents: cached?.recordingEvents ?? [],
       recordingsLoading: false,
       recordingsError: null,
     });
@@ -209,12 +267,36 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
   // ------------------------------------------------------------------
 
   async loadRecordings(cameraId, date) {
+    const cacheKey = getRecordingsCacheKey(cameraId, date);
+    const cached = getFreshRecordingsCache(cameraId, date);
+    if (cached) {
+      set({
+        recordings: cached.recordings,
+        recordingEvents: cached.recordingEvents,
+        recordingsLoading: false,
+        recordingsError: null,
+      });
+      return;
+    }
+
     set({ recordingsLoading: true, recordingsError: null });
     const maxRetries = 3;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const recs = await window.vigilatus.recordings.list(cameraId, date);
-        set({ recordings: recs, recordingsLoading: false, recordingsError: null });
+        const events = await window.vigilatus.recordings.events(cameraId, date).catch((error: unknown) => {
+          console.warn(
+            `[recordings:events:${cameraId}] failed for ${date}:`,
+            (error as Error)?.message ?? String(error),
+          );
+          return [] as RecordingEvent[];
+        });
+        recordingsCache.set(cacheKey, {
+          recordings: recs,
+          recordingEvents: events,
+          fetchedAt: Date.now(),
+        });
+        set({ recordings: recs, recordingEvents: events, recordingsLoading: false, recordingsError: null });
         return;
       } catch (e) {
         const msg = (e as Error)?.message ?? 'Failed to load recordings';
@@ -224,6 +306,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
         }
         set({
           recordings: [],
+          recordingEvents: [],
           recordingsLoading: false,
           recordingsError: msg,
         });

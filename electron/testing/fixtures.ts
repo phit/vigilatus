@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { CameraConfig, Recording } from '../types';
+import type { CameraConfig, Recording, RecordingEvent } from '../types';
 
 export interface TestFixtures {
   cameras?: CameraConfig[];
   streams?: Record<string, string | null>;
   snapshots?: Record<string, string | null>;
   recordings?: Record<string, Recording[]>;
+  recordingEvents?: Record<string, RecordingEvent[]>;
   playbackUrls?: Record<string, string>;
 }
 

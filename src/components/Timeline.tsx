@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { format, parse, addDays, startOfDay, isToday as isDateToday } from 'date-fns';
-import type { Recording, PlaybackMode } from '../types';
+import type { Recording, RecordingEvent, PlaybackMode } from '../types';
 
 interface Props {
   recordings: Recording[];
+  recordingEvents: RecordingEvent[];
   playbackMode: PlaybackMode;
   playbackTime: number | null;
   playbackEnabled: boolean;
@@ -50,6 +51,7 @@ function formatTime(ts: number): string {
 
 export function Timeline({
   recordings,
+  recordingEvents,
   playbackMode,
   playbackTime,
   playbackEnabled,
@@ -174,6 +176,14 @@ export function Timeline({
     marks.push(windowStart + h * 60 * 60 * 1000);
   }
 
+  const formatEventTitle = (event: RecordingEvent): string => {
+    const range = `${formatTime(event.startTime)} – ${formatTime(event.endTime)}`;
+    if (typeof event.alarmType === 'number') {
+      return `${t('timeline.activity')} (${event.alarmType}) ${range}`;
+    }
+    return `${t('timeline.activity')} ${range}`;
+  };
+
   return (
     <div className="timeline" data-testid={testId}>
       <div className="timeline-header">
@@ -258,6 +268,20 @@ export function Timeline({
               className="timeline-segment"
               style={{ left: `${left}%`, width: `${Math.max(0.3, width)}%` }}
               title={`${formatTime(rec.startTime)} – ${formatTime(rec.endTime)}`}
+            />
+          );
+        })}
+
+        {/* Detection highlights */}
+        {recordingEvents.map((event, i) => {
+          const left = timeToPercent(event.startTime);
+          const width = timeToPercent(event.endTime) - left;
+          return (
+            <div
+              key={`${event.startTime}-${event.endTime}-${event.alarmType ?? 'unknown'}-${i}`}
+              className={`timeline-event${typeof event.alarmType === 'number' ? ` timeline-event--alarm-${event.alarmType}` : ''}`}
+              style={{ left: `${left}%`, width: `${Math.max(0.25, width)}%` }}
+              title={formatEventTitle(event)}
             />
           );
         })}
