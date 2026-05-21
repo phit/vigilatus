@@ -6,7 +6,6 @@
  */
 
 import ffmpeg from 'fluent-ffmpeg';
-import ffmpegStatic from 'ffmpeg-static';
 import { once } from 'node:events';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -16,7 +15,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import type { Writable } from 'node:stream';
 import type { AddressInfo } from 'node:net';
 import type { CameraConfig } from '../types';
-import { resolveFfmpegBinaryPath } from './ffmpegPath';
+import { ffmpegBinaryPath } from './ffmpegPath';
 import { MediaSession, hashMediaPassword, writeAlignedTsPackets } from './recordingDownloader';
 import * as configStore from '../config/store';
 
@@ -114,8 +113,7 @@ function purgeOldRecordings(): void {
 
 export async function init(): Promise<void> {
   try {
-    const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
-    ffmpeg.setFfmpegPath(ffmpegBinary);
+    ffmpeg.setFfmpegPath(ffmpegBinaryPath);
   } catch (err) {
     console.error('[streamManager:init] Failed to resolve ffmpeg path:', err);
     throw err;
@@ -317,7 +315,6 @@ async function attemptHttpStream(
   m3u8: string,
   hlsUrl: string,
 ): Promise<string> {
-  const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
   let session: MediaSession | null = null;
   let ffmpegProc: ChildProcess | null = null;
 
@@ -489,7 +486,7 @@ async function attemptHttpStream(
       m3u8,
     );
 
-    ffmpegProc = spawn(ffmpegBinary, ffmpegArgs, {
+    ffmpegProc = spawn(ffmpegBinaryPath, ffmpegArgs, {
       stdio: audioCodec ? ['pipe', 'ignore', 'pipe', 'pipe'] : ['pipe', 'ignore', 'pipe'],
     });
 
@@ -739,8 +736,6 @@ async function snapshotFromHls(cameraId: string): Promise<string | null> {
   if (!fs.existsSync(m3u8)) return null;
 
   const outFile = path.join(SNAP_DIR, `${cameraId}.jpg`);
-  const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
-
   return new Promise<string | null>((resolve) => {
     const timer = setTimeout(() => {
       try {
@@ -752,7 +747,7 @@ async function snapshotFromHls(cameraId: string): Promise<string | null> {
     }, 5000);
 
     const proc = spawn(
-      ffmpegBinary,
+      ffmpegBinaryPath,
       ['-loglevel', 'error', '-sseof', '-1', '-i', m3u8, '-frames:v', '1', '-q:v', '5', '-y', outFile],
       { stdio: ['ignore', 'ignore', 'ignore'] },
     );
@@ -826,8 +821,6 @@ async function captureSnapshot(cameraId: string, cfg: CameraConfig): Promise<str
 
 async function captureHttpSnapshot(cameraId: string, cfg: CameraConfig): Promise<string | null> {
   const outFile = path.join(SNAP_DIR, `${cameraId}.jpg`);
-  const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
-
   // Use cached method first, then try both
   const cachedMethod = cfg.httpHashMethod;
   const hashMethods: HashMethod[] = cachedMethod
@@ -843,7 +836,7 @@ async function captureHttpSnapshot(cameraId: string, cfg: CameraConfig): Promise
       await session.start();
 
       const ffmpegProc = spawn(
-        ffmpegBinary,
+        ffmpegBinaryPath,
         [
           '-loglevel',
           'warning',

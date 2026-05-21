@@ -5,8 +5,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import type { Writable } from 'node:stream';
-import ffmpegStatic from 'ffmpeg-static';
-import { resolveFfmpegBinaryPath } from './ffmpegPath';
+import { ffmpegBinaryPath } from './ffmpegPath';
 
 type EncryptionMethod = 'md5' | 'sha256';
 
@@ -706,8 +705,6 @@ export class MediaSession {
 }
 
 export async function downloadRecordingToMp4(options: DownloadRecordingOptions): Promise<string> {
-  const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
-
   const logPrefix = `[recording:dl:${options.host}:${options.startTime}-${options.endTime}]`;
   const retryWindowSizes = buildRetryWindowSizes(options.windowSize);
   console.info(`${logPrefix} starting download, windowSizes=${retryWindowSizes.join(',')}`);
@@ -746,7 +743,7 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
     await session.start();
     console.info(`${logPrefix} media session connected, starting stream...`);
 
-    const ffmpegProc = spawn(ffmpegBinary, buildDownloadFfmpegArgs(partialOutputPath, options.audio), {
+    const ffmpegProc = spawn(ffmpegBinaryPath, buildDownloadFfmpegArgs(partialOutputPath, options.audio), {
       stdio: options.audio ? ['pipe', 'ignore', 'pipe', 'pipe'] : ['pipe', 'ignore', 'pipe'],
     });
     const ffmpegStdin = ffmpegProc.stdin!;
@@ -845,8 +842,6 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
 export async function startRecordingDownloadToHls(
   options: RecordingPlaybackStreamOptions,
 ): Promise<RecordingPlaybackJob> {
-  const ffmpegBinary = resolveFfmpegBinaryPath(ffmpegStatic);
-
   const logPrefix = `[recording:hls:${options.host}:${options.startTime}-${options.endTime}]`;
   const assetPath = path.join(options.outputDir, 'stream.mp4');
 
@@ -908,7 +903,7 @@ export async function startRecordingDownloadToHls(
     );
     // console.info(`${logPrefix} ffmpeg args: ${ffmpegArgs.join(' ')}`);
 
-    const ffmpegProc = spawn(ffmpegBinary, ffmpegArgs, {
+    const ffmpegProc = spawn(ffmpegBinaryPath, ffmpegArgs, {
       stdio: withAudio && options.audio ? ['pipe', 'ignore', 'pipe', 'pipe'] : ['pipe', 'ignore', 'pipe'],
     });
     // console.info(`${logPrefix} ffmpeg process started (PID: ${ffmpegProc.pid})`);

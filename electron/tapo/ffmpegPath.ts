@@ -1,70 +1,71 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import ffmpegStatic from 'ffmpeg-static';
 import { app } from 'electron';
 
-function isAsarArchivePath(candidate: string): boolean {
-  return candidate.includes('app.asar') && !candidate.includes('app.asar.unpacked');
+function supportsLibx264(ffmpegBinary: string): boolean {
+  try {
+    const output = execFileSync(ffmpegBinary, ['-encoders'], { encoding: 'utf-8' });
+    return output.includes('libx264');
+  } catch {
+    return false;
+  }
 }
 
-function extractBinaryFromAsar(sourcePath: string): string {
-  const binaryName = path.basename(sourcePath);
-  const targetDir = path.join(app.getPath('userData'), 'bin');
-  const targetPath = path.join(targetDir, binaryName);
+function findSystemFfmpeg(): string | null {
+  try {
+    const cmd = process.platform === 'win32' ? 'where' : 'which';
+    const result = execFileSync(cmd, ['ffmpeg'], { encoding: 'utf-8' }).trim();
+    const binary = result.split('\n')[0];
+    if (binary && fs.existsSync(binary) && supportsLibx264(binary)) {
+      return binary;
+    }
+  } catch {
+    // not found on PATH
+  }
+  return null;
+}
 
-  fs.mkdirSync(targetDir, { recursive: true });
-  fs.copyFileSync(sourcePath, targetPath);
-
-  if (process.platform !== 'win32') {
-    fs.chmodSync(targetPath, 0o755);
+function resolve(): string {
+  // Prefer a system-installed ffmpeg if available
+  const systemFfmpeg = findSystemFfmpeg();
+  if (systemFfmpeg) {
+    console.log('[ffmpegPath] Using system ffmpeg:', systemFfmpeg);
+    return systemFfmpeg;
   }
 
-  console.log('[ffmpegPath] Extracted asar binary to:', targetPath);
-  return targetPath;
-}
-
-export function resolveFfmpegBinaryPath(ffmpegPath: string | null): string {
-  if (!ffmpegPath) {
+  if (!ffmpegStatic) {
     throw new Error('ffmpeg-static is not available on this platform');
   }
 
-  const candidates = new Set<string>();
+  // Fall back to the bundled ffmpeg-static binary (unpacked path in packaged apps)
+  const candidates: string[] = [];
 
-  // In packaged Electron apps, try multiple locations
-  if (ffmpegPath.includes('app.asar')) {
-    // Try unpacked location first
-    candidates.add(ffmpegPath.replace('app.asar\\', 'app.asar.unpacked\\'));
-    candidates.add(ffmpegPath.replace('app.asar/', 'app.asar.unpacked/'));
+  if (ffmpegStatic.includes('app.asar')) {
+    candidates.push(ffmpegStatic.replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep));
   }
 
-  candidates.add(ffmpegPath);
-
-  // Also check in app resources
   if (app.isPackaged) {
     const appPath = app.getAppPath();
-    const resourcesPath = path.join(path.dirname(appPath), 'node_modules', 'ffmpeg-static', 'ffmpeg.exe');
-    candidates.add(resourcesPath);
+    const ext = process.platform === 'win32' ? '.exe' : '';
+    candidates.push(path.join(path.dirname(appPath), 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', 'ffmpeg' + ext));
   }
 
-  // console.log('[ffmpegPath] Input:', ffmpegPath);
-  // console.log('[ffmpegPath] Candidates:', Array.from(candidates));
-  // console.log('[ffmpegPath] app.isPackaged:', app.isPackaged);
+  candidates.push(ffmpegStatic);
 
   for (const candidate of candidates) {
-    // console.log('[ffmpegPath] Checking:', candidate, '- exists:', fs.existsSync(candidate));
-    if (!fs.existsSync(candidate)) {
-      continue;
-    }
-
-    if (app.isPackaged && isAsarArchivePath(candidate)) {
-      // console.log('[ffmpegPath] Found in app.asar, extracting to a real file for execution');
-      return extractBinaryFromAsar(candidate);
-    }
-
-    if (fs.statSync(candidate).isFile()) {
-      // console.log('[ffmpegPath] Found at:', candidate);
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+      console.log('[ffmpegPath] Using bundled ffmpeg:', candidate);
       return candidate;
     }
   }
 
-  throw new Error(`ffmpeg binary not found at expected paths: ${Array.from(candidates).join(', ')}`);
+  throw new Error(
+    'ffmpeg binary not found. Install ffmpeg on your system or ensure ffmpeg-static is unpacked. Checked: ' +
+    candidates.join(', ')
+  );
 }
+
+/** Resolved once at startup. Import this instead of calling a function each time. */
+export const ffmpegBinaryPath = resolve();
