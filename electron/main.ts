@@ -28,6 +28,19 @@ if (automationUserDataDir) {
   app.setPath('userData', path.resolve(automationUserDataDir));
 }
 
+let mainWindow: BrowserWindow | null = null;
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+}
+
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
 // Setup logging
 let logPath: string | null = null;
 function setupLogging(): void {
@@ -61,7 +74,6 @@ function setupLogging(): void {
 
 type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';
 
-let mainWindow: BrowserWindow | null = null;
 let aboutWindow: BrowserWindow | null = null;
 let licensesWindow: BrowserWindow | null = null;
 const uiDisplayState = {
