@@ -147,6 +147,11 @@ export function CameraViewer({ camera, playbackMode }: Props) {
       const hls = new Hls({
         lowLatencyMode: true,
         enableWorker: true,
+        liveSyncDurationCount: 2,
+        liveMaxLatencyDurationCount: 4,
+        maxBufferLength: 4,
+        backBufferLength: 8,
+        maxLiveSyncPlaybackRate: 1.1,
         // Retry quickly while stream is starting
         manifestLoadingMaxRetry: 120,
         manifestLoadingRetryDelay: 500,

@@ -1,8 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { preloadBindings } from 'i18next-electron-fs-backend';
-import type { CameraConfig, Recording, RuntimeInfo } from './types';
-
-type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';
+import type { CameraConfig, PreviewPosition, Recording, RuntimeInfo } from './types';
 
 contextBridge.exposeInMainWorld('vigilatus', {
   i18nextElectronBackend: preloadBindings(ipcRenderer, process),

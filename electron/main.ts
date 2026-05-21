@@ -18,17 +18,27 @@ import { registerHandlers } from './ipc/handlers';
 import { loadTestFixtures } from './testing/fixtures';
 import { t, setLanguage } from './i18n';
 import { initAutoUpdater, checkForUpdates } from './autoUpdater';
+import { PreviewPosition } from './types';
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const shouldOpenDevTools = process.env.VIGILATUS_OPEN_DEVTOOLS === '1' || !isDevelopment;
 const projectGithubUrl = 'https://github.com/phit/tapo-studio';
 const automationUserDataDir = process.env.VIGILATUS_USER_DATA_DIR?.trim();
 
-if (automationUserDataDir) {
-  app.setPath('userData', path.resolve(automationUserDataDir));
-}
+const uiDisplayState = {
+  previews: true,
+  timeline: true,
+  header: false,
+  previewPosition: 'right' as PreviewPosition,
+  language: 'system',
+  debugOverlay: false,
+  volume: 0,
+};
 
 let mainWindow: BrowserWindow | null = null;
+let aboutWindow: BrowserWindow | null = null;
+let licensesWindow: BrowserWindow | null = null;
+let logPath: string | null = null;
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
@@ -41,8 +51,12 @@ app.on('second-instance', () => {
   }
 });
 
-// Setup logging
-let logPath: string | null = null;
+// user data dir
+if (automationUserDataDir) {
+  app.setPath('userData', path.resolve(automationUserDataDir));
+}
+
+// logging
 function setupLogging(): void {
   try {
     logPath = path.join(app.getPath('userData'), 'vigilatus.log');
@@ -71,20 +85,6 @@ function setupLogging(): void {
     console.error('Failed to setup logging:', err);
   }
 }
-
-type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';
-
-let aboutWindow: BrowserWindow | null = null;
-let licensesWindow: BrowserWindow | null = null;
-const uiDisplayState = {
-  previews: true,
-  timeline: true,
-  header: false,
-  previewPosition: 'right' as PreviewPosition,
-  language: 'system',
-  debugOverlay: false,
-  volume: 0,
-};
 
 function sendUiEvent(channel: string, ...args: unknown[]): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -138,7 +138,7 @@ function openAboutWindow(): void {
     height: 420,
     minWidth: 520,
     minHeight: 360,
-    title: 'About Tapo Studio',
+    title: t('menu.about'),
     autoHideMenuBar: true,
     backgroundColor: '#0a1020',
     webPreferences: {
@@ -170,7 +170,7 @@ function openLicensesWindow(): void {
     height: 680,
     minWidth: 640,
     minHeight: 480,
-    title: 'Licenses and Credits',
+    title: t('menu.licensesAndCredits'),
     autoHideMenuBar: true,
     backgroundColor: '#0a1020',
     webPreferences: {
@@ -497,6 +497,7 @@ app.whenReady().then(async () => {
     // console.log('[main:streamManager] streamManager initialized successfully');
   } catch (err) {
     console.error('[main:streamManager] Failed to initialize streamManager:', err);
+    // TODO: show error dialog and abort launch
   }
 
   const testFixtures = loadTestFixtures();

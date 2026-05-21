@@ -57,6 +57,9 @@ const STDERR_HISTORY_LIMIT = 24;
 const MIN_PLAYBACK_FILE_BYTES = 512_000;
 const RECORDINGS_DIR = path.join(os.tmpdir(), 'vigilatus-recordings');
 const RECORDING_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+const LIVE_HLS_SEGMENT_SECONDS = 1;
+const LIVE_HLS_PLAYLIST_SIZE = 3;
+const LIVE_AUDIO_FILTER = 'aresample=async=1:first_pts=0';
 
 function isExpectedStopError(cameraId: string, err: Error): boolean {
   const message = String(err?.message ?? '');
@@ -456,28 +459,47 @@ async function attemptHttpStream(
       '-c:v',
       'libx264',
       '-preset',
-      'ultrafast',
+      'veryfast',
       '-tune',
       'zerolatency',
       '-pix_fmt',
       'yuv420p',
-      '-g',
-      '50',
+      '-force_key_frames',
+      `expr:gte(t,n_forced*${LIVE_HLS_SEGMENT_SECONDS})`,
       '-sc_threshold',
       '0',
     );
 
     if (audioCodec) {
-      ffmpegArgs.push('-map', '1:a:0', '-c:a', 'aac', '-b:a', '128k');
+      ffmpegArgs.push(
+        '-map',
+        '1:a:0',
+        '-af',
+        LIVE_AUDIO_FILTER,
+        '-c:a',
+        'aac',
+        '-ac',
+        '1',
+        '-ar',
+        '44100',
+        '-b:a',
+        '128k',
+      );
     }
 
     ffmpegArgs.push(
+      '-max_interleave_delta',
+      '0',
+      '-muxpreload',
+      '0',
+      '-muxdelay',
+      '0',
       '-f',
       'hls',
       '-hls_time',
-      '2',
+      String(LIVE_HLS_SEGMENT_SECONDS),
       '-hls_list_size',
-      '5',
+      String(LIVE_HLS_PLAYLIST_SIZE),
       '-hls_flags',
       'delete_segments+append_list+independent_segments',
       '-hls_segment_filename',
@@ -979,29 +1001,37 @@ function createHlsCommand(
       '-c:v',
       'libx264',
       '-preset',
-      'ultrafast',
+      'veryfast',
       '-tune',
       'zerolatency',
       '-pix_fmt',
       'yuv420p',
-      '-g',
-      '50',
+      '-force_key_frames',
+      `expr:gte(t,n_forced*${LIVE_HLS_SEGMENT_SECONDS})`,
       '-sc_threshold',
       '0',
       '-c:a',
       'aac',
+      '-af',
+      LIVE_AUDIO_FILTER,
       '-ac',
       '1',
       '-ar',
       '44100',
       '-b:a',
       '128k',
+      '-max_interleave_delta',
+      '0',
+      '-muxpreload',
+      '0',
+      '-muxdelay',
+      '0',
       '-f',
       'hls',
       '-hls_time',
-      '2',
+      String(LIVE_HLS_SEGMENT_SECONDS),
       '-hls_list_size',
-      '5',
+      String(LIVE_HLS_PLAYLIST_SIZE),
       '-hls_flags',
       'delete_segments+append_list+independent_segments',
       '-hls_segment_filename',
