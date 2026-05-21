@@ -24,6 +24,11 @@ const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const shouldOpenDevTools = process.env.VIGILATUS_OPEN_DEVTOOLS === '1' || !isDevelopment;
 const projectGithubUrl = 'https://github.com/phit/tapo-studio';
 const automationUserDataDir = process.env.VIGILATUS_USER_DATA_DIR?.trim();
+const windowsAppUserModelId = 'link.phit.vigilatus';
+
+if (process.platform === 'win32') {
+  app.setAppUserModelId(windowsAppUserModelId);
+}
 
 const uiDisplayState = {
   previews: true,
