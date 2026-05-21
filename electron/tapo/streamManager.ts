@@ -132,6 +132,7 @@ export async function init(): Promise<void> {
 export function cleanup(): void {
   for (const id of streams.keys()) stopStream(id);
   server?.close();
+  server?.closeAllConnections();
   // Remove ephemeral temp dirs (recordings cache is intentionally kept)
   for (const dir of [HLS_DIR, SNAP_DIR, PLAYBACK_DIR]) {
     try {
@@ -1340,6 +1341,7 @@ function startServer(): Promise<number> {
 
     server.on('error', reject);
     server.listen(0, '127.0.0.1', () => {
+      server!.unref();
       hlsPort = (server!.address() as AddressInfo).port;
       resolve(hlsPort);
     });

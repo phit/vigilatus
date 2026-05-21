@@ -40,8 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest]
-        # TODO: re-enable ubuntu-latest once E2E timeouts are resolved
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -49,14 +48,6 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Install Electron system deps (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb dbus-x11 libgtk-3-0t64 libnotify4 \
-            libnss3 libxss1 libasound2t64 libgbm1 libatk-bridge2.0-0 \
-            libdrm2 libatspi2.0-0 libxshmfence1 libx11-xcb1 libxcomposite1 \
-            libxdamage1 libxrandr2 libcups2 libpango-1.0-0 libcairo2
       - run: npm run build
       - name: Run E2E tests
         run: ${{ matrix.os == 'ubuntu-latest' && 'xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" dbus-run-session --' || '' }} npx playwright test

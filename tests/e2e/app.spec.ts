@@ -66,7 +66,7 @@ async function launchElectronApp(options: { fixtures: TestFixtures; cameras?: Ca
 }
 
 test('launches the real app and creates a camera through the UI', async () => {
-  const { app, window, userDataDir } = await launchElectronApp({ fixtures: { streams: {} } });
+  const { app, window, userDataDir } = await launchElectronApp({ fixtures: { streams: {}, snapshots: {} } });
 
   try {
     const runtimeInfo = await window.evaluate(() => window.vigilatus.diagnostics.getRuntimeInfo());
@@ -123,6 +123,7 @@ test('drives the timeline into playback using mocked recordings', async () => {
   ];
   const fixtures: TestFixtures = {
     streams: { [cameraId]: null },
+    snapshots: {},
     recordings: {
       [cameraId]: [
         {
