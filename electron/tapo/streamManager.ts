@@ -36,6 +36,10 @@ const PLAYBACK_DIR = path.join(os.tmpdir(), 'vigilatus-playback');
 interface StreamEntry {
   proc: ffmpeg.FfmpegCommand | null;
   hlsUrl: string;
+  playlistPath: string;
+  kind: 'live' | 'playback';
+  readyResolved: boolean;
+  lastHlsActivityAt: number;
   ready: Promise<string>;
   /** HTTP Media Session resources (non-RTSP streams) */
   httpSession?: MediaSession;
@@ -49,6 +53,7 @@ const snapshotLocks = new Map<string, Promise<string | null>>();
 const activePlaybackAssets = new Map<string, Promise<unknown>>();
 let server: http.Server | null = null;
 let hlsPort = 0;
+let streamWatchdogTimer: NodeJS.Timeout | null = null;
 
 let onStreamDiedCallback: ((cameraId: string) => void) | null = null;
 
@@ -67,6 +72,9 @@ const RECORDING_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 const LIVE_HLS_SEGMENT_SECONDS = 1;
 const LIVE_HLS_PLAYLIST_SIZE = 3;
 const LIVE_AUDIO_FILTER = 'aresample=async=1:first_pts=0';
+const STREAM_WATCHDOG_INTERVAL_MS = 5_000;
+const LIVE_STREAM_STALL_TIMEOUT_MS = 20_000;
+const EXPECTED_STOP_CLEAR_DELAY_MS = 5_000;
 
 function isExpectedStopError(cameraId: string, err: Error): boolean {
   const message = String(err?.message ?? '');
@@ -137,10 +145,15 @@ export async function init(): Promise<void> {
   fs.mkdirSync(PLAYBACK_DIR, { recursive: true });
 
   hlsPort = await startServer();
+  startStreamWatchdog();
 }
 
 export function cleanup(): void {
   for (const id of streams.keys()) stopStream(id);
+  if (streamWatchdogTimer) {
+    clearInterval(streamWatchdogTimer);
+    streamWatchdogTimer = null;
+  }
   server?.close();
   server?.closeAllConnections();
   // Remove ephemeral temp dirs (recordings cache is intentionally kept)
@@ -189,11 +202,12 @@ export function startStream(cameraId: string, cfg: CameraConfig): Promise<string
 function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
   const segDir = path.join(HLS_DIR, cameraId);
   fs.mkdirSync(segDir, { recursive: true });
-  const m3u8 = path.join(segDir, 'stream.m3u8');
-  const hlsUrl = `http://127.0.0.1:${hlsPort}/${cameraId}/stream.m3u8`;
+  const sessionToken = createHlsSessionToken();
+  const m3u8 = path.join(segDir, `stream-${sessionToken}.m3u8`);
+  const hlsUrl = `http://127.0.0.1:${hlsPort}/${cameraId}/stream-${sessionToken}.m3u8`;
   const rtsp = buildRtspUrl(cfg, 'main');
   const stderrLines: string[] = [];
-  const proc = createHlsCommand(rtsp, segDir, m3u8);
+  const proc = createHlsCommand(rtsp, segDir, m3u8, undefined, sessionToken);
 
   const ready = waitForHlsReady(m3u8, STREAM_READY_TIMEOUT_MS, stderrLines);
 
@@ -243,6 +257,7 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
 
     void ready
       .then(() => {
+        markStreamReady(cameraId, m3u8);
         if (!settled) {
           settled = true;
           resolve(hlsUrl);
@@ -262,15 +277,24 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
       });
   });
 
-  streams.set(cameraId, { proc, hlsUrl, ready: streamReady });
+  streams.set(cameraId, {
+    proc,
+    hlsUrl,
+    playlistPath: m3u8,
+    kind: 'live',
+    readyResolved: false,
+    lastHlsActivityAt: Date.now(),
+    ready: streamReady,
+  });
   return streamReady;
 }
 
 function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<string> {
   const segDir = path.join(HLS_DIR, cameraId);
   fs.mkdirSync(segDir, { recursive: true });
-  const m3u8 = path.join(segDir, 'stream.m3u8');
-  const hlsUrl = `http://127.0.0.1:${hlsPort}/${cameraId}/stream.m3u8`;
+  const sessionToken = createHlsSessionToken();
+  const m3u8 = path.join(segDir, `stream-${sessionToken}.m3u8`);
+  const hlsUrl = `http://127.0.0.1:${hlsPort}/${cameraId}/stream-${sessionToken}.m3u8`;
 
   const streamReady = (async () => {
     // Use previously discovered hash method first, then try both
@@ -283,7 +307,15 @@ function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<string> {
       console.info(`[stream:${cameraId}] trying HTTP media session with ${method} password hash...`);
 
       try {
-        const url = await attemptHttpStream(cameraId, cfg, hashedPassword, segDir, m3u8, hlsUrl);
+        const url = await attemptHttpStream(
+          cameraId,
+          cfg,
+          hashedPassword,
+          segDir,
+          m3u8,
+          hlsUrl,
+          sessionToken,
+        );
         // Persist the working hash method so we skip the wrong one next time
         if (cfg.httpHashMethod !== method) {
           configStore.updateCamera(cameraId, { httpHashMethod: method });
@@ -305,7 +337,15 @@ function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<string> {
       console.info(`[stream:${cameraId}] retrying HTTP media session with ${fallback} password hash...`);
 
       try {
-        const url = await attemptHttpStream(cameraId, cfg, hashedPassword, segDir, m3u8, hlsUrl);
+        const url = await attemptHttpStream(
+          cameraId,
+          cfg,
+          hashedPassword,
+          segDir,
+          m3u8,
+          hlsUrl,
+          sessionToken,
+        );
         configStore.updateCamera(cameraId, { httpHashMethod: fallback });
         return url;
       } catch (err) {
@@ -320,7 +360,15 @@ function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<string> {
     throw lastError ?? new Error('HTTP media session stream failed');
   })();
 
-  streams.set(cameraId, { proc: null, hlsUrl, ready: streamReady });
+  streams.set(cameraId, {
+    proc: null,
+    hlsUrl,
+    playlistPath: m3u8,
+    kind: 'live',
+    readyResolved: false,
+    lastHlsActivityAt: Date.now(),
+    ready: streamReady,
+  });
   return streamReady;
 }
 
@@ -331,6 +379,7 @@ async function attemptHttpStream(
   segDir: string,
   m3u8: string,
   hlsUrl: string,
+  sessionToken: string,
 ): Promise<string> {
   let session: MediaSession | null = null;
   let ffmpegProc: ChildProcess | null = null;
@@ -516,11 +565,9 @@ async function attemptHttpStream(
       '-hls_list_size',
       String(LIVE_HLS_PLAYLIST_SIZE),
       '-hls_flags',
-      'delete_segments+append_list+independent_segments',
+      'delete_segments+independent_segments',
       '-hls_segment_filename',
-      path.join(segDir, 'segment-%03d.ts'),
-      '-start_number',
-      '0',
+      path.join(segDir, `segment-${sessionToken}-%03d.ts`),
       m3u8,
     );
 
@@ -541,6 +588,10 @@ async function attemptHttpStream(
     const entry: StreamEntry = {
       proc: null,
       hlsUrl,
+      playlistPath: m3u8,
+      kind: 'live',
+      readyResolved: false,
+      lastHlsActivityAt: Date.now(),
       ready: Promise.resolve(hlsUrl),
       httpSession: session,
       httpFfmpeg: ffmpegProc,
@@ -593,6 +644,7 @@ async function attemptHttpStream(
     });
 
     await Promise.race([waitForHlsReady(m3u8, HTTP_STREAM_READY_TIMEOUT_MS, stderrLines), noDataTimeout]);
+    markStreamReady(cameraId, m3u8);
     console.info(`[stream:${cameraId}] HTTP stream ready, received ${totalChunks} chunks so far`);
     return hlsUrl;
   } catch (err) {
@@ -605,6 +657,9 @@ export function stopStream(cameraId: string): void {
   const entry = streams.get(cameraId);
   if (!entry) return;
   expectedStops.add(cameraId);
+  setTimeout(() => {
+    expectedStops.delete(cameraId);
+  }, EXPECTED_STOP_CLEAR_DELAY_MS);
 
   // Stop HTTP Media Session resources if present
   if (entry.httpFfmpeg && !entry.httpFfmpeg.killed) {
@@ -678,11 +733,12 @@ export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: 
 
   const segDir = path.join(HLS_DIR, cameraId);
   fs.mkdirSync(segDir, { recursive: true });
-  const m3u8 = path.join(segDir, 'stream.m3u8');
-  const hlsUrl = `http://127.0.0.1:${hlsPort}/${cameraId}/stream.m3u8`;
+  const sessionToken = createHlsSessionToken();
+  const m3u8 = path.join(segDir, `stream-${sessionToken}.m3u8`);
+  const hlsUrl = `http://127.0.0.1:${hlsPort}/${cameraId}/stream-${sessionToken}.m3u8`;
   const rtsp = buildRtspUrl(cfg, 'main');
   const stderrLines: string[] = [];
-  const proc = createHlsCommand(rtsp, segDir, m3u8, seekSeconds);
+  const proc = createHlsCommand(rtsp, segDir, m3u8, seekSeconds, sessionToken);
 
   const ready = waitForHlsReady(m3u8, STREAM_READY_TIMEOUT_MS, stderrLines);
 
@@ -726,6 +782,7 @@ export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: 
 
     void ready
       .then(() => {
+        markStreamReady(cameraId, m3u8);
         if (!settled) {
           settled = true;
           resolve(hlsUrl);
@@ -745,7 +802,15 @@ export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: 
       });
   });
 
-  streams.set(cameraId, { proc, hlsUrl, ready: streamReady });
+  streams.set(cameraId, {
+    proc,
+    hlsUrl,
+    playlistPath: m3u8,
+    kind: 'playback',
+    readyResolved: false,
+    lastHlsActivityAt: Date.now(),
+    ready: streamReady,
+  });
   return streamReady;
 }
 
@@ -771,8 +836,7 @@ async function snapshotFromHls(cameraId: string): Promise<string | null> {
   const entry = streams.get(cameraId);
   if (!entry) return null;
 
-  const segDir = path.join(HLS_DIR, cameraId);
-  const m3u8 = path.join(segDir, 'stream.m3u8');
+  const m3u8 = entry.playlistPath;
   if (!fs.existsSync(m3u8)) return null;
 
   const outFile = path.join(SNAP_DIR, `${cameraId}.jpg`);
@@ -995,6 +1059,7 @@ function createHlsCommand(
   segDir: string,
   m3u8Path: string,
   seekSeconds?: number,
+  sessionToken?: string,
 ): ffmpeg.FfmpegCommand {
   const command = ffmpeg(rtspUrl).inputOptions([
     '-rtsp_transport',
@@ -1050,13 +1115,82 @@ function createHlsCommand(
       '-hls_list_size',
       String(LIVE_HLS_PLAYLIST_SIZE),
       '-hls_flags',
-      'delete_segments+append_list+independent_segments',
+      'delete_segments+independent_segments',
       '-hls_segment_filename',
-      path.join(segDir, 'segment-%03d.ts'),
-      '-start_number',
-      '0',
+      path.join(segDir, `segment-${sessionToken ?? 'live'}-%03d.ts`),
     ])
     .save(m3u8Path);
+}
+
+function createHlsSessionToken(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function startStreamWatchdog(): void {
+  if (streamWatchdogTimer) return;
+  streamWatchdogTimer = setInterval(() => {
+    checkLiveStreamsForStall();
+  }, STREAM_WATCHDOG_INTERVAL_MS);
+}
+
+function markStreamReady(cameraId: string, playlistPath: string): void {
+  const entry = streams.get(cameraId);
+  if (!entry || entry.playlistPath !== playlistPath) return;
+  entry.readyResolved = true;
+  entry.lastHlsActivityAt = getLatestHlsActivityAt(entry) ?? Date.now();
+}
+
+function checkLiveStreamsForStall(): void {
+  const now = Date.now();
+  for (const [cameraId, entry] of streams.entries()) {
+    if (entry.kind !== 'live' || !entry.readyResolved) {
+      continue;
+    }
+
+    const latestActivityAt = getLatestHlsActivityAt(entry);
+    if (latestActivityAt && latestActivityAt > entry.lastHlsActivityAt) {
+      entry.lastHlsActivityAt = latestActivityAt;
+    }
+
+    if (now - entry.lastHlsActivityAt < LIVE_STREAM_STALL_TIMEOUT_MS) {
+      continue;
+    }
+
+    const secondsStalled = Math.round((now - entry.lastHlsActivityAt) / 1000);
+    console.error(
+      `[stream:${cameraId}] watchdog detected stalled live HLS output; no playlist/segment updates for ${secondsStalled}s`,
+    );
+    failLiveStream(cameraId, `watchdog stall after ${secondsStalled}s without HLS updates`);
+  }
+}
+
+function getLatestHlsActivityAt(entry: StreamEntry): number | null {
+  try {
+    if (!fs.existsSync(entry.playlistPath)) {
+      return null;
+    }
+
+    let latestMtimeMs = fs.statSync(entry.playlistPath).mtimeMs;
+    const playlist = fs.readFileSync(entry.playlistPath, 'utf8');
+    for (const line of playlist.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const segmentPath = path.resolve(path.dirname(entry.playlistPath), trimmed);
+      if (!fs.existsSync(segmentPath)) continue;
+      latestMtimeMs = Math.max(latestMtimeMs, fs.statSync(segmentPath).mtimeMs);
+    }
+
+    return latestMtimeMs;
+  } catch {
+    return null;
+  }
+}
+
+function failLiveStream(cameraId: string, reason: string): void {
+  if (!streams.has(cameraId)) return;
+  console.error(`[stream:${cameraId}] marking live stream as dead: ${reason}`);
+  stopStream(cameraId);
+  onStreamDiedCallback?.(cameraId);
 }
 
 function attachFfmpegStderr(proc: ffmpeg.FfmpegCommand, stderrLines: string[]): void {
@@ -1349,7 +1483,9 @@ function startServer(): Promise<number> {
                 'Content-Length': length,
                 'Content-Range': `bytes ${start}-${rangeEnd}/${fileSize}`,
                 'Access-Control-Allow-Origin': '*',
-                'Cache-Control': 'no-cache',
+                'Cache-Control': 'no-store, no-cache, must-revalidate',
+                Pragma: 'no-cache',
+                Expires: '0',
                 'Accept-Ranges': 'bytes',
               });
 
@@ -1375,7 +1511,9 @@ function startServer(): Promise<number> {
               'Content-Type': mime,
               'Content-Length': data.length,
               'Access-Control-Allow-Origin': '*',
-              'Cache-Control': 'no-cache',
+              'Cache-Control': 'no-store, no-cache, must-revalidate',
+              Pragma: 'no-cache',
+              Expires: '0',
               'Accept-Ranges': 'bytes',
             });
             res.end(data);
