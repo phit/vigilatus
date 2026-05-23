@@ -13,6 +13,7 @@ import {
 } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
+import util from 'node:util';
 import { mainBindings, clearMainBindings } from 'i18next-electron-fs-backend';
 import * as configStore from './config/store';
 import * as streamManager from './tapo/streamManager';
@@ -75,21 +76,40 @@ function setupLogging(): void {
   try {
     logPath = path.join(app.getPath('userData'), 'vigilatus.log');
     const logStream = fs.createWriteStream(logPath, { flags: 'a' });
-    const originalLog = console.log;
-    const originalError = console.error;
     const timestamp = () => new Date().toISOString();
 
-    console.log = (...args: unknown[]) => {
-      const msg = `[${timestamp()}] ${args.join(' ')}\n`;
-      logStream.write(msg);
-      originalLog(...args);
+    const formatArgs = (args: unknown[]) =>
+      args
+        .map((arg) =>
+          typeof arg === 'string'
+            ? arg
+            : util.inspect(arg, {
+                depth: 6,
+                breakLength: Infinity,
+                maxArrayLength: 50,
+                colors: false,
+              }),
+        )
+        .join(' ');
+
+    const patchConsoleMethod = (
+      method: 'log' | 'info' | 'warn' | 'error' | 'debug',
+      levelLabel?: string,
+    ): void => {
+      const original = console[method].bind(console);
+      console[method] = (...args: unknown[]) => {
+        const prefix = `[${timestamp()}]${levelLabel ? ` ${levelLabel}:` : ''}`;
+        const rendered = formatArgs(args);
+        logStream.write(`${prefix}${rendered ? ` ${rendered}` : ''}\n`);
+        original(prefix, ...args);
+      };
     };
 
-    console.error = (...args: unknown[]) => {
-      const msg = `[${timestamp()}] ERROR: ${args.join(' ')}\n`;
-      logStream.write(msg);
-      originalError(...args);
-    };
+    patchConsoleMethod('log');
+    patchConsoleMethod('info', 'INFO');
+    patchConsoleMethod('warn', 'WARN');
+    patchConsoleMethod('error', 'ERROR');
+    patchConsoleMethod('debug', 'DEBUG');
 
     console.log('=== Vigilatus Started ===');
     console.log('isDevelopment:', isDevelopment);
