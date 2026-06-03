@@ -241,9 +241,8 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
       if (!settled) {
         settled = true;
         reject(new Error(message));
-      } else {
-        onStreamDiedCallback?.(cameraId);
       }
+      onStreamDiedCallback?.(cameraId);
     });
 
     proc.on('end', () => {
@@ -273,6 +272,7 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
         if (!settled) {
           settled = true;
           reject(err);
+          onStreamDiedCallback?.(cameraId);
         }
       });
   });
