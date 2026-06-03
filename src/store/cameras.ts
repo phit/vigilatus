@@ -445,12 +445,19 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
         time,
         clip.startTime,
       );
-      set((s) => ({
-        cameras: s.cameras.map((c) =>
+      // Discard result if the user navigated away (clicked Live or a different clip)
+      // while this long-running download was in flight.
+      const s = get();
+      if (s.playbackMode !== 'playback' || s.playbackStartTime !== requestedStartTime) return;
+      set((st) => ({
+        cameras: st.cameras.map((c) =>
           c.config.id === selectedId ? { ...c, hlsUrl: playbackUrl, status: 'live' } : c,
         ),
       }));
     } catch (e) {
+      // Discard error if the user navigated away while this was in flight.
+      const s = get();
+      if (s.playbackMode !== 'playback' || s.playbackStartTime !== requestedStartTime) return;
       const msg = (e as Error).message;
       get().setStatus(selectedId, 'error', msg || 'Failed to start recording playback');
       set({ playbackMode: 'live', playbackTime: null, playbackStartTime: null });
