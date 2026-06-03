@@ -18,6 +18,7 @@ import { mainBindings, clearMainBindings } from 'i18next-electron-fs-backend';
 import * as configStore from './config/store';
 import * as streamManager from './tapo/streamManager';
 import { registerHandlers } from './ipc/handlers';
+import { IPC } from './ipc/channels';
 import { loadTestFixtures } from './testing/fixtures';
 import { t, setLanguage } from './i18n';
 import { initAutoUpdater, checkForUpdates } from './autoUpdater';
@@ -126,12 +127,12 @@ function sendUiEvent(channel: string, ...args: unknown[]): void {
 }
 
 function applyUiDisplayStateToRenderer(): void {
-  sendUiEvent('ui:setPreviewsVisible', uiDisplayState.previews);
-  sendUiEvent('ui:setTimelineVisible', uiDisplayState.timeline);
-  sendUiEvent('ui:setHeaderVisible', uiDisplayState.header);
-  sendUiEvent('ui:setPreviewPosition', uiDisplayState.previewPosition);
-  sendUiEvent('ui:setLanguage', uiDisplayState.language);
-  sendUiEvent('ui:setVolume', uiDisplayState.volume);
+  sendUiEvent(IPC.ui.setPreviewsVisible, uiDisplayState.previews);
+  sendUiEvent(IPC.ui.setTimelineVisible, uiDisplayState.timeline);
+  sendUiEvent(IPC.ui.setHeaderVisible, uiDisplayState.header);
+  sendUiEvent(IPC.ui.setPreviewPosition, uiDisplayState.previewPosition);
+  sendUiEvent(IPC.ui.setLanguage, uiDisplayState.language);
+  sendUiEvent(IPC.ui.setVolume, uiDisplayState.volume);
 }
 
 function wireExternalLinks(win: BrowserWindow): void {
@@ -300,7 +301,7 @@ function setApplicationMenu(): void {
   const appSubmenu: MenuItemConstructorOptions[] = [
     {
       label: t('menu.addCamera'),
-      click: () => sendUiEvent('ui:openAddCamera'),
+      click: () => sendUiEvent(IPC.ui.openAddCamera),
     },
     { type: 'separator' },
     {
@@ -319,7 +320,7 @@ function setApplicationMenu(): void {
       click: (menuItem) => {
         uiDisplayState.previews = menuItem.checked;
         configStore.setUiDisplayPreferences({ previews: menuItem.checked });
-        sendUiEvent('ui:setPreviewsVisible', menuItem.checked);
+        sendUiEvent(IPC.ui.setPreviewsVisible, menuItem.checked);
       },
     },
     {
@@ -329,7 +330,7 @@ function setApplicationMenu(): void {
       click: (menuItem) => {
         uiDisplayState.timeline = menuItem.checked;
         configStore.setUiDisplayPreferences({ timeline: menuItem.checked });
-        sendUiEvent('ui:setTimelineVisible', menuItem.checked);
+        sendUiEvent(IPC.ui.setTimelineVisible, menuItem.checked);
       },
     },
     {
@@ -339,7 +340,7 @@ function setApplicationMenu(): void {
       click: (menuItem) => {
         uiDisplayState.header = menuItem.checked;
         configStore.setUiDisplayPreferences({ header: menuItem.checked });
-        sendUiEvent('ui:setHeaderVisible', menuItem.checked);
+        sendUiEvent(IPC.ui.setHeaderVisible, menuItem.checked);
       },
     },
     {
@@ -348,7 +349,7 @@ function setApplicationMenu(): void {
       checked: uiDisplayState.debugOverlay,
       click: (menuItem) => {
         uiDisplayState.debugOverlay = menuItem.checked;
-        sendUiEvent('ui:setDebugOverlayVisible', menuItem.checked);
+        sendUiEvent(IPC.ui.setDebugOverlayVisible, menuItem.checked);
       },
     },
     {
@@ -361,7 +362,7 @@ function setApplicationMenu(): void {
           click: () => {
             uiDisplayState.previewPosition = 'left';
             configStore.setUiDisplayPreferences({ previewPosition: 'left' });
-            sendUiEvent('ui:setPreviewPosition', 'left');
+            sendUiEvent(IPC.ui.setPreviewPosition, 'left');
           },
         },
         {
@@ -371,7 +372,7 @@ function setApplicationMenu(): void {
           click: () => {
             uiDisplayState.previewPosition = 'right';
             configStore.setUiDisplayPreferences({ previewPosition: 'right' });
-            sendUiEvent('ui:setPreviewPosition', 'right');
+            sendUiEvent(IPC.ui.setPreviewPosition, 'right');
           },
         },
         {
@@ -381,7 +382,7 @@ function setApplicationMenu(): void {
           click: () => {
             uiDisplayState.previewPosition = 'top';
             configStore.setUiDisplayPreferences({ previewPosition: 'top' });
-            sendUiEvent('ui:setPreviewPosition', 'top');
+            sendUiEvent(IPC.ui.setPreviewPosition, 'top');
           },
         },
         {
@@ -391,7 +392,7 @@ function setApplicationMenu(): void {
           click: () => {
             uiDisplayState.previewPosition = 'bottom';
             configStore.setUiDisplayPreferences({ previewPosition: 'bottom' });
-            sendUiEvent('ui:setPreviewPosition', 'bottom');
+            sendUiEvent(IPC.ui.setPreviewPosition, 'bottom');
           },
         },
       ],
@@ -407,7 +408,7 @@ function setApplicationMenu(): void {
           click: () => {
             uiDisplayState.language = 'system';
             configStore.setUiDisplayPreferences({ language: 'system' });
-            sendUiEvent('ui:setLanguage', 'system');
+            sendUiEvent(IPC.ui.setLanguage, 'system');
             setLanguage('system');
             setApplicationMenu();
           },
@@ -419,7 +420,7 @@ function setApplicationMenu(): void {
           click: () => {
             uiDisplayState.language = 'en';
             configStore.setUiDisplayPreferences({ language: 'en' });
-            sendUiEvent('ui:setLanguage', 'en');
+            sendUiEvent(IPC.ui.setLanguage, 'en');
             setLanguage('en');
             setApplicationMenu();
           },
@@ -431,7 +432,7 @@ function setApplicationMenu(): void {
           click: () => {
             uiDisplayState.language = 'de';
             configStore.setUiDisplayPreferences({ language: 'de' });
-            sendUiEvent('ui:setLanguage', 'de');
+            sendUiEvent(IPC.ui.setLanguage, 'de');
             setLanguage('de');
             setApplicationMenu();
           },
@@ -582,20 +583,20 @@ function createWindow(): void {
   mainWindow = win;
 }
 
-ipcMain.handle('diagnostics:getRuntimeInfo', () => ({
+ipcMain.handle(IPC.diagnostics.getRuntimeInfo, () => ({
   userData: app.getPath('userData'),
   logPath,
   isDevelopment,
   isPackaged: app.isPackaged,
 }));
 
-ipcMain.on('ui:saveVolume', (_e, volume: number) => {
+ipcMain.on(IPC.ui.saveVolume, (_e, volume: number) => {
   uiDisplayState.volume = volume;
   configStore.setUiDisplayPreferences({ volume });
 });
 
 ipcMain.handle(
-  'ui:showCameraContextMenu',
+  IPC.ui.showCameraContextMenu,
   (_e, isFirst: boolean, isLast: boolean): Promise<string | null> => {
     const win = BrowserWindow.getFocusedWindow();
     if (!win) return Promise.resolve(null);
@@ -682,12 +683,12 @@ void app.whenReady().then(async () => {
   powerMonitor.on('resume', () => {
     console.log('[main:powerMonitor] System resumed from sleep, invalidating streams');
     streamManager.stopAllStreams();
-    sendUiEvent('streams:invalidated');
+    sendUiEvent(IPC.streams.invalidated);
   });
 
   streamManager.setOnStreamDied((cameraId) => {
     console.info(`[main] stream died for ${cameraId}, notifying renderer`);
-    sendUiEvent('stream:died', cameraId);
+    sendUiEvent(IPC.stream.died, cameraId);
   });
 
   app.on('activate', () => {

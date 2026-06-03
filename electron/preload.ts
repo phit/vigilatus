@@ -1,35 +1,43 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { preloadBindings } from 'i18next-electron-fs-backend';
-import type { CameraConfig, PreviewPosition, Recording, RecordingEvent, RuntimeInfo } from './types';
+import { IPC } from './ipc/channels';
+import type {
+  CameraConfig,
+  PreviewPosition,
+  Recording,
+  RecordingEvent,
+  RuntimeInfo,
+  VigilatusApi,
+} from './types';
 
-contextBridge.exposeInMainWorld('vigilatus', {
+const api: VigilatusApi = {
   i18nextElectronBackend: preloadBindings(ipcRenderer, process),
   cameras: {
-    getAll: (): Promise<CameraConfig[]> => ipcRenderer.invoke('cameras:getAll'),
-    add: (cfg: CameraConfig): Promise<void> => ipcRenderer.invoke('cameras:add', cfg),
+    getAll: (): Promise<CameraConfig[]> => ipcRenderer.invoke(IPC.cameras.getAll),
+    add: (cfg: CameraConfig): Promise<void> => ipcRenderer.invoke(IPC.cameras.add, cfg),
     update: (id: string, updates: Partial<CameraConfig>): Promise<void> =>
-      ipcRenderer.invoke('cameras:update', id, updates),
-    remove: (id: string): Promise<void> => ipcRenderer.invoke('cameras:remove', id),
+      ipcRenderer.invoke(IPC.cameras.update, id, updates),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke(IPC.cameras.remove, id),
     move: (id: string, direction: 'up' | 'down'): Promise<void> =>
-      ipcRenderer.invoke('cameras:move', id, direction),
+      ipcRenderer.invoke(IPC.cameras.move, id, direction),
     test: (
       cfg: Pick<CameraConfig, 'host' | 'username' | 'password'>,
-    ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('cameras:test', cfg),
+    ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke(IPC.cameras.test, cfg),
   },
   stream: {
-    start: (cameraId: string): Promise<string | null> => ipcRenderer.invoke('stream:start', cameraId),
-    stop: (cameraId: string): Promise<void> => ipcRenderer.invoke('stream:stop', cameraId),
+    start: (cameraId: string): Promise<string | null> => ipcRenderer.invoke(IPC.stream.start, cameraId),
+    stop: (cameraId: string): Promise<void> => ipcRenderer.invoke(IPC.stream.stop, cameraId),
     startPlayback: (cameraId: string, seekSeconds: number): Promise<string> =>
-      ipcRenderer.invoke('stream:playback', cameraId, seekSeconds),
+      ipcRenderer.invoke(IPC.stream.playback, cameraId, seekSeconds),
   },
   snapshot: {
-    get: (cameraId: string): Promise<string | null> => ipcRenderer.invoke('snapshot:get', cameraId),
+    get: (cameraId: string): Promise<string | null> => ipcRenderer.invoke(IPC.snapshot.get, cameraId),
   },
   recordings: {
     list: (cameraId: string, date: string): Promise<Recording[]> =>
-      ipcRenderer.invoke('recordings:list', cameraId, date),
+      ipcRenderer.invoke(IPC.recordings.list, cameraId, date),
     events: (cameraId: string, date: string): Promise<RecordingEvent[]> =>
-      ipcRenderer.invoke('recordings:events', cameraId, date),
+      ipcRenderer.invoke(IPC.recordings.events, cameraId, date),
     play: (
       cameraId: string,
       startTime: number,
@@ -37,68 +45,70 @@ contextBridge.exposeInMainWorld('vigilatus', {
       requestedTime: number,
       clipStartTime?: number,
     ): Promise<string> =>
-      ipcRenderer.invoke('recordings:play', cameraId, startTime, endTime, requestedTime, clipStartTime),
+      ipcRenderer.invoke(IPC.recordings.play, cameraId, startTime, endTime, requestedTime, clipStartTime),
   },
   diagnostics: {
-    getRuntimeInfo: (): Promise<RuntimeInfo> => ipcRenderer.invoke('diagnostics:getRuntimeInfo'),
+    getRuntimeInfo: (): Promise<RuntimeInfo> => ipcRenderer.invoke(IPC.diagnostics.getRuntimeInfo),
   },
   contextMenu: {
     showCameraMenu: (isFirst: boolean, isLast: boolean): Promise<string | null> =>
-      ipcRenderer.invoke('ui:showCameraContextMenu', isFirst, isLast),
+      ipcRenderer.invoke(IPC.ui.showCameraContextMenu, isFirst, isLast),
   },
   ui: {
     onOpenAddCamera: (callback: () => void): (() => void) => {
       const handler = () => callback();
-      ipcRenderer.on('ui:openAddCamera', handler);
-      return () => ipcRenderer.removeListener('ui:openAddCamera', handler);
+      ipcRenderer.on(IPC.ui.openAddCamera, handler);
+      return () => ipcRenderer.removeListener(IPC.ui.openAddCamera, handler);
     },
     onSetPreviewsVisible: (callback: (visible: boolean) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, visible: boolean) => callback(visible);
-      ipcRenderer.on('ui:setPreviewsVisible', handler);
-      return () => ipcRenderer.removeListener('ui:setPreviewsVisible', handler);
+      ipcRenderer.on(IPC.ui.setPreviewsVisible, handler);
+      return () => ipcRenderer.removeListener(IPC.ui.setPreviewsVisible, handler);
     },
     onSetTimelineVisible: (callback: (visible: boolean) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, visible: boolean) => callback(visible);
-      ipcRenderer.on('ui:setTimelineVisible', handler);
-      return () => ipcRenderer.removeListener('ui:setTimelineVisible', handler);
+      ipcRenderer.on(IPC.ui.setTimelineVisible, handler);
+      return () => ipcRenderer.removeListener(IPC.ui.setTimelineVisible, handler);
     },
     onSetHeaderVisible: (callback: (visible: boolean) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, visible: boolean) => callback(visible);
-      ipcRenderer.on('ui:setHeaderVisible', handler);
-      return () => ipcRenderer.removeListener('ui:setHeaderVisible', handler);
+      ipcRenderer.on(IPC.ui.setHeaderVisible, handler);
+      return () => ipcRenderer.removeListener(IPC.ui.setHeaderVisible, handler);
     },
     onSetDebugOverlayVisible: (callback: (visible: boolean) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, visible: boolean) => callback(visible);
-      ipcRenderer.on('ui:setDebugOverlayVisible', handler);
-      return () => ipcRenderer.removeListener('ui:setDebugOverlayVisible', handler);
+      ipcRenderer.on(IPC.ui.setDebugOverlayVisible, handler);
+      return () => ipcRenderer.removeListener(IPC.ui.setDebugOverlayVisible, handler);
     },
     onSetPreviewPosition: (callback: (position: PreviewPosition) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, position: PreviewPosition) => callback(position);
-      ipcRenderer.on('ui:setPreviewPosition', handler);
-      return () => ipcRenderer.removeListener('ui:setPreviewPosition', handler);
+      ipcRenderer.on(IPC.ui.setPreviewPosition, handler);
+      return () => ipcRenderer.removeListener(IPC.ui.setPreviewPosition, handler);
     },
     onStreamsInvalidated: (callback: () => void): (() => void) => {
       const handler = () => callback();
-      ipcRenderer.on('streams:invalidated', handler);
-      return () => ipcRenderer.removeListener('streams:invalidated', handler);
+      ipcRenderer.on(IPC.streams.invalidated, handler);
+      return () => ipcRenderer.removeListener(IPC.streams.invalidated, handler);
     },
     onStreamDied: (callback: (cameraId: string) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, cameraId: string) => callback(cameraId);
-      ipcRenderer.on('stream:died', handler);
-      return () => ipcRenderer.removeListener('stream:died', handler);
+      ipcRenderer.on(IPC.stream.died, handler);
+      return () => ipcRenderer.removeListener(IPC.stream.died, handler);
     },
     onSetLanguage: (callback: (language: string) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, language: string) => callback(language);
-      ipcRenderer.on('ui:setLanguage', handler);
-      return () => ipcRenderer.removeListener('ui:setLanguage', handler);
+      ipcRenderer.on(IPC.ui.setLanguage, handler);
+      return () => ipcRenderer.removeListener(IPC.ui.setLanguage, handler);
     },
     onSetVolume: (callback: (volume: number) => void): (() => void) => {
       const handler = (_event: Electron.IpcRendererEvent, volume: number) => callback(volume);
-      ipcRenderer.on('ui:setVolume', handler);
-      return () => ipcRenderer.removeListener('ui:setVolume', handler);
+      ipcRenderer.on(IPC.ui.setVolume, handler);
+      return () => ipcRenderer.removeListener(IPC.ui.setVolume, handler);
     },
     saveVolume: (volume: number): void => {
-      ipcRenderer.send('ui:saveVolume', volume);
+      ipcRenderer.send(IPC.ui.saveVolume, volume);
     },
   },
-});
+};
+
+contextBridge.exposeInMainWorld('vigilatus', api);

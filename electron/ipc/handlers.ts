@@ -7,6 +7,7 @@ import * as streamManager from '../tapo/streamManager';
 import { TapoClient } from '../tapo/client';
 import type { CameraConfig, Recording, RecordingEvent } from '../types';
 import type { TestFixtures } from '../testing/fixtures';
+import { IPC } from './channels';
 
 type ActiveRecordingPlaybackJob = {
   assetPath?: string;
@@ -87,13 +88,13 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
   // Camera config
   // ------------------------------------------------------------------
 
-  ipcMain.handle('cameras:getAll', () => configStore.getCameras());
+  ipcMain.handle(IPC.cameras.getAll, () => configStore.getCameras());
 
-  ipcMain.handle('cameras:add', (_e, cam: CameraConfig) => {
+  ipcMain.handle(IPC.cameras.add, (_e, cam: CameraConfig) => {
     configStore.addCamera(cam);
   });
 
-  ipcMain.handle('cameras:update', (_e, id: string, updates: Partial<CameraConfig>) => {
+  ipcMain.handle(IPC.cameras.update, (_e, id: string, updates: Partial<CameraConfig>) => {
     stopRecordingPlayback(id);
     recordingsCredentialCache.delete(id);
     recordingsClientCache.delete(id);
@@ -102,7 +103,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     configStore.updateCamera(id, updates);
   });
 
-  ipcMain.handle('cameras:remove', (_e, id: string) => {
+  ipcMain.handle(IPC.cameras.remove, (_e, id: string) => {
     streamManager.stopStream(id);
     stopRecordingPlayback(id);
     recordingsCredentialCache.delete(id);
@@ -112,11 +113,11 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     configStore.removeCamera(id);
   });
 
-  ipcMain.handle('cameras:move', (_e, id: string, direction: 'up' | 'down') => {
+  ipcMain.handle(IPC.cameras.move, (_e, id: string, direction: 'up' | 'down') => {
     configStore.moveCamera(id, direction);
   });
 
-  ipcMain.handle('cameras:test', (_e, cfg: Pick<CameraConfig, 'host' | 'username' | 'password'>) => {
+  ipcMain.handle(IPC.cameras.test, (_e, cfg: Pick<CameraConfig, 'host' | 'username' | 'password'>) => {
     const client = new TapoClient(cfg);
     return client.testConnection();
   });
@@ -125,7 +126,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
   // Streaming
   // ------------------------------------------------------------------
 
-  ipcMain.handle('stream:start', async (_e, cameraId: string) => {
+  ipcMain.handle(IPC.stream.start, async (_e, cameraId: string) => {
     if (testFixtures?.streams) {
       return testFixtures.streams[cameraId] ?? null;
     }
@@ -145,12 +146,12 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     }
   });
 
-  ipcMain.handle('stream:stop', (_e, cameraId: string) => {
+  ipcMain.handle(IPC.stream.stop, (_e, cameraId: string) => {
     stopRecordingPlayback(cameraId);
     streamManager.stopStream(cameraId);
   });
 
-  ipcMain.handle('stream:playback', (_e, cameraId: string, seekSeconds: number) => {
+  ipcMain.handle(IPC.stream.playback, (_e, cameraId: string, seekSeconds: number) => {
     const cam = configStore.getCameras().find((c) => c.id === cameraId);
     if (!cam) throw new Error(`Camera ${cameraId} not found`);
     return streamManager.startPlayback(cameraId, cam, seekSeconds);
@@ -160,7 +161,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
   // Snapshots
   // ------------------------------------------------------------------
 
-  ipcMain.handle('snapshot:get', (_e, cameraId: string) => {
+  ipcMain.handle(IPC.snapshot.get, (_e, cameraId: string) => {
     if (testFixtures?.snapshots) {
       return testFixtures.snapshots[cameraId] ?? null;
     }
@@ -173,7 +174,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
   // Recordings
   // ------------------------------------------------------------------
 
-  ipcMain.handle('recordings:list', async (_e, cameraId: string, date: string) => {
+  ipcMain.handle(IPC.recordings.list, async (_e, cameraId: string, date: string) => {
     if (testFixtures) {
       return testFixtures.recordings?.[cameraId] ?? [];
     }
@@ -200,7 +201,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
   });
 
   ipcMain.handle(
-    'recordings:events',
+    IPC.recordings.events,
     async (_e, cameraId: string, date: string): Promise<RecordingEvent[]> => {
       if (testFixtures) {
         return testFixtures.recordingEvents?.[cameraId] ?? [];
@@ -245,7 +246,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
   );
 
   ipcMain.handle(
-    'recordings:play',
+    IPC.recordings.play,
     async (
       _e,
       cameraId: string,
