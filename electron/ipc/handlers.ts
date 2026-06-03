@@ -462,24 +462,27 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
           throw lastError instanceof Error ? lastError : new Error('Failed to download recording clip');
         }
 
-        activeRecordingPlaybackJobs.set(cameraId, playbackJob);
-        if (playbackJob.assetPath) {
-          streamManager.registerActivePlaybackAsset(playbackJob.assetPath, playbackJob.completed);
+        // Capture into a const so the non-null narrowing survives into the
+        // deferred .finally() closure below (playbackJob is a mutable let).
+        const job = playbackJob;
+        activeRecordingPlaybackJobs.set(cameraId, job);
+        if (job.assetPath) {
+          streamManager.registerActivePlaybackAsset(job.assetPath, job.completed);
         }
-        void playbackJob.completed
+        void job.completed
           .catch(() => undefined)
           .finally(() => {
-            if (activeRecordingPlaybackJobs.get(cameraId) === playbackJob) {
+            if (activeRecordingPlaybackJobs.get(cameraId) === job) {
               activeRecordingPlaybackJobs.delete(cameraId);
             }
-            if (playbackJob.assetPath) {
-              streamManager.unregisterActivePlaybackAsset(playbackJob.assetPath);
+            if (job.assetPath) {
+              streamManager.unregisterActivePlaybackAsset(job.assetPath);
             }
           });
 
         const relativeAssetPath = path.relative(
           path.join(os.tmpdir(), 'vigilatus-playback'),
-          playbackJob.assetPath ?? '',
+          job.assetPath ?? '',
         );
         const url = streamManager.getPlaybackAssetUrl(relativeAssetPath);
         console.info(`[recordings:play:${cameraId}] returning URL=${url}`);
