@@ -10,6 +10,7 @@ declare global {
         add(cfg: CameraConfig): Promise<void>;
         update(id: string, updates: Partial<CameraConfig>): Promise<void>;
         remove(id: string): Promise<void>;
+        move(id: string, direction: 'up' | 'down'): Promise<void>;
         test(
           cfg: Pick<CameraConfig, 'host' | 'username' | 'password'>,
         ): Promise<{ success: boolean; error?: string }>;
@@ -37,7 +38,7 @@ declare global {
         getRuntimeInfo(): Promise<RuntimeInfo>;
       };
       contextMenu: {
-        showCameraMenu(): Promise<string | null>;
+        showCameraMenu(isFirst: boolean, isLast: boolean): Promise<string | null>;
       };
       ui: {
         onOpenAddCamera(callback: () => void): () => void;

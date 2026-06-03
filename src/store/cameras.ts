@@ -82,6 +82,7 @@ interface CamerasStore {
   addCamera(cfg: CameraConfig): Promise<void>;
   updateCamera(id: string, updates: Partial<CameraConfig>): Promise<void>;
   removeCamera(id: string): Promise<void>;
+  moveCamera(id: string, direction: 'up' | 'down'): Promise<void>;
 
   selectCamera(id: string): void;
   startStream(id: string): Promise<void>;
@@ -151,6 +152,11 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
       const selectedId = s.selectedId === id ? (cameras[0]?.config.id ?? null) : s.selectedId;
       return { cameras, selectedId };
     });
+  },
+
+  async moveCamera(id, direction) {
+    await window.vigilatus.cameras.move(id, direction);
+    await get().loadCameras();
   },
 
   // ------------------------------------------------------------------

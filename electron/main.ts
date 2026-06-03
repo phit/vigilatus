@@ -594,23 +594,29 @@ ipcMain.on('ui:saveVolume', (_e, volume: number) => {
   configStore.setUiDisplayPreferences({ volume });
 });
 
-ipcMain.handle('ui:showCameraContextMenu', (_e): Promise<string | null> => {
-  const win = BrowserWindow.getFocusedWindow();
-  if (!win) return Promise.resolve(null);
+ipcMain.handle(
+  'ui:showCameraContextMenu',
+  (_e, isFirst: boolean, isLast: boolean): Promise<string | null> => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (!win) return Promise.resolve(null);
 
-  return new Promise((resolve) => {
-    const menu = Menu.buildFromTemplate([
-      { label: t('contextMenu.edit'), click: () => resolve('edit') },
-      { type: 'separator' },
-      { label: t('contextMenu.remove'), click: () => resolve('remove') },
-    ]);
-    menu.once('menu-will-close', () => {
-      // Resolve null if nothing was clicked (menu dismissed)
-      setTimeout(() => resolve(null), 50);
+    return new Promise((resolve) => {
+      const menu = Menu.buildFromTemplate([
+        { label: t('contextMenu.moveUp'), enabled: !isFirst, click: () => resolve('moveUp') },
+        { label: t('contextMenu.moveDown'), enabled: !isLast, click: () => resolve('moveDown') },
+        { type: 'separator' },
+        { label: t('contextMenu.edit'), click: () => resolve('edit') },
+        { type: 'separator' },
+        { label: t('contextMenu.remove'), click: () => resolve('remove') },
+      ]);
+      menu.once('menu-will-close', () => {
+        // Resolve null if nothing was clicked (menu dismissed)
+        setTimeout(() => resolve(null), 50);
+      });
+      menu.popup({ window: win });
     });
-    menu.popup({ window: win });
-  });
-});
+  },
+);
 
 app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark';

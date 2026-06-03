@@ -93,7 +93,9 @@
   },
   "contextMenu": {
     "edit": "Edit",
-    "remove": "Remove"
+    "remove": "Remove",
+    "moveUp": "Move Up",
+    "moveDown": "Move Down"
   },
   "menu": {
     "app": "Vigilatus",

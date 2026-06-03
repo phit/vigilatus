@@ -109,6 +109,10 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     configStore.removeCamera(id);
   });
 
+  ipcMain.handle('cameras:move', (_e, id: string, direction: 'up' | 'down') => {
+    configStore.moveCamera(id, direction);
+  });
+
   ipcMain.handle('cameras:test', (_e, cfg: Pick<CameraConfig, 'host' | 'username' | 'password'>) => {
     const client = new TapoClient(cfg);
     return client.testConnection();

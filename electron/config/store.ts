@@ -123,6 +123,15 @@ export function removeCamera(id: string): void {
   save();
 }
 
+export function moveCamera(id: string, direction: 'up' | 'down'): void {
+  const idx = config.cameras.findIndex((c) => c.id === id);
+  if (idx === -1) return;
+  const swap = direction === 'up' ? idx - 1 : idx + 1;
+  if (swap < 0 || swap >= config.cameras.length) return;
+  [config.cameras[idx], config.cameras[swap]] = [config.cameras[swap], config.cameras[idx]];
+  save();
+}
+
 export function getUiDisplayPreferences(): {
   previews: boolean;
   timeline: boolean;

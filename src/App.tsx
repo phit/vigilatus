@@ -81,6 +81,7 @@ export function App() {
     addCamera,
     updateCamera,
     removeCamera,
+    moveCamera,
     selectCamera,
     startStream,
     stopStream,
@@ -277,15 +278,19 @@ export function App() {
         {/* Preview strip */}
         {showPreviews && cameras.length > 0 && (
           <aside className="preview-strip" data-testid="preview-strip">
-            {cameras.map((cam) => (
+            {cameras.map((cam, idx) => (
               <CameraPreview
                 key={cam.config.id}
                 camera={cam}
                 isSelected={cam.config.id === selectedId}
+                isFirst={idx === 0}
+                isLast={idx === cameras.length - 1}
                 playbackMode={playbackMode}
                 onSelect={() => selectCamera(cam.config.id)}
                 onEdit={() => openEdit(cam.config)}
                 onRemove={() => void handleRemove(cam.config.id)}
+                onMoveUp={() => void moveCamera(cam.config.id, 'up')}
+                onMoveDown={() => void moveCamera(cam.config.id, 'down')}
               />
             ))}
           </aside>

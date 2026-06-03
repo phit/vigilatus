@@ -5,16 +5,31 @@ import type { CameraState } from '../types';
 interface Props {
   camera: CameraState;
   isSelected: boolean;
+  isFirst: boolean;
+  isLast: boolean;
   playbackMode: 'live' | 'playback';
   onSelect(): void;
   onEdit(): void;
   onRemove(): void;
+  onMoveUp(): void;
+  onMoveDown(): void;
 }
 
 const REFRESH_BASE_MS = 20_000;
 const REFRESH_HTTP_BASE_MS = 120_000; // 2 minutes for battery-powered HTTP cameras
 
-export function CameraPreview({ camera, isSelected, playbackMode, onSelect, onEdit, onRemove }: Props) {
+export function CameraPreview({
+  camera,
+  isSelected,
+  isFirst,
+  isLast,
+  playbackMode,
+  onSelect,
+  onEdit,
+  onRemove,
+  onMoveUp,
+  onMoveDown,
+}: Props) {
   const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState<string | null>(camera.snapshotDataUrl ?? null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -62,8 +77,10 @@ export function CameraPreview({ camera, isSelected, playbackMode, onSelect, onEd
 
   const handleContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
-    const action = await window.vigilatus.contextMenu.showCameraMenu();
-    if (action === 'edit') onEdit();
+    const action = await window.vigilatus.contextMenu.showCameraMenu(isFirst, isLast);
+    if (action === 'moveUp') onMoveUp();
+    else if (action === 'moveDown') onMoveDown();
+    else if (action === 'edit') onEdit();
     else if (action === 'remove') onRemove();
   };
 

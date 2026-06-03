@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('vigilatus', {
     update: (id: string, updates: Partial<CameraConfig>): Promise<void> =>
       ipcRenderer.invoke('cameras:update', id, updates),
     remove: (id: string): Promise<void> => ipcRenderer.invoke('cameras:remove', id),
+    move: (id: string, direction: 'up' | 'down'): Promise<void> =>
+      ipcRenderer.invoke('cameras:move', id, direction),
     test: (
       cfg: Pick<CameraConfig, 'host' | 'username' | 'password'>,
     ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke('cameras:test', cfg),
@@ -41,7 +43,8 @@ contextBridge.exposeInMainWorld('vigilatus', {
     getRuntimeInfo: (): Promise<RuntimeInfo> => ipcRenderer.invoke('diagnostics:getRuntimeInfo'),
   },
   contextMenu: {
-    showCameraMenu: (): Promise<string | null> => ipcRenderer.invoke('ui:showCameraContextMenu'),
+    showCameraMenu: (isFirst: boolean, isLast: boolean): Promise<string | null> =>
+      ipcRenderer.invoke('ui:showCameraContextMenu', isFirst, isLast),
   },
   ui: {
     onOpenAddCamera: (callback: () => void): (() => void) => {
