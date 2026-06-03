@@ -191,6 +191,12 @@ body {
   display: flex;
   gap: 8px;
   z-index: 3;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.viewer:hover .viewer-controls {
+  opacity: 1;
 }
 
 .viewer-control-btn {
