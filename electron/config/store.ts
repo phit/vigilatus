@@ -1,8 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { CameraConfig } from '../types';
-
-type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';
+import type { CameraConfig, PreviewPosition } from '../types';
 
 interface WindowState {
   x?: number;

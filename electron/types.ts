@@ -4,27 +4,39 @@ export interface CameraConfig {
   id: string;
   name: string;
   host: string;
+  /** API auth username (default: admin) */
   username: string;
+  /** API auth password (TP-Link / device password) */
   password: string;
+  /** RTSP stream username — set via Camera Account in Tapo app */
   streamUser: string;
+  /** RTSP stream password — set via Camera Account in Tapo app */
   streamPassword: string;
+  /** Optional external RTSP source, e.g. an RTSP proxy that fans out the camera stream */
   rtspUrl?: string;
+  /** Optional basic auth username for the external RTSP source */
   rtspUsername?: string;
+  /** Optional basic auth password for the external RTSP source */
   rtspPassword?: string;
   model?: string;
+  /** Stream protocol: 'rtsp' (default) or 'http' (Tapo HTTP Media Session on port 8800) */
   streamProtocol?: 'rtsp' | 'http';
   /** Auto-detected password hash method for HTTP media session (md5 or sha256) */
   httpHashMethod?: 'md5' | 'sha256';
 }
 
 export interface Recording {
-  startTime: number; // unix ms
-  endTime: number; // unix ms
+  /** Unix ms */
+  startTime: number;
+  /** Unix ms */
+  endTime: number;
 }
 
 export interface RecordingEvent {
-  startTime: number; // unix ms
-  endTime: number; // unix ms
+  /** Unix ms */
+  startTime: number;
+  /** Unix ms */
+  endTime: number;
   alarmType?: number;
 }
 
