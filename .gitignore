@@ -1,6 +1,7 @@
 node_modules/
 dist/
 out/
+src/**/*.js
 .DS_Store
 *.log
 pytapo/
