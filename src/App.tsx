@@ -146,9 +146,9 @@ export function App() {
     const offSetLanguage = window.vigilatus.ui.onSetLanguage((language) => {
       if (language === 'system') {
         const detected = navigator.language.split('-')[0] || 'en';
-        i18n.changeLanguage(detected);
+        void i18n.changeLanguage(detected);
       } else {
-        i18n.changeLanguage(language);
+        void i18n.changeLanguage(language);
       }
     });
     const offSetVolume = window.vigilatus.ui.onSetVolume((volume) => {

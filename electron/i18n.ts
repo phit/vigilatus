@@ -6,7 +6,7 @@ const i18n = i18next.createInstance();
 
 const localesDir = path.join(__dirname, '..', '..', 'locales');
 
-i18n.init({
+void i18n.init({
   resources: {
     en: { translation: JSON.parse(fs.readFileSync(path.join(localesDir, 'en', 'translation.json'), 'utf8')) },
     de: { translation: JSON.parse(fs.readFileSync(path.join(localesDir, 'de', 'translation.json'), 'utf8')) },

@@ -503,12 +503,12 @@ function createWindow(): void {
   mainBindings(ipcMain, win, fs);
 
   if (isDevelopment && process.env.VITE_DEV_SERVER_URL) {
-    win.loadURL(process.env.VITE_DEV_SERVER_URL);
+    void win.loadURL(process.env.VITE_DEV_SERVER_URL);
     if (shouldOpenDevTools) {
       win.webContents.openDevTools({ mode: 'detach' });
     }
   } else {
-    win.loadFile(path.join(__dirname, '../renderer/index.html'));
+    void win.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
   win.webContents.on('did-finish-load', () => {
@@ -618,7 +618,7 @@ ipcMain.handle(
   },
 );
 
-app.whenReady().then(async () => {
+void app.whenReady().then(async () => {
   nativeTheme.themeSource = 'dark';
 
   // Content Security Policy (relaxed in dev for Vite HMR inline scripts)

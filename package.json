@@ -1,6 +1,6 @@
 {
   "name": "vigilatus",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "private": true,
   "description": "Cross-platform desktop app for viewing Tapo cameras and local recordings.",
   "author": "phit",
@@ -24,7 +24,9 @@
     "probe:recordings": "npm run build --silent && node dist/electron/tools/recordingsProbe.js",
     "probe:playback": "npm run build --silent && node dist/electron/tools/playbackProbe.js",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "dependencies": {
     "date-fns": "^4.2.1",
@@ -42,6 +44,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.53.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
@@ -54,9 +57,14 @@
     "cross-env": "^10.1.0",
     "electron": "^42.1.0",
     "electron-builder": "^26.8.1",
+    "eslint": "^10.4.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.6.0",
     "jsdom": "^29.1.1",
     "prettier": "^3.8.3",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.60.1",
     "vite": "^8.0.13",
     "vitest": "^4.1.6",
     "wait-on": "^9.0.10"
