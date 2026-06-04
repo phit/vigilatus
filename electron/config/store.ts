@@ -44,11 +44,48 @@ const defaultWindowState: WindowState = {
 };
 
 let configPath = '';
-let config: Config = {
-  cameras: [],
-  uiDisplay: { ...DEFAULT_UI_DISPLAY },
-  windowState: defaultWindowState,
-};
+
+function createDefaultConfig(): Config {
+  return {
+    cameras: [],
+    uiDisplay: { ...DEFAULT_UI_DISPLAY },
+    windowState: { ...defaultWindowState },
+  };
+}
+
+/** Merge a parsed (possibly partial / legacy) config against the current defaults. */
+function mergeConfig(parsed: Partial<Config>): Config {
+  return {
+    cameras: parsed.cameras ?? [],
+    uiDisplay: {
+      previews: parsed.uiDisplay?.previews ?? DEFAULT_UI_DISPLAY.previews,
+      timeline: parsed.uiDisplay?.timeline ?? DEFAULT_UI_DISPLAY.timeline,
+      header: parsed.uiDisplay?.header ?? DEFAULT_UI_DISPLAY.header,
+      previewPosition: parsed.uiDisplay?.previewPosition ?? DEFAULT_UI_DISPLAY.previewPosition,
+      language: parsed.uiDisplay?.language ?? DEFAULT_UI_DISPLAY.language,
+      volume: parsed.uiDisplay?.volume ?? DEFAULT_UI_DISPLAY.volume,
+    },
+    windowState: {
+      x: parsed.windowState?.x,
+      y: parsed.windowState?.y,
+      width: parsed.windowState?.width ?? defaultWindowState.width,
+      height: parsed.windowState?.height ?? defaultWindowState.height,
+      isMaximized: parsed.windowState?.isMaximized ?? defaultWindowState.isMaximized,
+    },
+  };
+}
+
+/** Read and merge a config file; returns null when it is missing or corrupt. */
+function loadConfigFile(filePath: string): Config | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<Config>;
+    return mergeConfig(parsed);
+  } catch {
+    return null;
+  }
+}
+
+let config: Config = createDefaultConfig();
 
 export function init(userDataPath: string): void {
   configPath = path.join(userDataPath, 'cameras.json');
@@ -69,32 +106,23 @@ export function init(userDataPath: string): void {
   }
 
   if (fs.existsSync(configPath)) {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8')) as Partial<Config>;
-      config = {
-        cameras: parsed.cameras ?? [],
-        uiDisplay: {
-          previews: parsed.uiDisplay?.previews ?? DEFAULT_UI_DISPLAY.previews,
-          timeline: parsed.uiDisplay?.timeline ?? DEFAULT_UI_DISPLAY.timeline,
-          header: parsed.uiDisplay?.header ?? DEFAULT_UI_DISPLAY.header,
-          previewPosition: parsed.uiDisplay?.previewPosition ?? DEFAULT_UI_DISPLAY.previewPosition,
-          language: parsed.uiDisplay?.language ?? DEFAULT_UI_DISPLAY.language,
-          volume: parsed.uiDisplay?.volume ?? DEFAULT_UI_DISPLAY.volume,
-        },
-        windowState: {
-          x: parsed.windowState?.x,
-          y: parsed.windowState?.y,
-          width: parsed.windowState?.width ?? defaultWindowState.width,
-          height: parsed.windowState?.height ?? defaultWindowState.height,
-          isMaximized: parsed.windowState?.isMaximized ?? defaultWindowState.isMaximized,
-        },
-      };
-    } catch {
-      config = {
-        cameras: [],
-        uiDisplay: { ...DEFAULT_UI_DISPLAY },
-        windowState: defaultWindowState,
-      };
+    const loaded = loadConfigFile(configPath);
+    if (loaded) {
+      config = loaded;
+      return;
+    }
+
+    // Primary config is corrupt/unreadable — try the last-good backup before
+    // discarding the user's cameras and preferences.
+    log.error('Config file is corrupt or unreadable:', configPath);
+    const backupPath = `${configPath}.bak`;
+    const recovered = fs.existsSync(backupPath) ? loadConfigFile(backupPath) : null;
+    if (recovered) {
+      log.warn('Recovered configuration from backup:', backupPath);
+      config = recovered;
+    } else {
+      log.error('No usable backup found; falling back to default configuration');
+      config = createDefaultConfig();
     }
   }
 }
@@ -156,5 +184,22 @@ export function setWindowState(windowState: WindowState): void {
 }
 
 function save(): void {
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+  try {
+    const serialized = JSON.stringify(config, null, 2);
+    // Write to a temp file and rename over the target so an interrupted write
+    // (crash, power loss, full disk) can never leave a half-written config.
+    const tempPath = `${configPath}.tmp`;
+    fs.writeFileSync(tempPath, serialized, 'utf8');
+    // Preserve the previous good config as a backup before replacing it.
+    if (fs.existsSync(configPath)) {
+      try {
+        fs.copyFileSync(configPath, `${configPath}.bak`);
+      } catch (err) {
+        log.warn('Failed to back up config before save:', err);
+      }
+    }
+    fs.renameSync(tempPath, configPath);
+  } catch (err) {
+    log.error('Failed to persist config:', err);
+  }
 }
