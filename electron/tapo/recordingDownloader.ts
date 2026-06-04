@@ -1110,7 +1110,7 @@ function waitForPlaybackFileReady(
   });
 }
 
-function buildDownloadFfmpegArgs(outputPath: string, audio?: RecordingAudioOptions): string[] {
+export function buildDownloadFfmpegArgs(outputPath: string, audio?: RecordingAudioOptions): string[] {
   const args = ['-loglevel', 'error', '-y'];
 
   args.push('-f', 'mpegts', '-i', 'pipe:0');
@@ -1148,7 +1148,7 @@ function buildDownloadFfmpegArgs(outputPath: string, audio?: RecordingAudioOptio
   return args;
 }
 
-function buildPlaybackFfmpegArgs(
+export function buildPlaybackFfmpegArgs(
   outputPath: string,
   audio?: RecordingAudioOptions,
   seekOffsetSec?: number,
@@ -1215,7 +1215,7 @@ function buildPlaybackFfmpegArgs(
   return args;
 }
 
-function buildRetryWindowSizes(windowSize?: number): number[] {
+export function buildRetryWindowSizes(windowSize?: number): number[] {
   const values = new Set<number>();
   values.add(
     typeof windowSize === 'number' && Number.isFinite(windowSize) && windowSize > 0 ? windowSize : 200,
@@ -1257,7 +1257,7 @@ export async function writeAlignedTsPackets(
   return nextBuffer;
 }
 
-function parseDigestFields(value: string): Record<string, string> {
+export function parseDigestFields(value: string): Record<string, string> {
   const fields: Record<string, string> = {};
   const regex = /(\w+)=("[^"]*"|[^,\s]+)/g;
   for (const match of value.matchAll(regex)) {
@@ -1268,7 +1268,7 @@ function parseDigestFields(value: string): Record<string, string> {
   return fields;
 }
 
-function parseHeaders(block: string): Record<string, string> {
+export function parseHeaders(block: string): Record<string, string> {
   const headers: Record<string, string> = {};
   for (const line of block.split(/\r\n/)) {
     const separator = line.indexOf(':');
@@ -1278,7 +1278,7 @@ function parseHeaders(block: string): Record<string, string> {
   return headers;
 }
 
-function getHeader(headers: Record<string, string>, ...names: string[]): string | undefined {
+export function getHeader(headers: Record<string, string>, ...names: string[]): string | undefined {
   for (const name of names) {
     const value = headers[name.toLowerCase()];
     if (typeof value === 'string' && value.length > 0) {
@@ -1288,7 +1288,7 @@ function getHeader(headers: Record<string, string>, ...names: string[]): string 
   return undefined;
 }
 
-function parseStatusCode(statusLine: string): number {
+export function parseStatusCode(statusLine: string): number {
   const normalized = statusLine.replace(/^HTTP ERROR 401/, '');
   const match = normalized.match(/HTTP\/\d(?:\.\d)?\s+(\d{3})/i);
   if (!match) {
