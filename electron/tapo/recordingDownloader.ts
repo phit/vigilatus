@@ -1215,36 +1215,6 @@ function buildPlaybackFfmpegArgs(
   return args;
 }
 
-export async function writeToWritable(writable: Writable, chunk: Buffer): Promise<void> {
-  if (chunk.length === 0 || writable.destroyed) {
-    return;
-  }
-
-  await new Promise<void>((resolve, reject) => {
-    const onError = (error: Error) => {
-      cleanup();
-      reject(error);
-    };
-    const onDrain = () => {
-      cleanup();
-      resolve();
-    };
-    const cleanup = () => {
-      writable.off('error', onError);
-      writable.off('drain', onDrain);
-    };
-
-    writable.on('error', onError);
-    const accepted = writable.write(chunk);
-    if (accepted) {
-      cleanup();
-      resolve();
-      return;
-    }
-    writable.on('drain', onDrain);
-  });
-}
-
 function buildRetryWindowSizes(windowSize?: number): number[] {
   const values = new Set<number>();
   values.add(

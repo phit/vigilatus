@@ -168,8 +168,6 @@ export class TapoClient {
     return this.cachedUserId;
   }
 
-  private logUserIdProbe(_stage: string, _extra: Record<string, unknown>): void {}
-
   /**
    * Return recordings for a given day.
    * @param date YYYYMMDD string
@@ -278,26 +276,14 @@ export class TapoClient {
 
     for (const candidateUserId of candidateUserIds) {
       const recordings = await this.queryRecordingsForDate(date, candidateUserId);
-      this.logUserIdProbe('queryRecordingsAttempt', {
-        date,
-        userId: candidateUserId,
-        source: candidateUserId === undefined ? 'noUserId' : 'cachedUserId',
-        count: recordings.length,
-      });
       if (recordings.length > 0) {
         return recordings;
       }
     }
 
-    const resolvedUserId = await this.tryResolvePlaybackUserId(date, false);
+    const resolvedUserId = await this.tryResolvePlaybackUserId(false);
     if (typeof resolvedUserId === 'number' && !attemptedUserIds.has(String(resolvedUserId))) {
       const recordings = await this.queryRecordingsForDate(date, resolvedUserId);
-      this.logUserIdProbe('queryRecordingsAttempt', {
-        date,
-        userId: resolvedUserId,
-        source: 'resolvedUserId',
-        count: recordings.length,
-      });
       return recordings;
     }
 
@@ -335,7 +321,6 @@ export class TapoClient {
     });
 
     const direct = this.extractRecordingsFromResponse(resp);
-    this.logRecordingProbe('multipleRequest:searchVideoOfDay', date, resp, direct.length);
     if (direct.length > 0) {
       return direct;
     }
@@ -343,7 +328,7 @@ export class TapoClient {
       typeof userId === 'number' &&
       STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(resp) ?? Number.NaN)
     ) {
-      const refreshedUserId = await this.tryResolvePlaybackUserId(date, true);
+      const refreshedUserId = await this.tryResolvePlaybackUserId(true);
       if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
         return this.queryRecordingsForDate(date, refreshedUserId);
       }
@@ -367,7 +352,6 @@ export class TapoClient {
     });
 
     const legacyParsed = this.extractRecordingsFromResponse(legacyResp);
-    this.logRecordingProbe('legacy:searchVideoOfDay', date, legacyResp, legacyParsed.length);
     if (legacyParsed.length > 0) {
       return legacyParsed;
     }
@@ -375,7 +359,7 @@ export class TapoClient {
       typeof userId === 'number' &&
       STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(legacyResp) ?? Number.NaN)
     ) {
-      const refreshedUserId = await this.tryResolvePlaybackUserId(date, true);
+      const refreshedUserId = await this.tryResolvePlaybackUserId(true);
       if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
         return this.queryRecordingsForDate(date, refreshedUserId);
       }
@@ -472,7 +456,7 @@ export class TapoClient {
     const hashedPassword = this.getHashedPassword();
     const audio = await this.getRecordingAudioConfig();
 
-    const candidateUserIds = await this.resolvePlaybackUserIdCandidates(userIdOverride, startTime, endTime);
+    const candidateUserIds = await this.resolvePlaybackUserIdCandidates(userIdOverride);
 
     if (candidateUserIds.length === 0) {
       throw new Error('Failed to resolve playback user ID');
@@ -902,20 +886,10 @@ export class TapoClient {
     throw new Error('Failed to retrieve recording user ID');
   }
 
-  private async tryResolvePlaybackUserId(
-    dateOrContext: string,
-    forceReload: boolean,
-  ): Promise<number | undefined> {
+  private async tryResolvePlaybackUserId(forceReload: boolean): Promise<number | undefined> {
     try {
-      const userId = forceReload ? await this.getUserId(1) : await this.getUserId();
-      this.logUserIdProbe('resolvedUserId', { date: dateOrContext, userId, forceReload });
-      return userId;
-    } catch (error) {
-      this.logUserIdProbe('resolvedUserIdFailed', {
-        date: dateOrContext,
-        forceReload,
-        error: (error as Error)?.message ?? String(error),
-      });
+      return forceReload ? await this.getUserId(1) : await this.getUserId();
+    } catch {
       return undefined;
     }
   }
@@ -950,11 +924,7 @@ export class TapoClient {
     }
   }
 
-  private async resolvePlaybackUserIdCandidates(
-    userIdOverride: number | undefined,
-    startTime: number,
-    endTime: number,
-  ): Promise<number[]> {
+  private async resolvePlaybackUserIdCandidates(userIdOverride: number | undefined): Promise<number[]> {
     const candidateUserIds: number[] = [];
     const seenUserIds = new Set<number>();
     const appendCandidate = (value: unknown): void => {
@@ -976,8 +946,7 @@ export class TapoClient {
       appendCandidate(fallbackUserId);
     }
 
-    const context = `${startTime}-${endTime}`;
-    const resolvedUserId = await this.tryResolvePlaybackUserId(context, false);
+    const resolvedUserId = await this.tryResolvePlaybackUserId(false);
     if (typeof resolvedUserId === 'number') {
       appendCandidate(resolvedUserId);
       appendNearbyCandidates(resolvedUserId);
@@ -987,7 +956,6 @@ export class TapoClient {
       throw new Error('Failed to resolve playback user ID');
     }
 
-    this.logUserIdProbe('playbackUserIdCandidates', { context, candidateUserIds });
     return candidateUserIds;
   }
 
@@ -1280,11 +1248,7 @@ export class TapoClient {
       end_index: 9999,
     });
 
-    const queryRange = async (
-      startSec: number,
-      endSec: number,
-      stagePrefix: string,
-    ): Promise<Recording[]> => {
+    const queryRange = async (startSec: number, endSec: number): Promise<Recording[]> => {
       const searchParams = buildSearchParams(startSec, endSec);
       if (typeof userId === 'number') {
         searchParams.id = userId;
@@ -1302,7 +1266,6 @@ export class TapoClient {
         },
       });
       const parsed = this.extractRecordingsFromResponse(resp);
-      this.logRecordingProbe(`${stagePrefix}:multipleRequest:searchVideoWithUTC`, date, resp, parsed.length);
       if (parsed.length > 0) {
         return parsed;
       }
@@ -1310,7 +1273,7 @@ export class TapoClient {
         typeof userId === 'number' &&
         STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(resp) ?? Number.NaN)
       ) {
-        const refreshedUserId = await this.tryResolvePlaybackUserId(date, true);
+        const refreshedUserId = await this.tryResolvePlaybackUserId(true);
         if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
           return this.searchRecordingsWithUtcRange(date, refreshedUserId);
         }
@@ -1332,18 +1295,12 @@ export class TapoClient {
         },
       });
       const legacyParsed = this.extractRecordingsFromResponse(legacyUtcResp);
-      this.logRecordingProbe(
-        `${stagePrefix}:legacy:searchVideoWithUTC`,
-        date,
-        legacyUtcResp,
-        legacyParsed.length,
-      );
       if (
         legacyParsed.length === 0 &&
         typeof userId === 'number' &&
         STALE_USER_ID_ERROR_CODES.has(this.firstResponseErrorCode(legacyUtcResp) ?? Number.NaN)
       ) {
-        const refreshedUserId = await this.tryResolvePlaybackUserId(date, true);
+        const refreshedUserId = await this.tryResolvePlaybackUserId(true);
         if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
           return this.searchRecordingsWithUtcRange(date, refreshedUserId);
         }
@@ -1354,7 +1311,7 @@ export class TapoClient {
     // pytapo-compatible local day epoch (device/local time) first.
     const localStartSec = Math.floor(new Date(year, month - 1, day, 0, 0, 0).getTime() / 1000);
     const localEndSec = Math.floor(new Date(year, month - 1, day, 23, 59, 59).getTime() / 1000);
-    const localResult = await queryRange(localStartSec, localEndSec, 'localRange');
+    const localResult = await queryRange(localStartSec, localEndSec);
     if (localResult.length > 0) {
       return localResult;
     }
@@ -1362,10 +1319,8 @@ export class TapoClient {
     // UTC day range fallback for firmware expecting UTC boundaries.
     const startUtcSec = Math.floor(Date.UTC(year, month - 1, day, 0, 0, 0) / 1000);
     const endUtcSec = Math.floor(Date.UTC(year, month - 1, day, 23, 59, 59) / 1000);
-    return queryRange(startUtcSec, endUtcSec, 'utcRange');
+    return queryRange(startUtcSec, endUtcSec);
   }
-
-  private logRecordingProbe(_stage: string, _date: string, _resp: ApiResponse, _parsedCount: number): void {}
 
   // -------------------------------------------------------------------------
   // HTTP
