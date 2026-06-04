@@ -21,6 +21,13 @@ function makeTmpDir(): string {
   return dir;
 }
 
+/** A controllable parent dir registered for cleanup, used to exercise dirname-based migration. */
+function makeTmpParentDir(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vigilatus-cfg-parent-'));
+  tmpDirs.push(dir);
+  return dir;
+}
+
 afterEach(() => {
   while (tmpDirs.length) {
     const dir = tmpDirs.pop();
@@ -116,6 +123,40 @@ describe('config store', () => {
     configStore.init(dir);
 
     expect(configStore.getUiDisplayPreferences()).toEqual({ ...DEFAULTS, volume: 0.7 });
+  });
+
+  it('migrates a config from the legacy TapoStudio folder when no new config exists', () => {
+    // Control the parent dir so dirname(userData) resolves to a folder we own.
+    const parent = makeTmpParentDir();
+    const legacyDir = path.join(parent, 'TapoStudio');
+    fs.mkdirSync(legacyDir, { recursive: true });
+
+    const camera = {
+      id: 'cam-legacy',
+      name: 'Legacy Cam',
+      host: '192.168.1.50',
+      username: 'admin',
+      password: 'secret',
+    };
+    fs.writeFileSync(
+      path.join(legacyDir, 'cameras.json'),
+      JSON.stringify({ cameras: [camera], uiDisplay: { previews: false, volume: 0.42 } }),
+      'utf8',
+    );
+
+    // Fresh userData subdir under the same parent with NO cameras.json yet.
+    const userDataDir = path.join(parent, 'Vigilatus');
+
+    configStore.init(userDataDir);
+
+    expect(configStore.getCameras()).toEqual([camera]);
+    expect(configStore.getUiDisplayPreferences()).toEqual({
+      ...DEFAULTS,
+      previews: false,
+      volume: 0.42,
+    });
+    // The migrated file now lives in the new location.
+    expect(fs.existsSync(path.join(userDataDir, 'cameras.json'))).toBe(true);
   });
 
   it('falls back to defaults when the config is corrupt and no backup exists', () => {

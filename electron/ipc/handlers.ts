@@ -8,6 +8,7 @@ import { TapoClient } from '../tapo/client';
 import type { CameraConfig, RecordingEvent } from '../types';
 import type { TestFixtures } from '../testing/fixtures';
 import { IPC } from './channels';
+import { normalizePlaybackWindow } from './playbackWindow';
 import { createLogger } from '../log';
 
 type ActiveRecordingPlaybackJob = {
@@ -22,8 +23,6 @@ const recordingsUserIdCache = new Map<string, number>();
 const recordingEventsCooldownCache = new Map<string, { until: number; reason: string }>();
 const activeRecordingPlaybackJobs = new Map<string, ActiveRecordingPlaybackJob>();
 const pendingRecordingAborts = new Map<string, AbortController>();
-const MIN_PLAYBACK_WINDOW_MS = 15_000;
-const MAX_PLAYBACK_WINDOW_MS = 120_000;
 const RECORDING_EVENTS_RETRY_COOLDOWN_MS = 5 * 60_000;
 
 let testFixtures: TestFixtures | null = null;
@@ -77,26 +76,6 @@ function stopRecordingPlayback(cameraId: string): void {
   void job.completed.catch(() => {
     /* ignore cancellation errors */
   });
-}
-
-function normalizePlaybackWindow(
-  startTime: number,
-  endTime: number,
-  requestedTime: number,
-): { startTime: number; endTime: number } {
-  const boundedRequestedTime = Math.max(startTime, Math.min(endTime, requestedTime));
-  let normalizedStartTime = Math.max(
-    startTime,
-    Math.min(boundedRequestedTime, endTime - MIN_PLAYBACK_WINDOW_MS),
-  );
-  let normalizedEndTime = Math.min(endTime, normalizedStartTime + MAX_PLAYBACK_WINDOW_MS);
-
-  if (normalizedEndTime - normalizedStartTime < MIN_PLAYBACK_WINDOW_MS) {
-    normalizedStartTime = Math.max(startTime, endTime - MIN_PLAYBACK_WINDOW_MS);
-    normalizedEndTime = endTime;
-  }
-
-  return { startTime: normalizedStartTime, endTime: normalizedEndTime };
 }
 
 export function registerHandlers(fixtures: TestFixtures | null = null): void {
