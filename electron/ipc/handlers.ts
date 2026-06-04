@@ -5,7 +5,7 @@ import { format, startOfDay } from 'date-fns';
 import * as configStore from '../config/store';
 import * as streamManager from '../tapo/streamManager';
 import { TapoClient } from '../tapo/client';
-import type { CameraConfig, Recording, RecordingEvent } from '../types';
+import type { CameraConfig, RecordingEvent } from '../types';
 import type { TestFixtures } from '../testing/fixtures';
 import { IPC } from './channels';
 import { createLogger } from '../log';

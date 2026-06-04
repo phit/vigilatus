@@ -158,7 +158,7 @@ test('recording playback produces a valid MP4 with video (real camera)', async (
     // Wait for the video element to appear (audio+video attempt may fall back to video-only)
     await expect(window.locator('video')).toBeVisible({ timeout: 120_000 });
 
-    const playbackUrl = await expect
+    await expect
       .poll(
         async () => {
           return window.evaluate(() => {

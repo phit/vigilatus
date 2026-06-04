@@ -1007,7 +1007,7 @@ export async function startRecordingDownloadToHls(
 
         try {
           await runAttemptWithRetry(false);
-        } catch (videoError) {
+        } catch {
           log.warn(`video-only playback also failed, using audio+video error`);
           throw error;
         }
