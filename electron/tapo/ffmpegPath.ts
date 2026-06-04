@@ -49,7 +49,7 @@ function resolve(): string {
     candidates.push(ffmpegStatic.replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep));
   }
 
-  if (app.isPackaged) {
+  if (app && app.isPackaged) {
     const appPath = app.getAppPath();
     const ext = process.platform === 'win32' ? '.exe' : '';
     candidates.push(
