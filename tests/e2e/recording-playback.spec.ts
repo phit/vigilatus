@@ -8,26 +8,18 @@
  * Set CAMERA_ID env var to target a specific camera, otherwise the first camera is used.
  * Set RECORDING_DATE env var (YYYYMMDD) to pick a date, default is today.
  */
-import { _electron as electron, expect, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 test.skip(!process.env.REAL_CAMERA, 'Requires a real camera (set REAL_CAMERA=1)');
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { CameraConfig } from '../../electron/types';
+import { launchElectronApp } from './helpers/launchElectronApp';
 
 // Allow plenty of time for real camera communication
 test.setTimeout(300_000);
-
-const electronPath = path.join(
-  process.cwd(),
-  'node_modules',
-  '.bin',
-  process.platform === 'win32' ? 'electron.cmd' : 'electron',
-);
-const projectRoot = path.resolve(process.cwd());
 
 function loadCamerasJson(): { cameras: CameraConfig[] } {
   const configDir =
@@ -85,39 +77,10 @@ test('recording playback produces a valid MP4 with video (real camera)', async (
   const date = process.env.RECORDING_DATE ?? todayStr();
 
   // Launch the real app with the user's camera config (no test fixtures)
-  const userDataDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'vigilatus-e2e-rec-'));
-  await fsp.writeFile(
-    path.join(userDataDir, 'cameras.json'),
-    JSON.stringify({
-      cameras: config.cameras,
-      uiDisplay: { previews: true, timeline: true, previewPosition: 'right' },
-    }),
-  );
-
-  const app = await electron.launch({
-    executablePath: electronPath,
-    args: [projectRoot],
-    env: {
-      ...process.env,
-      VIGILATUS_USER_DATA_DIR: userDataDir,
-      VIGILATUS_OPEN_DEVTOOLS: '0',
-    },
-    timeout: 20_000,
+  const { app, window, userDataDir } = await launchElectronApp({
+    fixtures: { streams: {}, snapshots: {} },
+    cameras: config.cameras,
   });
-
-  // Capture main process output for diagnostics
-  const proc = app.process();
-  proc.stdout?.on('data', (d: Buffer) => {
-    const line = d.toString().trim();
-    if (line) console.info(`[electron] ${line}`);
-  });
-  proc.stderr?.on('data', (d: Buffer) => {
-    const line = d.toString().trim();
-    if (line) console.info(`[electron:err] ${line}`);
-  });
-
-  const window = await app.firstWindow();
-  await window.waitForLoadState('domcontentloaded');
 
   try {
     // Select the target camera
