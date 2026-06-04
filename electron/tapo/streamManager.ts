@@ -17,20 +17,17 @@ import { MediaSession, hashMediaPassword, writeAlignedTsPackets } from './record
 import * as configStore from '../config/store';
 import { createLogger } from '../log';
 import {
-  EXPECTED_STOP_CLEAR_DELAY_MS,
   HLS_DIR,
   HTTP_STREAM_READY_TIMEOUT_MS,
   LIVE_AUDIO_FILTER,
   LIVE_HLS_PLAYLIST_SIZE,
   LIVE_HLS_SEGMENT_SECONDS,
-  LIVE_STREAM_STALL_TIMEOUT_MS,
   PLAYBACK_DIR,
   RECORDING_MAX_AGE_MS,
   RECORDINGS_DIR,
   SNAP_DIR,
   STDERR_HISTORY_LIMIT,
   STREAM_READY_TIMEOUT_MS,
-  STREAM_WATCHDOG_INTERVAL_MS,
 } from './streamConstants';
 import {
   attachFfmpegStderr,
@@ -48,6 +45,21 @@ export {
   registerActivePlaybackAsset,
   unregisterActivePlaybackAsset,
 } from './mediaServer';
+import {
+  expectedStops,
+  isExpectedStopError,
+  markStreamReady,
+  notifyStreamDied,
+  setOnStreamDied,
+  startStreamWatchdog,
+  stopAllStreams,
+  stopStream,
+  stopStreamWatchdog,
+  streams,
+  type StreamEntry,
+} from './streamRegistry';
+
+export { setOnStreamDied, stopAllStreams, stopStream };
 
 type HashMethod = 'md5' | 'sha256';
 
@@ -55,36 +67,8 @@ type HashMethod = 'md5' | 'sha256';
 // State
 // ---------------------------------------------------------------------------
 
-interface StreamEntry {
-  proc: ffmpeg.FfmpegCommand | null;
-  hlsUrl: string;
-  playlistPath: string;
-  kind: 'live' | 'playback';
-  readyResolved: boolean;
-  lastHlsActivityAt: number;
-  ready: Promise<string>;
-  /** HTTP Media Session resources (non-RTSP streams) */
-  httpSession?: MediaSession;
-  httpFfmpeg?: ChildProcess;
-}
-
-const streams = new Map<string, StreamEntry>();
-const expectedStops = new Set<string>();
 /** Per-camera in-progress snapshot promise (prevents parallel captures) */
 const snapshotLocks = new Map<string, Promise<string | null>>();
-let streamWatchdogTimer: NodeJS.Timeout | null = null;
-
-let onStreamDiedCallback: ((cameraId: string) => void) | null = null;
-
-/** Register a callback invoked when a live stream dies unexpectedly. */
-export function setOnStreamDied(callback: (cameraId: string) => void): void {
-  onStreamDiedCallback = callback;
-}
-
-function isExpectedStopError(cameraId: string, err: Error): boolean {
-  const message = String(err?.message ?? '');
-  return expectedStops.has(cameraId) && message.includes('killed with signal SIGKILL');
-}
 
 // ---------------------------------------------------------------------------
 // Init / teardown
@@ -155,10 +139,7 @@ export async function init(): Promise<void> {
 
 export function cleanup(): void {
   for (const id of streams.keys()) stopStream(id);
-  if (streamWatchdogTimer) {
-    clearInterval(streamWatchdogTimer);
-    streamWatchdogTimer = null;
-  }
+  stopStreamWatchdog();
   closeMediaServer();
   // Remove ephemeral temp dirs (recordings cache is intentionally kept)
   for (const dir of [HLS_DIR, SNAP_DIR, PLAYBACK_DIR]) {
@@ -168,10 +149,6 @@ export function cleanup(): void {
       /* best-effort */
     }
   }
-}
-
-export function stopAllStreams(): void {
-  for (const id of streams.keys()) stopStream(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -225,7 +202,7 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
         settled = true;
         reject(new Error(message));
       }
-      onStreamDiedCallback?.(cameraId);
+      notifyStreamDied(cameraId);
     });
 
     proc.on('end', () => {
@@ -233,7 +210,7 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
       expectedStops.delete(cameraId);
       streams.delete(cameraId);
       if (!wasExpected && settled) {
-        onStreamDiedCallback?.(cameraId);
+        notifyStreamDied(cameraId);
       }
     });
 
@@ -255,7 +232,7 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
         if (!settled) {
           settled = true;
           reject(err);
-          onStreamDiedCallback?.(cameraId);
+          notifyStreamDied(cameraId);
         }
       });
   });
@@ -453,7 +430,7 @@ async function attemptHttpStream(
         if (!expectedStops.has(cameraId)) {
           log.error(`http media session error:`, (err as Error).message);
           cleanup();
-          onStreamDiedCallback?.(cameraId);
+          notifyStreamDied(cameraId);
         }
       });
 
@@ -619,7 +596,7 @@ async function attemptHttpStream(
       if (!expectedStops.has(cameraId)) {
         log.error(`http ffmpeg exited with code ${code}`);
         streams.delete(cameraId);
-        onStreamDiedCallback?.(cameraId);
+        notifyStreamDied(cameraId);
       }
     });
 
@@ -630,47 +607,6 @@ async function attemptHttpStream(
   } catch (err) {
     cleanup();
     throw err;
-  }
-}
-
-export function stopStream(cameraId: string): void {
-  const entry = streams.get(cameraId);
-  if (!entry) return;
-  expectedStops.add(cameraId);
-  setTimeout(() => {
-    expectedStops.delete(cameraId);
-  }, EXPECTED_STOP_CLEAR_DELAY_MS);
-
-  // Stop HTTP Media Session resources if present
-  if (entry.httpFfmpeg && !entry.httpFfmpeg.killed) {
-    try {
-      entry.httpFfmpeg.kill('SIGKILL');
-    } catch {
-      /* ignore */
-    }
-  }
-  if (entry.httpSession) {
-    void entry.httpSession.close().catch(() => {
-      /* ignore */
-    });
-  }
-
-  // Stop RTSP ffmpeg process if present
-  if (entry.proc) {
-    try {
-      entry.proc.kill('SIGKILL');
-    } catch {
-      /* ignore */
-    }
-  }
-  streams.delete(cameraId);
-
-  // Clean up segment files
-  const segDir = path.join(HLS_DIR, cameraId);
-  try {
-    fs.rmSync(segDir, { recursive: true, force: true });
-  } catch {
-    /* ignore */
   }
 }
 
@@ -885,75 +821,4 @@ async function captureHttpSnapshot(cameraId: string, cfg: CameraConfig): Promise
   }
 
   return null;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function startStreamWatchdog(): void {
-  if (streamWatchdogTimer) return;
-  streamWatchdogTimer = setInterval(() => {
-    checkLiveStreamsForStall();
-  }, STREAM_WATCHDOG_INTERVAL_MS);
-}
-
-function markStreamReady(cameraId: string, playlistPath: string): void {
-  const entry = streams.get(cameraId);
-  if (!entry || entry.playlistPath !== playlistPath) return;
-  entry.readyResolved = true;
-  entry.lastHlsActivityAt = getLatestHlsActivityAt(entry) ?? Date.now();
-}
-
-function checkLiveStreamsForStall(): void {
-  const now = Date.now();
-  for (const [cameraId, entry] of streams.entries()) {
-    if (entry.kind !== 'live' || !entry.readyResolved) {
-      continue;
-    }
-
-    const latestActivityAt = getLatestHlsActivityAt(entry);
-    if (latestActivityAt && latestActivityAt > entry.lastHlsActivityAt) {
-      entry.lastHlsActivityAt = latestActivityAt;
-    }
-
-    if (now - entry.lastHlsActivityAt < LIVE_STREAM_STALL_TIMEOUT_MS) {
-      continue;
-    }
-
-    const secondsStalled = Math.round((now - entry.lastHlsActivityAt) / 1000);
-    createLogger(`stream:${cameraId}`).error(
-      `watchdog detected stalled live HLS output; no playlist/segment updates for ${secondsStalled}s`,
-    );
-    failLiveStream(cameraId, `watchdog stall after ${secondsStalled}s without HLS updates`);
-  }
-}
-
-function getLatestHlsActivityAt(entry: StreamEntry): number | null {
-  try {
-    if (!fs.existsSync(entry.playlistPath)) {
-      return null;
-    }
-
-    let latestMtimeMs = fs.statSync(entry.playlistPath).mtimeMs;
-    const playlist = fs.readFileSync(entry.playlistPath, 'utf8');
-    for (const line of playlist.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const segmentPath = path.resolve(path.dirname(entry.playlistPath), trimmed);
-      if (!fs.existsSync(segmentPath)) continue;
-      latestMtimeMs = Math.max(latestMtimeMs, fs.statSync(segmentPath).mtimeMs);
-    }
-
-    return latestMtimeMs;
-  } catch {
-    return null;
-  }
-}
-
-function failLiveStream(cameraId: string, reason: string): void {
-  if (!streams.has(cameraId)) return;
-  createLogger(`stream:${cameraId}`).error(`marking live stream as dead: ${reason}`);
-  stopStream(cameraId);
-  onStreamDiedCallback?.(cameraId);
 }
