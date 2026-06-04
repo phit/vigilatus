@@ -126,5 +126,10 @@
     "restartNow": "Restart Now",
     "later": "Later",
     "noUpdates": "You are running the latest version."
+  },
+  "startupError": {
+    "title": "Vigilatus could not start",
+    "body": "Vigilatus could not initialise its media subsystem and needs to close.\n\n{{error}}",
+    "logHint": "A detailed log was written to:\n{{logPath}}"
   }
 }

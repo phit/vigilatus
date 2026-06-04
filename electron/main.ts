@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   type BrowserWindowConstructorOptions,
@@ -670,7 +671,12 @@ void app.whenReady().then(async () => {
     await streamManager.init();
   } catch (err) {
     createLogger('main:streamManager').error('Failed to initialize streamManager:', err);
-    // TODO: show error dialog and abort launch
+    const detail = err instanceof Error ? err.message : String(err);
+    const body = t('startupError.body', { error: detail });
+    const message = logPath ? `${body}\n\n${t('startupError.logHint', { logPath })}` : body;
+    dialog.showErrorBox(t('startupError.title'), message);
+    app.quit();
+    return;
   }
 
   const testFixtures = loadTestFixtures();
