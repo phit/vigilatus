@@ -40,6 +40,22 @@ export function unregisterActivePlaybackAsset(filePath: string): void {
   activePlaybackAssets.delete(path.resolve(filePath));
 }
 
+/**
+ * Resolve a request's relative path against a base directory, returning the
+ * absolute path only when it stays strictly inside `baseDir`. Returns null for
+ * traversal attempts (`..`), absolute escapes, and requests for the base dir
+ * itself. Uses path.relative rather than a string prefix check so a sibling
+ * directory sharing a name prefix (e.g. `<base>-evil`) cannot slip through.
+ */
+export function resolveServedFilePath(baseDir: string, relativeFilePath: string): string | null {
+  const resolved = path.resolve(baseDir, relativeFilePath);
+  const rel = path.relative(baseDir, resolved);
+  if (rel === '' || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
+    return null;
+  }
+  return resolved;
+}
+
 async function streamGrowingMp4(
   filePath: string,
   res: http.ServerResponse,
@@ -102,35 +118,26 @@ export function startMediaServer(): Promise<number> {
       const log = createLogger('http:server');
       const reqPath = decodeURIComponent((req.url ?? '/').replace(/\?.*$/, ''));
       const relativePath = reqPath.replace(/^\/+/, '');
-      let baseDir: string;
-      let filePath: string;
+      const isPlayback = relativePath.startsWith('playback/');
+      const baseDir = isPlayback ? PLAYBACK_DIR : HLS_DIR;
+      const filePath = isPlayback ? relativePath.replace(/^playback\//, '') : relativePath;
 
-      if (relativePath.startsWith('playback/')) {
-        baseDir = PLAYBACK_DIR;
-        filePath = relativePath.replace(/^playback\//, '');
-      } else {
-        baseDir = HLS_DIR;
-        filePath = relativePath;
-      }
-
-      const safe = path.resolve(baseDir, filePath);
-      if (!safe.startsWith(baseDir)) {
+      const safe = resolveServedFilePath(baseDir, filePath);
+      if (!safe) {
         log.error(`403 Forbidden for ${reqPath}`);
         res.writeHead(403).end('Forbidden');
         return;
       }
 
       // Retry logic: wait for background-created playback assets to appear.
-      const isPlayback = reqPath.includes('/playback/');
-      const isDeferredAsset = isPlayback;
-      const maxRetries = isDeferredAsset ? 300 : 2;
+      const maxRetries = isPlayback ? 300 : 2;
       const retryDelayMs = 200;
       let retryCount = 0;
 
       const tryRead = () => {
         fs.stat(safe, (statErr, stats) => {
           if (statErr) {
-            if (retryCount < maxRetries && isDeferredAsset) {
+            if (retryCount < maxRetries && isPlayback) {
               retryCount++;
               setTimeout(tryRead, retryDelayMs);
               return;
@@ -141,7 +148,7 @@ export function startMediaServer(): Promise<number> {
             return;
           }
 
-          if (isDeferredAsset && stats.size <= 0) {
+          if (isPlayback && stats.size <= 0) {
             if (retryCount < maxRetries) {
               retryCount++;
               setTimeout(tryRead, retryDelayMs);
