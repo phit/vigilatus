@@ -7,25 +7,17 @@
  * Requires real cameras in the user's cameras.json config.
  * Set CAMERA_ID env var to target a specific camera, otherwise the first HTTP camera is used.
  */
-import { _electron as electron, expect, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 test.skip(!process.env.REAL_CAMERA, 'Requires a real camera (set REAL_CAMERA=1)');
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { CameraConfig } from '../../electron/types';
+import { launchElectronApp } from './helpers/launchElectronApp';
 
 test.setTimeout(120_000);
-
-const electronPath = path.join(
-  process.cwd(),
-  'node_modules',
-  '.bin',
-  process.platform === 'win32' ? 'electron.cmd' : 'electron',
-);
-const projectRoot = path.resolve(process.cwd());
 
 function loadCamerasJson(): { cameras: CameraConfig[] } {
   const configDir =
@@ -82,38 +74,10 @@ test('live HTTP stream produces HLS segments with video and audio (real camera)'
 
   console.info(`[test] using camera: ${camera.name} (${camera.id})`);
 
-  const userDataDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'vigilatus-e2e-live-'));
-  await fsp.writeFile(
-    path.join(userDataDir, 'cameras.json'),
-    JSON.stringify({
-      cameras: config.cameras,
-      uiDisplay: { previews: true, timeline: true, previewPosition: 'right' },
-    }),
-  );
-
-  const app = await electron.launch({
-    executablePath: electronPath,
-    args: [projectRoot],
-    env: {
-      ...process.env,
-      VIGILATUS_USER_DATA_DIR: userDataDir,
-      VIGILATUS_OPEN_DEVTOOLS: '0',
-    },
-    timeout: 20_000,
+  const { app, window } = await launchElectronApp({
+    fixtures: { streams: {}, snapshots: {} },
+    cameras: config.cameras,
   });
-
-  const proc = app.process();
-  proc.stdout?.on('data', (d: Buffer) => {
-    const line = d.toString().trim();
-    if (line) console.info(`[electron] ${line}`);
-  });
-  proc.stderr?.on('data', (d: Buffer) => {
-    const line = d.toString().trim();
-    if (line) console.info(`[electron:err] ${line}`);
-  });
-
-  const window = await app.firstWindow();
-  await window.waitForLoadState('domcontentloaded');
 
   try {
     // Select the target camera

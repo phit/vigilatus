@@ -1,69 +1,7 @@
-import { _electron as electron, expect, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
-import type { CameraConfig } from '../../electron/types';
-import type { TestFixtures } from '../../electron/testing/fixtures';
-
-const electronPath = path.join(
-  process.cwd(),
-  'node_modules',
-  '.bin',
-  process.platform === 'win32' ? 'electron.cmd' : 'electron',
-);
-const projectRoot = path.resolve(process.cwd());
-
-async function launchElectronApp(options: { fixtures: TestFixtures; cameras?: CameraConfig[] }) {
-  const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vigilatus-e2e-'));
-  const fixturePath = path.join(userDataDir, 'fixtures.json');
-
-  await fs.writeFile(fixturePath, JSON.stringify(options.fixtures, null, 2), 'utf8');
-
-  if (options.cameras) {
-    await fs.writeFile(
-      path.join(userDataDir, 'cameras.json'),
-      JSON.stringify(
-        {
-          cameras: options.cameras,
-          uiDisplay: {
-            previews: true,
-            timeline: true,
-            previewPosition: 'right',
-          },
-        },
-        null,
-        2,
-      ),
-      'utf8',
-    );
-  }
-
-  const isCI = Boolean(process.env.CI);
-  const isLinux = process.platform === 'linux';
-
-  const app = await electron.launch({
-    executablePath: electronPath,
-    args: [
-      projectRoot,
-      ...(isLinux
-        ? ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--disable-setuid-sandbox']
-        : []),
-    ],
-    env: {
-      ...process.env,
-      VIGILATUS_USER_DATA_DIR: userDataDir,
-      VIGILATUS_TEST_FIXTURES: fixturePath,
-      VIGILATUS_OPEN_DEVTOOLS: '0',
-      ...(isCI && isLinux ? { ELECTRON_ENABLE_LOGGING: '1' } : {}),
-    },
-    timeout: isCI ? 30_000 : 10_000,
-  });
-
-  const window = await app.firstWindow();
-  await window.waitForLoadState('domcontentloaded');
-
-  return { app, window, userDataDir };
-}
+import { launchElectronApp } from './helpers/launchElectronApp';
 
 test('launches the real app and creates a camera through the UI', async () => {
   const { app, window, userDataDir } = await launchElectronApp({ fixtures: { streams: {}, snapshots: {} } });
