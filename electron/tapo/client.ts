@@ -20,9 +20,9 @@ import type { Recording, RecordingEvent } from '../types';
 import {
   downloadRecordingToMp4,
   startRecordingDownloadToHls,
-  type RecordingAudioOptions,
   type RecordingPlaybackJob,
 } from './recordingDownloader';
+import type { RecordingAudioOptions } from './recordingAudio';
 import {
   extractRecordingEventsFromResponse,
   extractRecordingsFromResponse,

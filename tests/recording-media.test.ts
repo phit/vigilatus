@@ -1,15 +1,9 @@
 import { Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  buildDownloadFfmpegArgs,
-  buildPlaybackFfmpegArgs,
-  buildRetryWindowSizes,
-  getHeader,
-  parseDigestFields,
-  parseHeaders,
-  parseStatusCode,
-  writeAlignedTsPackets,
-} from '../electron/tapo/recordingDownloader';
+import { buildRetryWindowSizes } from '../electron/tapo/recordingDownloader';
+import { writeAlignedTsPackets } from '../electron/tapo/tsDemux';
+import { getHeader, parseDigestFields, parseHeaders, parseStatusCode } from '../electron/tapo/httpParse';
+import { buildDownloadFfmpegArgs, buildPlaybackFfmpegArgs } from '../electron/tapo/ffmpegRecordingArgs';
 
 /** Collects written chunks into an array for assertions, mimicking a real Writable. */
 class CollectingWritable extends Writable {
