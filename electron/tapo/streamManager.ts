@@ -9,7 +9,6 @@ import ffmpeg from 'fluent-ffmpeg';
 import { once } from 'node:events';
 import fs from 'node:fs';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { Writable } from 'node:stream';
@@ -19,16 +18,34 @@ import { ffmpegBinaryPath } from './ffmpegPath';
 import { MediaSession, hashMediaPassword, writeAlignedTsPackets } from './recordingDownloader';
 import * as configStore from '../config/store';
 import { createLogger } from '../log';
+import {
+  EXPECTED_STOP_CLEAR_DELAY_MS,
+  HLS_DIR,
+  HTTP_STREAM_READY_TIMEOUT_MS,
+  LIVE_AUDIO_FILTER,
+  LIVE_HLS_PLAYLIST_SIZE,
+  LIVE_HLS_SEGMENT_SECONDS,
+  LIVE_STREAM_STALL_TIMEOUT_MS,
+  MIN_PLAYBACK_FILE_BYTES,
+  PLAYBACK_DIR,
+  RECORDING_MAX_AGE_MS,
+  RECORDINGS_DIR,
+  SNAP_DIR,
+  STDERR_HISTORY_LIMIT,
+  STREAM_READY_TIMEOUT_MS,
+  STREAM_WATCHDOG_INTERVAL_MS,
+} from './streamConstants';
+import {
+  attachFfmpegStderr,
+  buildRtspUrl,
+  createHlsCommand,
+  createHlsSessionToken,
+  onFfmpegError,
+  summarizeFfmpegDetails,
+  waitForHlsReady,
+} from './streamHelpers';
 
 type HashMethod = 'md5' | 'sha256';
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const HLS_DIR = path.join(os.tmpdir(), 'vigilatus-hls');
-const SNAP_DIR = path.join(os.tmpdir(), 'vigilatus-snaps');
-const PLAYBACK_DIR = path.join(os.tmpdir(), 'vigilatus-playback');
 
 // ---------------------------------------------------------------------------
 // State
@@ -62,20 +79,6 @@ let onStreamDiedCallback: ((cameraId: string) => void) | null = null;
 export function setOnStreamDied(callback: (cameraId: string) => void): void {
   onStreamDiedCallback = callback;
 }
-
-const STREAM_READY_TIMEOUT_MS = 15_000;
-const HTTP_STREAM_READY_TIMEOUT_MS = 30_000;
-const STREAM_READY_POLL_MS = 250;
-const STDERR_HISTORY_LIMIT = 24;
-const MIN_PLAYBACK_FILE_BYTES = 512_000;
-const RECORDINGS_DIR = path.join(os.tmpdir(), 'vigilatus-recordings');
-const RECORDING_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
-const LIVE_HLS_SEGMENT_SECONDS = 1;
-const LIVE_HLS_PLAYLIST_SIZE = 3;
-const LIVE_AUDIO_FILTER = 'aresample=async=1:first_pts=0';
-const STREAM_WATCHDOG_INTERVAL_MS = 5_000;
-const LIVE_STREAM_STALL_TIMEOUT_MS = 20_000;
-const EXPECTED_STOP_CLEAR_DELAY_MS = 5_000;
 
 function isExpectedStopError(cameraId: string, err: Error): boolean {
   const message = String(err?.message ?? '');
@@ -907,99 +910,6 @@ async function captureHttpSnapshot(cameraId: string, cfg: CameraConfig): Promise
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildRtspUrl(cfg: CameraConfig, stream: 'main' | 'sub'): string {
-  if (cfg.rtspUrl) {
-    const username = cfg.rtspUsername || cfg.streamUser || cfg.username;
-    const password = cfg.rtspPassword || cfg.streamPassword || cfg.password;
-    return withRtspAuth(cfg.rtspUrl, username, password);
-  }
-
-  const user = encodeURIComponent(cfg.streamUser || cfg.username);
-  const pass = encodeURIComponent(cfg.streamPassword || cfg.password);
-  const path = stream === 'main' ? 'stream1' : 'stream2';
-  return `rtsp://${user}:${pass}@${cfg.host}:554/${path}`;
-}
-
-function withRtspAuth(url: string, username?: string, password?: string): string {
-  try {
-    const parsed = new URL(url);
-    if (username) {
-      parsed.username = username;
-      parsed.password = password ?? '';
-    }
-    return parsed.toString();
-  } catch {
-    return url;
-  }
-}
-
-function createHlsCommand(
-  rtspUrl: string,
-  segDir: string,
-  m3u8Path: string,
-  sessionToken?: string,
-): ffmpeg.FfmpegCommand {
-  const command = ffmpeg(rtspUrl).inputOptions([
-    '-rtsp_transport',
-    'tcp',
-    '-fflags',
-    'nobuffer',
-    '-flags',
-    'low_delay',
-  ]);
-
-  return command
-    .outputOptions([
-      '-map',
-      '0:v:0',
-      '-map',
-      '0:a:0?',
-      '-c:v',
-      'libx264',
-      '-preset',
-      'veryfast',
-      '-tune',
-      'zerolatency',
-      '-pix_fmt',
-      'yuv420p',
-      '-force_key_frames',
-      `expr:gte(t,n_forced*${LIVE_HLS_SEGMENT_SECONDS})`,
-      '-sc_threshold',
-      '0',
-      '-c:a',
-      'aac',
-      '-af',
-      LIVE_AUDIO_FILTER,
-      '-ac',
-      '1',
-      '-ar',
-      '44100',
-      '-b:a',
-      '128k',
-      '-max_interleave_delta',
-      '0',
-      '-muxpreload',
-      '0',
-      '-muxdelay',
-      '0',
-      '-f',
-      'hls',
-      '-hls_time',
-      String(LIVE_HLS_SEGMENT_SECONDS),
-      '-hls_list_size',
-      String(LIVE_HLS_PLAYLIST_SIZE),
-      '-hls_flags',
-      'delete_segments+independent_segments',
-      '-hls_segment_filename',
-      path.join(segDir, `segment-${sessionToken ?? 'live'}-%03d.ts`),
-    ])
-    .save(m3u8Path);
-}
-
-function createHlsSessionToken(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
 function startStreamWatchdog(): void {
   if (streamWatchdogTimer) return;
   streamWatchdogTimer = setInterval(() => {
@@ -1065,108 +975,6 @@ function failLiveStream(cameraId: string, reason: string): void {
   createLogger(`stream:${cameraId}`).error(`marking live stream as dead: ${reason}`);
   stopStream(cameraId);
   onStreamDiedCallback?.(cameraId);
-}
-
-/** Attach an 'error' listener to an ffmpeg command (typed; fluent-ffmpeg's types omit it). */
-function onFfmpegError(
-  proc: ffmpeg.FfmpegCommand,
-  listener: (err: Error, stdout: string, stderr: string) => void,
-): void {
-  (
-    proc as ffmpeg.FfmpegCommand & {
-      on(
-        event: 'error',
-        listener: (err: Error, stdout: string, stderr: string) => void,
-      ): ffmpeg.FfmpegCommand;
-    }
-  ).on('error', listener);
-}
-
-function attachFfmpegStderr(proc: ffmpeg.FfmpegCommand, stderrLines: string[]): void {
-  (
-    proc as ffmpeg.FfmpegCommand & {
-      on(event: 'stderr', listener: (line: string) => void): ffmpeg.FfmpegCommand;
-    }
-  ).on('stderr', (line: string) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    stderrLines.push(trimmed);
-    if (stderrLines.length > STDERR_HISTORY_LIMIT) {
-      stderrLines.shift();
-    }
-  });
-}
-
-function waitForHlsReady(filePath: string, timeoutMs: number, stderrLines: string[]): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const start = Date.now();
-
-    const check = () => {
-      try {
-        if (fs.existsSync(filePath)) {
-          const content = fs.readFileSync(filePath, 'utf8');
-          const firstSegment = getFirstHlsSegmentPath(filePath, content);
-          if (
-            content.includes('#EXTM3U') &&
-            firstSegment &&
-            fs.existsSync(firstSegment) &&
-            fs.statSync(firstSegment).size > 0
-          ) {
-            resolve();
-            return;
-          }
-        }
-      } catch {
-        /* keep polling */
-      }
-
-      if (Date.now() - start >= timeoutMs) {
-        const details = summarizeFfmpegDetails(stderrLines.join('\n').trim());
-        reject(
-          new Error(
-            details ? `Timed out waiting for HLS playlist: ${details}` : 'Timed out waiting for HLS playlist',
-          ),
-        );
-        return;
-      }
-
-      setTimeout(check, STREAM_READY_POLL_MS);
-    };
-
-    check();
-  });
-}
-
-function getFirstHlsSegmentPath(playlistPath: string, content: string): string | null {
-  const segmentLine = content
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line && !line.startsWith('#'));
-
-  if (!segmentLine) return null;
-  return path.resolve(path.dirname(playlistPath), segmentLine);
-}
-
-function summarizeFfmpegDetails(details: string): string {
-  if (!details) return '';
-
-  const relevant = details
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => {
-      const lower = line.toLowerCase();
-      return !(
-        lower.startsWith('ffmpeg version') ||
-        lower.startsWith('built with') ||
-        lower.startsWith('configuration:') ||
-        lower.startsWith('libav') ||
-        lower.startsWith('libsw') ||
-        lower.startsWith('libpostproc')
-      );
-    });
-
-  return relevant.join('\n');
 }
 
 async function streamGrowingMp4(
