@@ -1,5 +1,5 @@
 import { Writable } from 'node:stream';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   buildDownloadFfmpegArgs,
   buildPlaybackFfmpegArgs,
@@ -31,6 +31,15 @@ function tsPacket(fill: number): Buffer {
   packet[0] = 0x47;
   return packet;
 }
+
+vi.mock('electron', () => {
+  return {
+    app: {
+      isPackaged: true,
+      getAppPath: vi.fn().mockReturnValue('/mocked/app/path'),
+    },
+  };
+});
 
 describe('writeAlignedTsPackets', () => {
   it('resynchronises past leading garbage before a 0x47 sync byte', async () => {
