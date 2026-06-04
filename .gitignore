@@ -7,6 +7,8 @@ src/**/*.js
 pytapo/
 release/
 test-results/
-.agents/
+/.agents/
+/.claude/
+/.codex/
 skills-lock.json
 TODO.md
