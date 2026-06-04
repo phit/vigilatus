@@ -217,14 +217,7 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
 
     attachFfmpegStderr(proc, stderrLines);
 
-    (
-      proc as ffmpeg.FfmpegCommand & {
-        on(
-          event: 'error',
-          listener: (err: Error, stdout: string, stderr: string) => void,
-        ): ffmpeg.FfmpegCommand;
-      }
-    ).on('error', (err: Error, _stdout: string, stderr: string) => {
+    onFfmpegError(proc, (err: Error, _stdout: string, stderr: string) => {
       if (isExpectedStopError(cameraId, err)) {
         expectedStops.delete(cameraId);
         streams.delete(cameraId);
@@ -1072,6 +1065,21 @@ function failLiveStream(cameraId: string, reason: string): void {
   createLogger(`stream:${cameraId}`).error(`marking live stream as dead: ${reason}`);
   stopStream(cameraId);
   onStreamDiedCallback?.(cameraId);
+}
+
+/** Attach an 'error' listener to an ffmpeg command (typed; fluent-ffmpeg's types omit it). */
+function onFfmpegError(
+  proc: ffmpeg.FfmpegCommand,
+  listener: (err: Error, stdout: string, stderr: string) => void,
+): void {
+  (
+    proc as ffmpeg.FfmpegCommand & {
+      on(
+        event: 'error',
+        listener: (err: Error, stdout: string, stderr: string) => void,
+      ): ffmpeg.FfmpegCommand;
+    }
+  ).on('error', listener);
 }
 
 function attachFfmpegStderr(proc: ffmpeg.FfmpegCommand, stderrLines: string[]): void {
