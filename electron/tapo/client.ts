@@ -437,7 +437,21 @@ export class TapoClient {
     return Array.from(dates).sort();
   }
 
-  async downloadRecording(startTimeMs: number, endTimeMs: number, userIdOverride?: number): Promise<string> {
+  private async runRecordingAttempts<T>(
+    startTimeMs: number,
+    endTimeMs: number,
+    userIdOverride: number | undefined,
+    fallbackErrorMessage: string,
+    attempt: (ctx: {
+      userId: number;
+      windowSize: number;
+      startTime: number;
+      paddedEndTime: number;
+      encryptionMethod: 'md5' | 'sha256';
+      hashedPassword: string;
+      audio: RecordingAudioOptions | undefined;
+    }) => Promise<T>,
+  ): Promise<T> {
     const startTime = Math.floor(startTimeMs / 1000);
     const endTime = Math.floor(endTimeMs / 1000);
     const paddedEndTime = endTime + PLAYBACK_PADDING_SECONDS;
@@ -454,10 +468,6 @@ export class TapoClient {
       throw new Error('Recording is currently in progress');
     }
 
-    const hostDir = this.host.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const outDir = path.join(os.tmpdir(), 'vigilatus-recordings', hostDir);
-    const outFile = path.join(outDir, `${startTime}-${endTime}.mp4`);
-
     const encryptionMethod = this.passwordMethod ?? 'md5';
     const hashedPassword = this.getHashedPassword();
     const audio = await this.getRecordingAudioConfig();
@@ -473,17 +483,14 @@ export class TapoClient {
       const candidateUserId = candidateUserIds[i];
       const isRetry = i > 0;
       try {
-        return await downloadRecordingToMp4({
-          host: this.host,
-          username: this.username,
-          hashedPassword,
-          encryptionMethod,
-          audio,
+        return await attempt({
           userId: candidateUserId,
-          startTime,
-          endTime: paddedEndTime,
-          outputPath: outFile,
           windowSize: isRetry ? 50 : 200,
+          startTime,
+          paddedEndTime,
+          encryptionMethod,
+          hashedPassword,
+          audio,
         });
       } catch (e) {
         lastError = e;
@@ -496,7 +503,35 @@ export class TapoClient {
       }
     }
 
-    throw lastError instanceof Error ? lastError : new Error('Unable to download recording stream');
+    throw lastError instanceof Error ? lastError : new Error(fallbackErrorMessage);
+  }
+
+  async downloadRecording(startTimeMs: number, endTimeMs: number, userIdOverride?: number): Promise<string> {
+    const startTime = Math.floor(startTimeMs / 1000);
+    const endTime = Math.floor(endTimeMs / 1000);
+    const hostDir = this.host.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const outDir = path.join(os.tmpdir(), 'vigilatus-recordings', hostDir);
+    const outFile = path.join(outDir, `${startTime}-${endTime}.mp4`);
+
+    return this.runRecordingAttempts(
+      startTimeMs,
+      endTimeMs,
+      userIdOverride,
+      'Unable to download recording stream',
+      ({ userId, windowSize, startTime: start, paddedEndTime, encryptionMethod, hashedPassword, audio }) =>
+        downloadRecordingToMp4({
+          host: this.host,
+          username: this.username,
+          hashedPassword,
+          encryptionMethod,
+          audio,
+          userId,
+          startTime: start,
+          endTime: paddedEndTime,
+          outputPath: outFile,
+          windowSize,
+        }),
+    );
   }
 
   async startRecordingPlayback(
@@ -506,62 +541,26 @@ export class TapoClient {
     userIdOverride?: number,
     seekOffsetSec?: number,
   ): Promise<RecordingPlaybackJob> {
-    const startTime = Math.floor(startTimeMs / 1000);
-    const endTime = Math.floor(endTimeMs / 1000);
-    const paddedEndTime = endTime + PLAYBACK_PADDING_SECONDS;
-
-    if (endTime <= startTime) {
-      throw new Error('Invalid recording interval');
-    }
-
-    if (typeof userIdOverride === 'number') {
-      this.rememberUserId(userIdOverride);
-    }
-
-    if (Math.floor(Date.now() / 1000) - 60 < endTime) {
-      throw new Error('Recording is currently in progress');
-    }
-
-    const encryptionMethod = this.passwordMethod ?? 'md5';
-    const hashedPassword = this.getHashedPassword();
-    const audio = await this.getRecordingAudioConfig();
-
-    const candidateUserIds = await this.resolvePlaybackUserIdCandidates(userIdOverride, startTime, endTime);
-
-    if (candidateUserIds.length === 0) {
-      throw new Error('Failed to resolve playback user ID');
-    }
-
-    let lastError: unknown = null;
-    for (let i = 0; i < candidateUserIds.length; i += 1) {
-      const candidateUserId = candidateUserIds[i];
-      const isRetry = i > 0;
-      try {
-        return await startRecordingDownloadToHls({
+    return this.runRecordingAttempts(
+      startTimeMs,
+      endTimeMs,
+      userIdOverride,
+      'Unable to start recording playback stream',
+      ({ userId, windowSize, startTime, paddedEndTime, encryptionMethod, hashedPassword, audio }) =>
+        startRecordingDownloadToHls({
           host: this.host,
           username: this.username,
           hashedPassword,
           encryptionMethod,
           audio,
-          userId: candidateUserId,
+          userId,
           startTime,
           endTime: paddedEndTime,
           outputDir,
-          windowSize: isRetry ? 50 : 200,
+          windowSize,
           seekOffsetSec,
-        });
-      } catch (e) {
-        lastError = e;
-        const msg = String((e as Error)?.message ?? e ?? '');
-        const shouldTryNextUserId =
-          this.isRetryablePlaybackStreamError(msg) && i < candidateUserIds.length - 1;
-        if (!shouldTryNextUserId) {
-          throw e;
-        }
-      }
-    }
-
-    throw lastError instanceof Error ? lastError : new Error('Unable to start recording playback stream');
+        }),
+    );
   }
 
   // -------------------------------------------------------------------------
