@@ -28,6 +28,23 @@ const RECORDING_EVENTS_RETRY_COOLDOWN_MS = 5 * 60_000;
 
 let testFixtures: TestFixtures | null = null;
 
+function getCamera(cameraId: string): CameraConfig | undefined {
+  return configStore.getCameras().find((c) => c.id === cameraId);
+}
+
+function requireCamera(cameraId: string): CameraConfig {
+  const cam = getCamera(cameraId);
+  if (!cam) throw new Error(`Camera ${cameraId} not found`);
+  return cam;
+}
+
+function clearRecordingCaches(cameraId: string): void {
+  recordingsCredentialCache.delete(cameraId);
+  recordingsClientCache.delete(cameraId);
+  recordingsUserIdCache.delete(cameraId);
+  recordingEventsCooldownCache.delete(cameraId);
+}
+
 function dateFromEpochMs(epochMs: number): string {
   return format(epochMs, 'yyyyMMdd');
 }
@@ -97,20 +114,14 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
 
   ipcMain.handle(IPC.cameras.update, (_e, id: string, updates: Partial<CameraConfig>) => {
     stopRecordingPlayback(id);
-    recordingsCredentialCache.delete(id);
-    recordingsClientCache.delete(id);
-    recordingsUserIdCache.delete(id);
-    recordingEventsCooldownCache.delete(id);
+    clearRecordingCaches(id);
     configStore.updateCamera(id, updates);
   });
 
   ipcMain.handle(IPC.cameras.remove, (_e, id: string) => {
     streamManager.stopStream(id);
     stopRecordingPlayback(id);
-    recordingsCredentialCache.delete(id);
-    recordingsClientCache.delete(id);
-    recordingsUserIdCache.delete(id);
-    recordingEventsCooldownCache.delete(id);
+    clearRecordingCaches(id);
     configStore.removeCamera(id);
   });
 
@@ -132,8 +143,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
       return testFixtures.streams[cameraId] ?? null;
     }
     stopRecordingPlayback(cameraId);
-    const cam = configStore.getCameras().find((c) => c.id === cameraId);
-    if (!cam) throw new Error(`Camera ${cameraId} not found`);
+    const cam = requireCamera(cameraId);
 
     try {
       return await streamManager.startStream(cameraId, cam);
@@ -160,7 +170,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     if (testFixtures?.snapshots) {
       return testFixtures.snapshots[cameraId] ?? null;
     }
-    const cam = configStore.getCameras().find((c) => c.id === cameraId);
+    const cam = getCamera(cameraId);
     if (!cam) return null;
     return streamManager.getSnapshot(cameraId, cam);
   });
@@ -173,7 +183,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     if (testFixtures) {
       return testFixtures.recordings?.[cameraId] ?? [];
     }
-    const cam = configStore.getCameras().find((c) => c.id === cameraId);
+    const cam = getCamera(cameraId);
     if (!cam) return [];
 
     const credential = recordingsCredentialCache.get(cameraId) ?? primaryCredential(cam);
@@ -205,7 +215,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
         return [];
       }
 
-      const cam = configStore.getCameras().find((c) => c.id === cameraId);
+      const cam = getCamera(cameraId);
       if (!cam) return [];
 
       const credential = recordingsCredentialCache.get(cameraId) ?? primaryCredential(cam);
@@ -249,8 +259,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
         return testFixtures.playbackUrls[cameraId] ?? 'about:blank';
       }
 
-      const cam = configStore.getCameras().find((c) => c.id === cameraId);
-      if (!cam) throw new Error(`Camera ${cameraId} not found`);
+      const cam = requireCamera(cameraId);
 
       const log = createLogger(`recordings:play:${cameraId}`);
 
