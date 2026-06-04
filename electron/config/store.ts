@@ -13,18 +13,29 @@ interface WindowState {
   isMaximized: boolean;
 }
 
+interface UiDisplay {
+  previews: boolean;
+  timeline: boolean;
+  header: boolean;
+  previewPosition: PreviewPosition;
+  language: string;
+  volume: number;
+}
+
 interface Config {
   cameras: CameraConfig[];
-  uiDisplay: {
-    previews: boolean;
-    timeline: boolean;
-    header: boolean;
-    previewPosition: PreviewPosition;
-    language: string;
-    volume: number;
-  };
+  uiDisplay: UiDisplay;
   windowState: WindowState;
 }
+
+const DEFAULT_UI_DISPLAY: UiDisplay = {
+  previews: true,
+  timeline: true,
+  header: true,
+  previewPosition: 'right',
+  language: 'system',
+  volume: 0,
+};
 
 const defaultWindowState: WindowState = {
   width: 1680,
@@ -35,14 +46,7 @@ const defaultWindowState: WindowState = {
 let configPath = '';
 let config: Config = {
   cameras: [],
-  uiDisplay: {
-    previews: true,
-    timeline: true,
-    header: true,
-    previewPosition: 'right',
-    language: 'system',
-    volume: 0,
-  },
+  uiDisplay: { ...DEFAULT_UI_DISPLAY },
   windowState: defaultWindowState,
 };
 
@@ -70,12 +74,12 @@ export function init(userDataPath: string): void {
       config = {
         cameras: parsed.cameras ?? [],
         uiDisplay: {
-          previews: parsed.uiDisplay?.previews ?? true,
-          timeline: parsed.uiDisplay?.timeline ?? true,
-          header: parsed.uiDisplay?.header ?? true,
-          previewPosition: parsed.uiDisplay?.previewPosition ?? 'right',
-          language: parsed.uiDisplay?.language ?? 'system',
-          volume: parsed.uiDisplay?.volume ?? 0,
+          previews: parsed.uiDisplay?.previews ?? DEFAULT_UI_DISPLAY.previews,
+          timeline: parsed.uiDisplay?.timeline ?? DEFAULT_UI_DISPLAY.timeline,
+          header: parsed.uiDisplay?.header ?? DEFAULT_UI_DISPLAY.header,
+          previewPosition: parsed.uiDisplay?.previewPosition ?? DEFAULT_UI_DISPLAY.previewPosition,
+          language: parsed.uiDisplay?.language ?? DEFAULT_UI_DISPLAY.language,
+          volume: parsed.uiDisplay?.volume ?? DEFAULT_UI_DISPLAY.volume,
         },
         windowState: {
           x: parsed.windowState?.x,
@@ -88,14 +92,7 @@ export function init(userDataPath: string): void {
     } catch {
       config = {
         cameras: [],
-        uiDisplay: {
-          previews: true,
-          timeline: true,
-          header: true,
-          previewPosition: 'right',
-          language: 'system',
-          volume: 0,
-        },
+        uiDisplay: { ...DEFAULT_UI_DISPLAY },
         windowState: defaultWindowState,
       };
     }
@@ -133,27 +130,11 @@ export function moveCamera(id: string, direction: 'up' | 'down'): void {
   save();
 }
 
-export function getUiDisplayPreferences(): {
-  previews: boolean;
-  timeline: boolean;
-  header: boolean;
-  previewPosition: PreviewPosition;
-  language: string;
-  volume: number;
-} {
+export function getUiDisplayPreferences(): UiDisplay {
   return { ...config.uiDisplay };
 }
 
-export function setUiDisplayPreferences(
-  preferences: Partial<{
-    previews: boolean;
-    timeline: boolean;
-    header: boolean;
-    previewPosition: PreviewPosition;
-    language: string;
-    volume: number;
-  }>,
-): void {
+export function setUiDisplayPreferences(preferences: Partial<UiDisplay>): void {
   config.uiDisplay = {
     previews: preferences.previews ?? config.uiDisplay.previews,
     timeline: preferences.timeline ?? config.uiDisplay.timeline,
