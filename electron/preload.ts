@@ -27,8 +27,6 @@ const api: VigilatusApi = {
   stream: {
     start: (cameraId: string): Promise<string | null> => ipcRenderer.invoke(IPC.stream.start, cameraId),
     stop: (cameraId: string): Promise<void> => ipcRenderer.invoke(IPC.stream.stop, cameraId),
-    startPlayback: (cameraId: string, seekSeconds: number): Promise<string> =>
-      ipcRenderer.invoke(IPC.stream.playback, cameraId, seekSeconds),
   },
   snapshot: {
     get: (cameraId: string): Promise<string | null> => ipcRenderer.invoke(IPC.snapshot.get, cameraId),

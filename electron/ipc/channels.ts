@@ -19,7 +19,6 @@ export const IPC = {
   stream: {
     start: 'stream:start',
     stop: 'stream:stop',
-    playback: 'stream:playback',
     /** Main -> renderer: a live stream process died. */
     died: 'stream:died',
   },

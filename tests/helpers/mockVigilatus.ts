@@ -18,7 +18,6 @@ export type VigilatusMock = {
   stream: {
     start: FnMock<[string], Promise<string | null>>;
     stop: FnMock<[string], Promise<void>>;
-    startPlayback: FnMock<[string, number], Promise<string>>;
   };
   snapshot: {
     get: FnMock<[string], Promise<string | null>>;
@@ -62,7 +61,6 @@ export function createVigilatusMock(overrides: Partial<VigilatusMock> = {}): Vig
     stream: {
       start: vi.fn().mockResolvedValue(null),
       stop: vi.fn().mockResolvedValue(undefined),
-      startPlayback: vi.fn().mockResolvedValue('blob:playback'),
     },
     snapshot: {
       get: vi.fn().mockResolvedValue(null),

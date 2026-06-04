@@ -152,12 +152,6 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     streamManager.stopStream(cameraId);
   });
 
-  ipcMain.handle(IPC.stream.playback, (_e, cameraId: string, seekSeconds: number) => {
-    const cam = configStore.getCameras().find((c) => c.id === cameraId);
-    if (!cam) throw new Error(`Camera ${cameraId} not found`);
-    return streamManager.startPlayback(cameraId, cam, seekSeconds);
-  });
-
   // ------------------------------------------------------------------
   // Snapshots
   // ------------------------------------------------------------------

@@ -208,7 +208,7 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
   const hlsUrl = `http://127.0.0.1:${hlsPort}/${cameraId}/stream-${sessionToken}.m3u8`;
   const rtsp = buildRtspUrl(cfg, 'main');
   const stderrLines: string[] = [];
-  const proc = createHlsCommand(rtsp, segDir, m3u8, undefined, sessionToken);
+  const proc = createHlsCommand(rtsp, segDir, m3u8, sessionToken);
 
   const ready = waitForHlsReady(m3u8, STREAM_READY_TIMEOUT_MS, stderrLines);
 
@@ -692,125 +692,9 @@ export function stopStream(cameraId: string): void {
   }
 }
 
-export function getPlaybackUrl(cameraId: string, filePath: string, hostDir?: string): string {
-  const log = createLogger(`getPlaybackUrl:${cameraId}`);
-  const ext = path.extname(filePath).toLowerCase() || '.mp4';
-  const baseName = path.basename(filePath, path.extname(filePath));
-  const safeBase = baseName.replace(/[^a-zA-Z0-9._-]/g, '_');
-
-  // If file exists, copy it to playback directory for immediate availability
-  if (fs.existsSync(filePath)) {
-    log.info(`file exists, copying to playback dir: ${filePath}`);
-    const destDir = path.join(PLAYBACK_DIR, cameraId);
-    fs.mkdirSync(destDir, { recursive: true });
-    const destFile = path.join(destDir, `${safeBase}${ext}`);
-    if (!fs.existsSync(destFile)) {
-      fs.copyFileSync(filePath, destFile);
-    }
-    const url = `http://127.0.0.1:${hlsPort}/playback/${cameraId}/${path.basename(destFile)}`;
-    log.info(`serving from playback dir: ${url}`);
-    return url;
-  }
-
-  // File doesn't exist yet (background download in progress).
-  // Serve directly from recordings directory as it's being written.
-  // Use hostDir in the URL path to match where the file is actually stored.
-  const urlPath = hostDir ? `${hostDir}/${safeBase}${ext}` : `${cameraId}/${safeBase}${ext}`;
-  const url = `http://127.0.0.1:${hlsPort}/recording/${urlPath}`;
-  log.info(`file not yet exists, serving from recordings dir: ${url}`);
-  return url;
-}
-
 export function getPlaybackAssetUrl(relativePath: string): string {
   const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
   return `http://127.0.0.1:${hlsPort}/playback/${normalized}`;
-}
-
-/** Restart the stream with a time offset for recording playback.  Returns the HLS URL. */
-export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: number): Promise<string> {
-  stopStream(cameraId);
-
-  const segDir = path.join(HLS_DIR, cameraId);
-  fs.mkdirSync(segDir, { recursive: true });
-  const sessionToken = createHlsSessionToken();
-  const m3u8 = path.join(segDir, `stream-${sessionToken}.m3u8`);
-  const hlsUrl = `http://127.0.0.1:${hlsPort}/${cameraId}/stream-${sessionToken}.m3u8`;
-  const rtsp = buildRtspUrl(cfg, 'main');
-  const stderrLines: string[] = [];
-  const proc = createHlsCommand(rtsp, segDir, m3u8, seekSeconds, sessionToken);
-
-  const ready = waitForHlsReady(m3u8, STREAM_READY_TIMEOUT_MS, stderrLines);
-
-  const streamReady = new Promise<string>((resolve, reject) => {
-    let settled = false;
-
-    attachFfmpegStderr(proc, stderrLines);
-
-    (
-      proc as ffmpeg.FfmpegCommand & {
-        on(
-          event: 'error',
-          listener: (err: Error, stdout: string, stderr: string) => void,
-        ): ffmpeg.FfmpegCommand;
-      }
-    ).on('error', (err: Error, _stdout: string, stderr: string) => {
-      if (isExpectedStopError(cameraId, err)) {
-        expectedStops.delete(cameraId);
-        streams.delete(cameraId);
-        if (!settled) {
-          settled = true;
-          reject(new Error('Playback start cancelled'));
-        }
-        return;
-      }
-
-      const details = summarizeFfmpegDetails(stderr?.trim() || stderrLines.join('\n').trim());
-      const message = details ? `${err.message}: ${details}` : err.message;
-      createLogger(`playback:${cameraId}`).error(`error:`, message);
-      streams.delete(cameraId);
-      if (!settled) {
-        settled = true;
-        reject(new Error(message));
-      }
-    });
-
-    proc.on('end', () => {
-      expectedStops.delete(cameraId);
-      streams.delete(cameraId);
-    });
-
-    void ready
-      .then(() => {
-        markStreamReady(cameraId, m3u8);
-        if (!settled) {
-          settled = true;
-          resolve(hlsUrl);
-        }
-      })
-      .catch((err: Error) => {
-        streams.delete(cameraId);
-        try {
-          proc.kill('SIGKILL');
-        } catch {
-          /* ignore */
-        }
-        if (!settled) {
-          settled = true;
-          reject(err);
-        }
-      });
-  });
-
-  streams.set(cameraId, {
-    proc,
-    hlsUrl,
-    playlistPath: m3u8,
-    kind: 'playback',
-    readyResolved: false,
-    lastHlsActivityAt: Date.now(),
-    ready: streamReady,
-  });
-  return streamReady;
 }
 
 // ---------------------------------------------------------------------------
@@ -1060,7 +944,6 @@ function createHlsCommand(
   rtspUrl: string,
   segDir: string,
   m3u8Path: string,
-  seekSeconds?: number,
   sessionToken?: string,
 ): ffmpeg.FfmpegCommand {
   const command = ffmpeg(rtspUrl).inputOptions([
@@ -1071,10 +954,6 @@ function createHlsCommand(
     '-flags',
     'low_delay',
   ]);
-
-  if (typeof seekSeconds === 'number' && seekSeconds > 0) {
-    command.inputOptions(['-ss', String(seekSeconds)]);
-  }
 
   return command
     .outputOptions([
@@ -1354,11 +1233,6 @@ function startServer(): Promise<number> {
       if (relativePath.startsWith('playback/')) {
         baseDir = PLAYBACK_DIR;
         filePath = relativePath.replace(/^playback\//, '');
-      } else if (relativePath.startsWith('recording/')) {
-        // Serve from recordings directory (for in-progress downloads)
-        // The path includes the host directory, e.g., /recording/192.168.100.141/timestamp.mp4
-        baseDir = RECORDINGS_DIR;
-        filePath = relativePath.replace(/^recording\//, '');
       } else {
         baseDir = HLS_DIR;
         filePath = relativePath;
@@ -1371,10 +1245,9 @@ function startServer(): Promise<number> {
         return;
       }
 
-      // Retry logic: wait for background-created playback assets and recordings to appear.
-      const isRecording = reqPath.includes('/recording/');
+      // Retry logic: wait for background-created playback assets to appear.
       const isPlayback = reqPath.includes('/playback/');
-      const isDeferredAsset = isRecording || isPlayback;
+      const isDeferredAsset = isPlayback;
       const maxRetries = isDeferredAsset ? 300 : 2;
       const retryDelayMs = 200;
       let retryCount = 0;

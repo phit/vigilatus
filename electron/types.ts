@@ -77,7 +77,6 @@ export interface VigilatusApi {
   stream: {
     start: (cameraId: string) => Promise<string | null>;
     stop: (cameraId: string) => Promise<void>;
-    startPlayback: (cameraId: string, seekSeconds: number) => Promise<string>;
   };
   snapshot: {
     get: (cameraId: string) => Promise<string | null>;
