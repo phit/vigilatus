@@ -404,56 +404,64 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
           ` seekOffset=${seekOffsetSec ?? 'none'}`,
       );
 
+      // Runs the shared fallback ladder for a single client: try the windowed
+      // download first, then (only for the "Camera closed ... unexpectedly"
+      // failure) the nearby-segments path. Returns the job and reports whether
+      // the nearby-segments fallback was used so callers can log accurately.
+      const acquirePlaybackJob = async (
+        client: TapoClient,
+        userIdHint?: number,
+      ): Promise<{
+        job: ActiveRecordingPlaybackJob & { ready: Promise<string>; assetPath?: string };
+        viaNearby: boolean;
+      }> => {
+        try {
+          return { job: await tryDownloadWithFallbackWindow(client, userIdHint), viaNearby: false };
+        } catch (e) {
+          if (signal.aborted) throw new Error('Recording playback cancelled');
+          const msg = String((e as Error)?.message ?? e ?? '');
+          if (!msg.includes('Camera closed the recording stream unexpectedly')) throw e;
+          return { job: await tryDownloadNearbySegments(client, userIdHint), viaNearby: true };
+        }
+      };
+
       try {
         const cachedClient = recordingsClientCache.get(cameraId);
+        const credential = recordingsCredentialCache.get(cameraId) ?? primaryCredential(cam);
+        // Ordered client sources: the cached client first (when present), then a
+        // freshly-built one. The fresh client is created lazily via getClient()
+        // so the common cached-success path doesn't allocate an unused client.
+        const sources: Array<{ getClient: () => TapoClient; persist: boolean }> = [];
         if (cachedClient) {
-          try {
-            playbackJob = await tryDownloadWithFallbackWindow(cachedClient, cachedUserId);
-            log.info('playback stream started (cached client)');
-          } catch (e) {
-            const msg = String((e as Error)?.message ?? e ?? '');
-            if (signal.aborted) throw new Error('Recording playback cancelled');
-            if (msg.includes('Camera closed the recording stream unexpectedly')) {
-              try {
-                playbackJob = await tryDownloadNearbySegments(cachedClient, cachedUserId);
-                log.info('playback stream started (nearby segments)');
-              } catch (nearbyError) {
-                if (signal.aborted) throw new Error('Recording playback cancelled');
-                lastError = nearbyError;
-              }
-            } else {
-              lastError = e;
-            }
-          }
+          sources.push({ getClient: () => cachedClient, persist: false });
         }
+        sources.push({ getClient: () => new TapoClient(credential), persist: true });
 
-        if (!playbackJob) {
+        for (const source of sources) {
           if (signal.aborted) throw new Error('Recording playback cancelled');
-          const credential = recordingsCredentialCache.get(cameraId) ?? primaryCredential(cam);
-          const client = new TapoClient(credential);
+          const client = source.getClient();
           try {
-            playbackJob = await tryDownloadWithFallbackWindow(client, cachedUserId);
-            recordingsCredentialCache.set(cameraId, credential);
-            recordingsClientCache.set(cameraId, client);
-            const resolvedUserId = client.getCachedUserId();
-            if (typeof resolvedUserId === 'number') {
-              recordingsUserIdCache.set(cameraId, resolvedUserId);
-            }
-            log.info('playback stream started');
-          } catch (e) {
-            const msg = String((e as Error)?.message ?? e ?? '');
-            if (signal.aborted) throw new Error('Recording playback cancelled');
-            if (msg.includes('Camera closed the recording stream unexpectedly')) {
-              try {
-                playbackJob = await tryDownloadNearbySegments(client, cachedUserId);
-                log.info('playback stream started (nearby segments)');
-              } catch (nearbyError) {
-                if (signal.aborted) throw new Error('Recording playback cancelled');
-                lastError = nearbyError;
+            const { job, viaNearby } = await acquirePlaybackJob(client, cachedUserId);
+            playbackJob = job;
+            if (source.persist) {
+              recordingsCredentialCache.set(cameraId, credential);
+              recordingsClientCache.set(cameraId, client);
+              const resolvedUserId = client.getCachedUserId();
+              if (typeof resolvedUserId === 'number') {
+                recordingsUserIdCache.set(cameraId, resolvedUserId);
               }
-            } else {
-              lastError = e;
             }
+            if (viaNearby) {
+              log.info('playback stream started (nearby segments)');
+            } else if (source.persist) {
+              log.info('playback stream started');
+            } else {
+              log.info('playback stream started (cached client)');
+            }
+            break;
+          } catch (e) {
+            if (signal.aborted) throw new Error('Recording playback cancelled');
+            lastError = e;
           }
         }
 
