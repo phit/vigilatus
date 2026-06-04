@@ -3,6 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import ffmpegStatic from 'ffmpeg-static';
 import { app } from 'electron';
+import { createLogger } from '../log';
+
+const log = createLogger('ffmpegPath');
 
 function supportsLibx264(ffmpegBinary: string): boolean {
   try {
@@ -31,7 +34,7 @@ function resolve(): string {
   // Prefer a system-installed ffmpeg if available
   const systemFfmpeg = findSystemFfmpeg();
   if (systemFfmpeg) {
-    console.log('[ffmpegPath] Using system ffmpeg:', systemFfmpeg);
+    log.info('Using system ffmpeg:', systemFfmpeg);
     return systemFfmpeg;
   }
 
@@ -58,7 +61,7 @@ function resolve(): string {
 
   for (const candidate of candidates) {
     if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-      console.log('[ffmpegPath] Using bundled ffmpeg:', candidate);
+      log.info('Using bundled ffmpeg:', candidate);
       return candidate;
     }
   }

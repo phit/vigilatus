@@ -27,6 +27,7 @@ import {
   type RecordingAudioOptions,
   type RecordingPlaybackJob,
 } from './recordingDownloader';
+import { createLogger } from '../log';
 
 const MAX_LOGIN_RETRIES = 2;
 const PLAYBACK_PADDING_SECONDS = 5;
@@ -167,9 +168,7 @@ export class TapoClient {
     return this.cachedUserId;
   }
 
-  private logUserIdProbe(stage: string, extra: Record<string, unknown>): void {
-    // console.info('[recordings:probe]', JSON.stringify({ stage, ...extra }));
-  }
+  private logUserIdProbe(_stage: string, _extra: Record<string, unknown>): void {}
 
   /**
    * Return recordings for a given day.
@@ -182,18 +181,11 @@ export class TapoClient {
     }
 
     const nearbyDates = await this.searchDatesWithVideo(date);
-    // console.info('[recordings:probe]', JSON.stringify({ stage: 'searchDateWithVideo', date, nearbyDates }));
 
     for (const candidateDate of nearbyDates) {
       if (candidateDate === date) continue;
       const fromCandidate = await this.queryRecordingsForDateWithFallbacks(candidateDate);
       if (fromCandidate.length > 0) {
-        // console.info('[recordings:probe]', JSON.stringify({
-        //   stage: 'dateFallbackSelected',
-        //   requestedDate: date,
-        //   selectedDate: candidateDate,
-        //   count: fromCandidate.length,
-        // }));
         return fromCandidate;
       }
     }
@@ -901,7 +893,7 @@ export class TapoClient {
     }
 
     const resultPreview = JSON.stringify(resp?.result ?? {}).slice(0, 500);
-    console.warn('[recordings:getUserId] unparsed response', resultPreview);
+    createLogger('recordings:getUserId').warn('unparsed response', resultPreview);
 
     if (retryCount < MAX_LOGIN_RETRIES) {
       this.clearSession();
@@ -1374,34 +1366,7 @@ export class TapoClient {
     return queryRange(startUtcSec, endUtcSec, 'utcRange');
   }
 
-  private logRecordingProbe(stage: string, date: string, resp: ApiResponse, parsedCount: number): void {
-    const result = (resp?.result ?? {}) as Record<string, unknown>;
-    const responses = Array.isArray(result.responses) ? result.responses : [];
-    const first = (responses[0] as { method?: unknown; result?: unknown } | undefined) ?? {};
-    const firstResult = (first.result ?? {}) as Record<string, unknown>;
-
-    const firstErrorCode = (responses[0] as { error_code?: unknown } | undefined)?.error_code;
-    const firstJson = responses.length > 0 ? JSON.stringify(responses[0]) : '';
-
-    const shape = {
-      stage,
-      date,
-      parsedCount,
-      errorCode: resp?.error_code,
-      topKeys: Object.keys(result),
-      responsesCount: responses.length,
-      firstMethod: first.method,
-      firstErrorCode,
-      firstResultKeys: Object.keys(firstResult),
-      playbackKeys:
-        firstResult.playback && typeof firstResult.playback === 'object'
-          ? Object.keys(firstResult.playback as Record<string, unknown>)
-          : [],
-      firstResponsePreview: firstJson.slice(0, 500),
-    };
-
-    // console.info('[recordings:probe]', JSON.stringify(shape));
-  }
+  private logRecordingProbe(_stage: string, _date: string, _resp: ApiResponse, _parsedCount: number): void {}
 
   // -------------------------------------------------------------------------
   // HTTP

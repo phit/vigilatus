@@ -1,6 +1,9 @@
 import { autoUpdater } from 'electron-updater';
 import { dialog, BrowserWindow } from 'electron';
 import { t } from './i18n';
+import { createLogger } from './log';
+
+const log = createLogger('autoUpdater');
 
 let updateAvailableNotified = false;
 
@@ -12,7 +15,7 @@ export function initAutoUpdater(): void {
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on('update-available', (info) => {
-    console.log('[autoUpdater] Update available:', info.version);
+    log.info('Update available:', info.version);
     if (updateAvailableNotified) return;
     updateAvailableNotified = true;
 
@@ -29,7 +32,7 @@ export function initAutoUpdater(): void {
   });
 
   autoUpdater.on('update-downloaded', (info) => {
-    console.log('[autoUpdater] Update downloaded:', info.version);
+    log.info('Update downloaded:', info.version);
 
     const win = BrowserWindow.getFocusedWindow();
     if (!win) return;
@@ -51,13 +54,13 @@ export function initAutoUpdater(): void {
   });
 
   autoUpdater.on('error', (err) => {
-    console.error('[autoUpdater] Error:', err);
+    log.error('Error:', err);
   });
 
   // Check for updates after a short delay so the window can finish loading
   setTimeout(() => {
     void autoUpdater.checkForUpdatesAndNotify().catch((err) => {
-      console.error('[autoUpdater] Check failed:', err);
+      log.error('Check failed:', err);
     });
   }, 5_000);
 }
@@ -83,7 +86,7 @@ export function checkForUpdates(): void {
 
   void autoUpdater.checkForUpdatesAndNotify().catch((err) => {
     autoUpdater.off('update-not-available', onNotAvailable);
-    console.error('[autoUpdater] Manual check failed:', err);
+    log.error('Manual check failed:', err);
     showNoUpdates();
   });
 }

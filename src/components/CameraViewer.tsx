@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import Hls, { ErrorTypes } from 'hls.js';
 import type { CameraState } from '../types';
 import { useCameraStore } from '../store/cameras';
+import { createLogger } from '../log';
 
 interface VideoStats {
   resolution: string;
@@ -129,7 +130,7 @@ export function CameraViewer({ camera, playbackMode }: Props) {
         const message = mediaError
           ? t('viewer.html5VideoError', { code: mediaError.code })
           : t('viewer.html5VideoFailed');
-        console.error('[viewer:video] error', mediaError);
+        createLogger('viewer:video').error('error', mediaError);
         setPlayerError(message);
       };
 
@@ -171,7 +172,7 @@ export function CameraViewer({ camera, playbackMode }: Props) {
         });
       });
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        console.error('[viewer:hls] error', data);
+        createLogger('viewer:hls').error('error', data);
         if (!data.fatal) return;
 
         if (data.type === ErrorTypes.NETWORK_ERROR) {
@@ -191,7 +192,7 @@ export function CameraViewer({ camera, playbackMode }: Props) {
         const message = mediaError
           ? t('viewer.html5VideoError', { code: mediaError.code })
           : t('viewer.html5VideoFailed');
-        console.error('[viewer:video] error', mediaError);
+        createLogger('viewer:video').error('error', mediaError);
         setPlayerError(message);
       };
 

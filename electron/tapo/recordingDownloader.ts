@@ -6,6 +6,7 @@ import net from 'node:net';
 import path from 'node:path';
 import type { Writable } from 'node:stream';
 import { ffmpegBinaryPath } from './ffmpegPath';
+import { createLogger } from '../log';
 
 type EncryptionMethod = 'md5' | 'sha256';
 
@@ -457,8 +458,6 @@ export class MediaSession {
       },
     });
 
-    // console.info(`[streamPreview] sending preview request`);
-
     await this.writeMultipart(Buffer.from(payload, 'utf8'), {
       'Content-Type': 'application/json',
       'Content-Length': String(Buffer.byteLength(payload)),
@@ -523,8 +522,8 @@ export class MediaSession {
       },
     });
 
-    console.info(
-      `[streamRecording] sending playback request:` +
+    createLogger('streamRecording').info(
+      `sending playback request:` +
         ` userId=${userId}` +
         ` start_time=${startTime} (${new Date(startTime * 1000).toISOString()})` +
         ` end_time=${endTime} (${new Date(endTime * 1000).toISOString()})`,
@@ -705,26 +704,26 @@ export class MediaSession {
 }
 
 export async function downloadRecordingToMp4(options: DownloadRecordingOptions): Promise<string> {
-  const logPrefix = `[recording:dl:${options.host}:${options.startTime}-${options.endTime}]`;
+  const log = createLogger(`recording:dl:${options.host}:${options.startTime}-${options.endTime}`);
   const retryWindowSizes = buildRetryWindowSizes(options.windowSize);
-  console.info(`${logPrefix} starting download, windowSizes=${retryWindowSizes.join(',')}`);
+  log.info(`starting download, windowSizes=${retryWindowSizes.join(',')}`);
 
   fs.mkdirSync(path.dirname(options.outputPath), { recursive: true });
   const partialOutputPath = `${options.outputPath}.part`;
   if (fs.existsSync(options.outputPath)) {
     const existingSize = fs.statSync(options.outputPath).size;
     if (existingSize > 0) {
-      console.info(`${logPrefix} file already exists, returning cached`);
+      log.info(`file already exists, returning cached`);
       return options.outputPath;
     }
 
     fs.rmSync(options.outputPath, { force: true });
-    console.warn(`${logPrefix} removed zero-byte cached file before retrying download`);
+    log.warn(`removed zero-byte cached file before retrying download`);
   }
 
   if (fs.existsSync(partialOutputPath)) {
     fs.rmSync(partialOutputPath, { force: true });
-    console.warn(`${logPrefix} removed stale partial download before retrying`);
+    log.warn(`removed stale partial download before retrying`);
   }
 
   let lastError: unknown = null;
@@ -737,11 +736,11 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
       options.hashedPassword,
       windowSize,
     );
-    console.info(
-      `${logPrefix} connecting to media session (attempt ${attemptIndex + 1}/${retryWindowSizes.length}, windowSize=${windowSize})...`,
+    log.info(
+      `connecting to media session (attempt ${attemptIndex + 1}/${retryWindowSizes.length}, windowSize=${windowSize})...`,
     );
     await session.start();
-    console.info(`${logPrefix} media session connected, starting stream...`);
+    log.info(`media session connected, starting stream...`);
 
     const ffmpegProc = spawn(ffmpegBinaryPath, buildDownloadFfmpegArgs(partialOutputPath, options.audio), {
       stdio: options.audio ? ['pipe', 'ignore', 'pipe', 'pipe'] : ['pipe', 'ignore', 'pipe'],
@@ -760,10 +759,6 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
     const stderrChunks: Buffer[] = [];
     ffmpegStderr?.on('data', (chunk: Buffer) => {
       stderrChunks.push(chunk);
-      // const message = chunk.toString('utf8').trim();
-      // if (message) {
-      //   console.info(`${logPrefix} ffmpeg: ${message}`);
-      // }
     });
 
     let tsBuffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
@@ -771,12 +766,12 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
     let totalBytes = 0;
 
     try {
-      console.info(`${logPrefix} starting media stream for userId=${options.userId}`);
+      log.info(`starting media stream for userId=${options.userId}`);
       await session.streamRecording(options.userId, options.startTime, options.endTime, async (part) => {
         totalDataChunks++;
         totalBytes += part.plaintext.length;
         if (totalDataChunks % 50 === 0) {
-          console.info(`${logPrefix} received ${totalDataChunks} chunks, ${totalBytes} bytes`);
+          log.info(`received ${totalDataChunks} chunks, ${totalBytes} bytes`);
         }
         tsBuffer = await writeAlignedTsPackets(tsBuffer, part.plaintext, ffmpegStdin);
         if (audioInput && !audioInput.destroyed && part.audioPayload) {
@@ -784,14 +779,12 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
         }
       });
 
-      console.info(
-        `${logPrefix} media stream ended, received ${totalDataChunks} chunks (${totalBytes} bytes)`,
-      );
+      log.info(`media stream ended, received ${totalDataChunks} chunks (${totalBytes} bytes)`);
       if (audioInput && !audioInput.destroyed) {
         audioInput.end();
       }
       ffmpegStdin.end();
-      console.info(`${logPrefix} waiting for ffmpeg to finish...`);
+      log.info(`waiting for ffmpeg to finish...`);
       const [exitCode] = (await once(ffmpegProc, 'close')) as [number | null];
       if (exitCode !== 0) {
         const stderr = Buffer.concat(stderrChunks).toString('utf8').trim();
@@ -805,12 +798,12 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
 
       fs.renameSync(partialOutputPath, options.outputPath);
 
-      console.info(`${logPrefix} successfully saved to ${options.outputPath}`);
+      log.info(`successfully saved to ${options.outputPath}`);
       return options.outputPath;
     } catch (error) {
       lastError = error;
       const msg = (error as Error)?.message ?? String(error);
-      console.error(`${logPrefix} failed: ${msg}, received ${totalDataChunks} chunks before error`);
+      log.error(`failed: ${msg}, received ${totalDataChunks} chunks before error`);
       try {
         ffmpegProc.kill('SIGKILL');
       } catch {
@@ -829,10 +822,10 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
       if (!isRetryableRecordingStreamError(msg) || attemptIndex >= retryWindowSizes.length - 1) {
         throw error;
       }
-      console.warn(`${logPrefix} retrying download with smaller window after retryable stream failure`);
+      log.warn(`retrying download with smaller window after retryable stream failure`);
     } finally {
       await session.close();
-      console.info(`${logPrefix} media session closed`);
+      log.info(`media session closed`);
     }
   }
 
@@ -842,7 +835,7 @@ export async function downloadRecordingToMp4(options: DownloadRecordingOptions):
 export async function startRecordingDownloadToHls(
   options: RecordingPlaybackStreamOptions,
 ): Promise<RecordingPlaybackJob> {
-  const logPrefix = `[recording:hls:${options.host}:${options.startTime}-${options.endTime}]`;
+  const log = createLogger(`recording:hls:${options.host}:${options.startTime}-${options.endTime}`);
   const assetPath = path.join(options.outputDir, 'stream.mp4');
 
   fs.rmSync(options.outputDir, { recursive: true, force: true });
@@ -883,9 +876,6 @@ export async function startRecordingDownloadToHls(
   const retryWindowSizes = buildRetryWindowSizes(options.windowSize);
 
   const runAttempt = async (withAudio: boolean, windowSize: number): Promise<void> => {
-    const modeLabel = withAudio ? 'audio+video' : 'video-only';
-    // console.info(`${logPrefix} connecting to media session (${modeLabel}, windowSize=${windowSize})...`);
-
     const session = new MediaSession(
       options.host,
       options.username || 'admin',
@@ -894,19 +884,16 @@ export async function startRecordingDownloadToHls(
     );
     activeSession = session;
     await session.start();
-    // console.info(`${logPrefix} media session connected, starting progressive MP4 stream (${modeLabel})...`);
 
     const ffmpegArgs = buildPlaybackFfmpegArgs(
       assetPath,
       withAudio ? options.audio : undefined,
       options.seekOffsetSec,
     );
-    // console.info(`${logPrefix} ffmpeg args: ${ffmpegArgs.join(' ')}`);
 
     const ffmpegProc = spawn(ffmpegBinaryPath, ffmpegArgs, {
       stdio: withAudio && options.audio ? ['pipe', 'ignore', 'pipe', 'pipe'] : ['pipe', 'ignore', 'pipe'],
     });
-    // console.info(`${logPrefix} ffmpeg process started (PID: ${ffmpegProc.pid})`);
 
     activeFfmpegProc = ffmpegProc;
     const ffmpegStdin = ffmpegProc.stdin!;
@@ -923,28 +910,15 @@ export async function startRecordingDownloadToHls(
     const stderrChunks: Buffer[] = [];
     ffmpegStderr?.on('data', (chunk: Buffer) => {
       stderrChunks.push(chunk);
-      // const message = chunk.toString('utf8').trim();
-      // if (message) {
-      //   console.info(`${logPrefix} ffmpeg: ${message}`);
-      // }
     });
 
-    let totalDataChunks = 0;
-    let totalBytes = 0;
     let tsBuffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
     let receivedAudioData = false;
 
     try {
-      // console.info(`${logPrefix} starting media stream for userId=${options.userId} (${modeLabel})`);
       await session.streamRecording(options.userId, options.startTime, options.endTime, async (part) => {
         if (ffmpegProc.exitCode !== null || ffmpegStdin.destroyed) {
           throw new Error('ffmpeg exited early during progressive playback');
-        }
-
-        totalDataChunks += 1;
-        totalBytes += part.plaintext.length;
-        if (totalDataChunks % 50 === 0) {
-          // console.info(`${logPrefix} received ${totalDataChunks} chunks, ${totalBytes} bytes`);
         }
 
         tsBuffer = await writeAlignedTsPackets(tsBuffer, part.plaintext, ffmpegStdin);
@@ -958,10 +932,9 @@ export async function startRecordingDownloadToHls(
         tsBuffer = await writeAlignedTsPackets(tsBuffer, Buffer.alloc(0), ffmpegStdin);
       }
 
-      // console.info(`${logPrefix} media stream ended, received ${totalDataChunks} chunks (${totalBytes} bytes) (${modeLabel})`);
       if (audioInput && !audioInput.destroyed) {
         if (!receivedAudioData && withAudio) {
-          console.warn(`${logPrefix} no audio data received, closing audio pipe`);
+          log.warn(`no audio data received, closing audio pipe`);
         }
         audioInput.end();
       }
@@ -970,7 +943,6 @@ export async function startRecordingDownloadToHls(
       }
 
       const [exitCode] = (await once(ffmpegProc, 'close')) as [number | null];
-      // console.info(`${logPrefix} ffmpeg process exited with code ${exitCode}`);
       if (cancelled) {
         throw new Error('Recording playback cancelled');
       }
@@ -979,12 +951,8 @@ export async function startRecordingDownloadToHls(
         throw new Error(stderr || `ffmpeg exited with code ${exitCode}`);
       }
 
-      // console.info(`${logPrefix} finished writing progressive MP4 playback (${modeLabel})`);
-      if (fs.existsSync(assetPath)) {
-        const stats = fs.statSync(assetPath);
-        // console.info(`${logPrefix} output file created: ${assetPath} (${stats.size} bytes)`);
-      } else {
-        console.error(`${logPrefix} output file NOT created: ${assetPath}`);
+      if (!fs.existsSync(assetPath)) {
+        log.error(`output file NOT created: ${assetPath}`);
       }
     } finally {
       stopActiveFfmpeg();
@@ -1011,16 +979,14 @@ export async function startRecordingDownloadToHls(
         if (!isRetryableRecordingStreamError(message) || attemptIndex >= retryWindowSizes.length - 1) {
           throw error;
         }
-        console.warn(
-          `${logPrefix} retrying progressive playback with smaller window after retryable stream failure`,
-        );
+        log.warn(`retrying progressive playback with smaller window after retryable stream failure`);
       }
     }
 
     throw lastError instanceof Error ? lastError : new Error('Unable to start recording playback stream');
   };
 
-  const ready = waitForPlaybackFileReady(assetPath, PLAYBACK_READY_TIMEOUT_MS, logPrefix);
+  const ready = waitForPlaybackFileReady(assetPath, PLAYBACK_READY_TIMEOUT_MS, log);
 
   const completed = (async () => {
     try {
@@ -1032,7 +998,7 @@ export async function startRecordingDownloadToHls(
         }
 
         const message = (error as Error)?.message ?? String(error);
-        console.warn(`${logPrefix} audio+video playback failed: ${message}, falling back to video-only`);
+        log.warn(`audio+video playback failed: ${message}, falling back to video-only`);
         try {
           fs.rmSync(assetPath, { force: true });
         } catch {
@@ -1042,7 +1008,7 @@ export async function startRecordingDownloadToHls(
         try {
           await runAttemptWithRetry(false);
         } catch (videoError) {
-          console.warn(`${logPrefix} video-only playback also failed, using audio+video error`);
+          log.warn(`video-only playback also failed, using audio+video error`);
           throw error;
         }
       }
@@ -1050,7 +1016,7 @@ export async function startRecordingDownloadToHls(
       return assetPath;
     } catch (error) {
       const msg = (error as Error)?.message ?? String(error);
-      console.error(`${logPrefix} failed: ${msg}`);
+      log.error(`failed: ${msg}`);
       throw error;
     } finally {
       stopActiveFfmpeg();
@@ -1088,7 +1054,11 @@ export async function startRecordingDownloadToHls(
   };
 }
 
-function waitForPlaybackFileReady(filePath: string, timeoutMs: number, logPrefix: string): Promise<string> {
+function waitForPlaybackFileReady(
+  filePath: string,
+  timeoutMs: number,
+  log: ReturnType<typeof createLogger>,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     let lastSize = 0;
@@ -1104,20 +1074,16 @@ function waitForPlaybackFileReady(filePath: string, timeoutMs: number, logPrefix
           const currentTime = Date.now();
           const isGrowing = currentSize > lastSize;
 
-          if (checkCount === 1 || checkCount % 10 === 0 || isGrowing) {
-            // console.info(`${logPrefix} file check #${checkCount}: size=${currentSize}, growing=${isGrowing}`);
-          }
-
           // Resolve if we hit the main threshold
           if (currentSize >= MIN_PLAYBACK_READY_BYTES) {
-            console.info(`${logPrefix} playback file is ready (${currentSize} bytes)`);
+            log.info(`playback file is ready (${currentSize} bytes)`);
             resolve(filePath);
             return;
           }
 
           // Or if file exists, has some data, and is actively growing
           if (currentSize >= MIN_PLAYBACK_GROWTH_BYTES && isGrowing && currentTime - lastCheckTime >= 400) {
-            console.info(`${logPrefix} playback file is growing (${currentSize} bytes), starting playback`);
+            log.info(`playback file is growing (${currentSize} bytes), starting playback`);
             resolve(filePath);
             return;
           }
@@ -1126,19 +1092,13 @@ function waitForPlaybackFileReady(filePath: string, timeoutMs: number, logPrefix
           if (isGrowing) {
             lastCheckTime = currentTime;
           }
-        } else {
-          if (checkCount === 1 || checkCount % 10 === 0) {
-            // console.info(`${logPrefix} file check #${checkCount}: file not found yet`);
-          }
         }
       } catch (e) {
-        console.error(`${logPrefix} file check error: ${(e as Error)?.message}`);
+        log.error(`file check error: ${(e as Error)?.message}`);
       }
 
       if (Date.now() - start >= timeoutMs) {
-        console.error(
-          `${logPrefix} file check timed out after ${checkCount} checks, ${Date.now() - start}ms`,
-        );
+        log.error(`file check timed out after ${checkCount} checks, ${Date.now() - start}ms`);
         reject(new Error('Timed out waiting for recording playback to become ready'));
         return;
       }

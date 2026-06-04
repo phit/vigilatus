@@ -18,6 +18,7 @@ import type { CameraConfig } from '../types';
 import { ffmpegBinaryPath } from './ffmpegPath';
 import { MediaSession, hashMediaPassword, writeAlignedTsPackets } from './recordingDownloader';
 import * as configStore from '../config/store';
+import { createLogger } from '../log';
 
 type HashMethod = 'md5' | 'sha256';
 
@@ -125,7 +126,7 @@ function purgeOldRecordings(): void {
       }
     }
   } catch (err) {
-    console.error('[streamManager] Failed to purge old recordings:', err);
+    createLogger('streamManager').error('Failed to purge old recordings:', err);
   }
 }
 
@@ -133,7 +134,7 @@ export async function init(): Promise<void> {
   try {
     ffmpeg.setFfmpegPath(ffmpegBinaryPath);
   } catch (err) {
-    console.error('[streamManager:init] Failed to resolve ffmpeg path:', err);
+    createLogger('streamManager:init').error('Failed to resolve ffmpeg path:', err);
     throw err;
   }
 
@@ -236,7 +237,7 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
 
       const details = summarizeFfmpegDetails(stderr?.trim() || stderrLines.join('\n').trim());
       const message = details ? `${err.message}: ${details}` : err.message;
-      console.error(`[stream:${cameraId}] error:`, message);
+      createLogger(`stream:${cameraId}`).error(`error:`, message);
       streams.delete(cameraId);
       if (!settled) {
         settled = true;
@@ -290,6 +291,7 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
 }
 
 function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<string> {
+  const log = createLogger(`stream:${cameraId}`);
   const segDir = path.join(HLS_DIR, cameraId);
   fs.mkdirSync(segDir, { recursive: true });
   const sessionToken = createHlsSessionToken();
@@ -304,7 +306,7 @@ function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<string> {
 
     for (const method of hashMethods) {
       const hashedPassword = hashMediaPassword(cfg.password, method);
-      console.info(`[stream:${cameraId}] trying HTTP media session with ${method} password hash...`);
+      log.info(`trying HTTP media session with ${method} password hash...`);
 
       try {
         const url = await attemptHttpStream(
@@ -323,7 +325,7 @@ function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<string> {
         return url;
       } catch (err) {
         lastError = err as Error;
-        console.warn(`[stream:${cameraId}] HTTP stream with ${method} failed: ${(err as Error).message}`);
+        log.warn(`HTTP stream with ${method} failed: ${(err as Error).message}`);
         // Clean up before retry
         stopStream(cameraId);
         fs.mkdirSync(segDir, { recursive: true });
@@ -334,7 +336,7 @@ function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<string> {
     if (cachedMethod) {
       const fallback: HashMethod = cachedMethod === 'md5' ? 'sha256' : 'md5';
       const hashedPassword = hashMediaPassword(cfg.password, fallback);
-      console.info(`[stream:${cameraId}] retrying HTTP media session with ${fallback} password hash...`);
+      log.info(`retrying HTTP media session with ${fallback} password hash...`);
 
       try {
         const url = await attemptHttpStream(
@@ -350,9 +352,7 @@ function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<string> {
         return url;
       } catch (err) {
         lastError = err as Error;
-        console.warn(
-          `[stream:${cameraId}] HTTP stream with ${fallback} also failed: ${(err as Error).message}`,
-        );
+        log.warn(`HTTP stream with ${fallback} also failed: ${(err as Error).message}`);
         stopStream(cameraId);
       }
     }
@@ -381,6 +381,7 @@ async function attemptHttpStream(
   hlsUrl: string,
   sessionToken: string,
 ): Promise<string> {
+  const log = createLogger(`stream:${cameraId}`);
   let session: MediaSession | null = null;
   let ffmpegProc: ChildProcess | null = null;
 
@@ -405,7 +406,7 @@ async function attemptHttpStream(
   try {
     session = new MediaSession(cfg.host, cfg.username || 'admin', hashedPassword, 200);
     await session.start();
-    console.info(`[stream:${cameraId}] HTTP media session connected`);
+    log.info(`HTTP media session connected`);
 
     // --- Phase 1: buffer initial chunks to detect audio codec ---------------
     interface BufferedPart {
@@ -450,27 +451,25 @@ async function attemptHttpStream(
         // Detection phase
         if (!firstDataReceived) {
           firstDataReceived = true;
-          console.info(`[stream:${cameraId}] first video data received (${part.plaintext.length} bytes)`);
+          log.info(`first video data received (${part.plaintext.length} bytes)`);
         }
 
         buffered.push({ plaintext: part.plaintext, audioPayload: part.audioPayload });
 
         if (!detectedAudioCodec && part.audioPayloadType) {
           detectedAudioCodec = part.audioPayloadType;
-          console.info(`[stream:${cameraId}] detected audio codec: ${detectedAudioCodec}`);
+          log.info(`detected audio codec: ${detectedAudioCodec}`);
           resolveDetection!();
         }
 
         if (buffered.length >= DETECT_LIMIT && !detectedAudioCodec) {
-          console.info(
-            `[stream:${cameraId}] no audio detected after ${DETECT_LIMIT} chunks, proceeding video-only`,
-          );
+          log.info(`no audio detected after ${DETECT_LIMIT} chunks, proceeding video-only`);
           resolveDetection!();
         }
       })
       .catch((err) => {
         if (!expectedStops.has(cameraId)) {
-          console.error(`[stream:${cameraId}] http media session error:`, (err as Error).message);
+          log.error(`http media session error:`, (err as Error).message);
           cleanup();
           onStreamDiedCallback?.(cameraId);
         }
@@ -629,7 +628,6 @@ async function attemptHttpStream(
     ffmpegProc.stderr?.on('data', (chunk: Buffer) => {
       const line = chunk.toString('utf8').trim();
       if (line) {
-        // console.error(`[stream:${cameraId}] ffmpeg: ${line}`);
         stderrLines.push(line);
       }
       if (stderrLines.length > STDERR_HISTORY_LIMIT) stderrLines.shift();
@@ -637,7 +635,7 @@ async function attemptHttpStream(
 
     ffmpegProc.on('exit', (code) => {
       if (!expectedStops.has(cameraId)) {
-        console.error(`[stream:${cameraId}] http ffmpeg exited with code ${code}`);
+        log.error(`http ffmpeg exited with code ${code}`);
         streams.delete(cameraId);
         onStreamDiedCallback?.(cameraId);
       }
@@ -645,7 +643,7 @@ async function attemptHttpStream(
 
     await Promise.race([waitForHlsReady(m3u8, HTTP_STREAM_READY_TIMEOUT_MS, stderrLines), noDataTimeout]);
     markStreamReady(cameraId, m3u8);
-    console.info(`[stream:${cameraId}] HTTP stream ready, received ${totalChunks} chunks so far`);
+    log.info(`HTTP stream ready, received ${totalChunks} chunks so far`);
     return hlsUrl;
   } catch (err) {
     cleanup();
@@ -695,13 +693,14 @@ export function stopStream(cameraId: string): void {
 }
 
 export function getPlaybackUrl(cameraId: string, filePath: string, hostDir?: string): string {
+  const log = createLogger(`getPlaybackUrl:${cameraId}`);
   const ext = path.extname(filePath).toLowerCase() || '.mp4';
   const baseName = path.basename(filePath, path.extname(filePath));
   const safeBase = baseName.replace(/[^a-zA-Z0-9._-]/g, '_');
 
   // If file exists, copy it to playback directory for immediate availability
   if (fs.existsSync(filePath)) {
-    console.info(`[getPlaybackUrl:${cameraId}] file exists, copying to playback dir: ${filePath}`);
+    log.info(`file exists, copying to playback dir: ${filePath}`);
     const destDir = path.join(PLAYBACK_DIR, cameraId);
     fs.mkdirSync(destDir, { recursive: true });
     const destFile = path.join(destDir, `${safeBase}${ext}`);
@@ -709,7 +708,7 @@ export function getPlaybackUrl(cameraId: string, filePath: string, hostDir?: str
       fs.copyFileSync(filePath, destFile);
     }
     const url = `http://127.0.0.1:${hlsPort}/playback/${cameraId}/${path.basename(destFile)}`;
-    console.info(`[getPlaybackUrl:${cameraId}] serving from playback dir: ${url}`);
+    log.info(`serving from playback dir: ${url}`);
     return url;
   }
 
@@ -718,7 +717,7 @@ export function getPlaybackUrl(cameraId: string, filePath: string, hostDir?: str
   // Use hostDir in the URL path to match where the file is actually stored.
   const urlPath = hostDir ? `${hostDir}/${safeBase}${ext}` : `${cameraId}/${safeBase}${ext}`;
   const url = `http://127.0.0.1:${hlsPort}/recording/${urlPath}`;
-  console.info(`[getPlaybackUrl:${cameraId}] file not yet exists, serving from recordings dir: ${url}`);
+  log.info(`file not yet exists, serving from recordings dir: ${url}`);
   return url;
 }
 
@@ -767,7 +766,7 @@ export function startPlayback(cameraId: string, cfg: CameraConfig, seekSeconds: 
 
       const details = summarizeFfmpegDetails(stderr?.trim() || stderrLines.join('\n').trim());
       const message = details ? `${err.message}: ${details}` : err.message;
-      console.error(`[playback:${cameraId}] error:`, message);
+      createLogger(`playback:${cameraId}`).error(`error:`, message);
       streams.delete(cameraId);
       if (!settled) {
         settled = true;
@@ -1015,7 +1014,10 @@ async function captureHttpSnapshot(cameraId: string, cfg: CameraConfig): Promise
         return null;
       }
     } catch (err) {
-      console.warn(`[snapshot:${cameraId}] http snapshot with ${method} failed:`, (err as Error).message);
+      createLogger(`snapshot:${cameraId}`).warn(
+        `http snapshot with ${method} failed:`,
+        (err as Error).message,
+      );
     } finally {
       if (session) void session.close().catch(() => {});
     }
@@ -1157,8 +1159,8 @@ function checkLiveStreamsForStall(): void {
     }
 
     const secondsStalled = Math.round((now - entry.lastHlsActivityAt) / 1000);
-    console.error(
-      `[stream:${cameraId}] watchdog detected stalled live HLS output; no playlist/segment updates for ${secondsStalled}s`,
+    createLogger(`stream:${cameraId}`).error(
+      `watchdog detected stalled live HLS output; no playlist/segment updates for ${secondsStalled}s`,
     );
     failLiveStream(cameraId, `watchdog stall after ${secondsStalled}s without HLS updates`);
   }
@@ -1188,7 +1190,7 @@ function getLatestHlsActivityAt(entry: StreamEntry): number | null {
 
 function failLiveStream(cameraId: string, reason: string): void {
   if (!streams.has(cameraId)) return;
-  console.error(`[stream:${cameraId}] marking live stream as dead: ${reason}`);
+  createLogger(`stream:${cameraId}`).error(`marking live stream as dead: ${reason}`);
   stopStream(cameraId);
   onStreamDiedCallback?.(cameraId);
 }
@@ -1343,6 +1345,7 @@ async function streamGrowingMp4(
 function startServer(): Promise<number> {
   return new Promise((resolve, reject) => {
     server = http.createServer((req, res) => {
+      const log = createLogger('http:server');
       const reqPath = decodeURIComponent((req.url ?? '/').replace(/\?.*$/, ''));
       const relativePath = reqPath.replace(/^\/+/, '');
       let baseDir: string;
@@ -1363,12 +1366,10 @@ function startServer(): Promise<number> {
 
       const safe = path.resolve(baseDir, filePath);
       if (!safe.startsWith(baseDir)) {
-        console.error(`[http:server] 403 Forbidden for ${reqPath}`);
+        log.error(`403 Forbidden for ${reqPath}`);
         res.writeHead(403).end('Forbidden');
         return;
       }
-
-      // console.info(`[http:server] serving ${reqPath} from ${safe}`);
 
       // Retry logic: wait for background-created playback assets and recordings to appear.
       const isRecording = reqPath.includes('/recording/');
@@ -1383,14 +1384,11 @@ function startServer(): Promise<number> {
           if (statErr) {
             if (retryCount < maxRetries && isDeferredAsset) {
               retryCount++;
-              if (retryCount % 5 === 0) {
-                // console.info(`[http:server] file not found, retrying (${retryCount}/${maxRetries})...`);
-              }
               setTimeout(tryRead, retryDelayMs);
               return;
             }
 
-            console.error(`[http:server] 404 Not found after ${retryCount} retries: ${safe}`);
+            log.error(`404 Not found after ${retryCount} retries: ${safe}`);
             res.writeHead(404).end('Not found');
             return;
           }
@@ -1398,14 +1396,11 @@ function startServer(): Promise<number> {
           if (isDeferredAsset && stats.size <= 0) {
             if (retryCount < maxRetries) {
               retryCount++;
-              if (retryCount % 5 === 0) {
-                // console.info(`[http:server] file empty, retrying (${retryCount}/${maxRetries})...`);
-              }
               setTimeout(tryRead, retryDelayMs);
               return;
             }
 
-            console.error(`[http:server] 404 Empty file after ${retryCount} retries: ${safe}`);
+            log.error(`404 Empty file after ${retryCount} retries: ${safe}`);
             res.writeHead(404).end('Not found');
             return;
           }
@@ -1417,14 +1412,11 @@ function startServer(): Promise<number> {
           ) {
             if (retryCount < maxRetries) {
               retryCount++;
-              if (retryCount % 5 === 0) {
-                // console.info(`[http:server] playback file too small, retrying (${retryCount}/${maxRetries})...`);
-              }
               setTimeout(tryRead, retryDelayMs);
               return;
             }
 
-            console.error(`[http:server] 404 Playback file too small after ${retryCount} retries: ${safe}`);
+            log.error(`404 Playback file too small after ${retryCount} retries: ${safe}`);
             res.writeHead(404).end('Not found');
             return;
           }
@@ -1441,10 +1433,7 @@ function startServer(): Promise<number> {
 
           if (activePlayback && ext === '.mp4') {
             void streamGrowingMp4(safe, res, activePlayback).catch((error) => {
-              console.error(
-                `[http:server] failed growing playback stream ${safe}:`,
-                (error as Error)?.message ?? error,
-              );
+              log.error(`failed growing playback stream ${safe}:`, (error as Error)?.message ?? error);
               if (!res.headersSent) {
                 res.writeHead(500).end('Streaming failed');
               } else if (!res.writableEnded) {
@@ -1463,9 +1452,7 @@ function startServer(): Promise<number> {
 
               // For empty/growing files, allow reading 0 bytes and let player retry
               if (start >= fileSize && fileSize > 0) {
-                console.error(
-                  `[http:server] 416 Range Not Satisfiable: start=${start} >= fileSize=${fileSize}`,
-                );
+                log.error(`416 Range Not Satisfiable: start=${start} >= fileSize=${fileSize}`);
                 res
                   .writeHead(416, {
                     'Content-Range': `bytes */${fileSize}`,
@@ -1477,7 +1464,6 @@ function startServer(): Promise<number> {
               const rangeEnd = Math.min(end, Math.max(0, fileSize - 1));
               const length = Math.max(0, rangeEnd - start + 1);
 
-              // console.info(`[http:server] 206 Partial ${safe} (bytes ${start}-${rangeEnd}/${fileSize})`);
               res.writeHead(206, {
                 'Content-Type': mime,
                 'Content-Length': length,
@@ -1502,11 +1488,10 @@ function startServer(): Promise<number> {
           // Standard full file read
           fs.readFile(safe, (readErr, data) => {
             if (readErr) {
-              console.error(`[http:server] 404 Not found: ${safe} - ${readErr.message}`);
+              log.error(`404 Not found: ${safe} - ${readErr.message}`);
               res.writeHead(404).end('Not found');
               return;
             }
-            // console.info(`[http:server] 200 OK ${safe} (${data.length} bytes)`);
             res.writeHead(200, {
               'Content-Type': mime,
               'Content-Length': data.length,

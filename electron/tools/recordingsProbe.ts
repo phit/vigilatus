@@ -3,6 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { TapoClient } from '../tapo/client';
 import type { CameraConfig } from '../types';
+import { createLogger } from '../log';
+
+const log = createLogger('probe:recordings');
 
 interface CliArgs {
   cameraId?: string;
@@ -74,12 +77,10 @@ async function run(): Promise<void> {
     username = camera.username;
     password = camera.password;
     probeLabel = `camera=${camera.id}`;
-    console.info(
-      `[probe:recordings] ${probeLabel} host=${camera.host} user=${camera.username} date=${cli.date}`,
-    );
+    log.info(`${probeLabel} host=${camera.host} user=${camera.username} date=${cli.date}`);
   } else {
     host = cli.host;
-    console.info(`[probe:recordings] host=${host} user=${username} date=${cli.date}`);
+    log.info(`host=${host} user=${username} date=${cli.date}`);
   }
 
   if (!host || !username || !password) {
@@ -96,25 +97,23 @@ async function run(): Promise<void> {
 
     const recordings = await client.getRecordingsForDate(cli.date);
     const tookMs = Date.now() - startedAt;
-    console.info(`[probe:recordings] ${probeLabel} success=true count=${recordings.length} tookMs=${tookMs}`);
+    log.info(`${probeLabel} success=true count=${recordings.length} tookMs=${tookMs}`);
 
     if (recordings.length > 0) {
       const sample = recordings.slice(0, 5).map((r) => ({
         startTime: r.startTime,
         endTime: r.endTime,
       }));
-      console.info(`[probe:recordings] sample=${JSON.stringify(sample)}`);
+      log.info(`sample=${JSON.stringify(sample)}`);
     }
   } catch (error) {
     const tookMs = Date.now() - startedAt;
-    console.error(
-      `[probe:recordings] ${probeLabel} success=false tookMs=${tookMs} error=${(error as Error).message}`,
-    );
+    log.error(`${probeLabel} success=false tookMs=${tookMs} error=${(error as Error).message}`);
     process.exitCode = 1;
   }
 }
 
 void run().catch((error) => {
-  console.error('[probe:recordings] fatal', (error as Error).message);
+  log.error('fatal', (error as Error).message);
   process.exitCode = 1;
 });

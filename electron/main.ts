@@ -23,6 +23,7 @@ import { loadTestFixtures } from './testing/fixtures';
 import { t, setLanguage } from './i18n';
 import { initAutoUpdater, checkForUpdates } from './autoUpdater';
 import { PreviewPosition } from './types';
+import { createLogger } from './log';
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const shouldOpenDevTools = process.env.VIGILATUS_OPEN_DEVTOOLS === '1' || !isDevelopment;
@@ -667,9 +668,8 @@ void app.whenReady().then(async () => {
 
   try {
     await streamManager.init();
-    // console.log('[main:streamManager] streamManager initialized successfully');
   } catch (err) {
-    console.error('[main:streamManager] Failed to initialize streamManager:', err);
+    createLogger('main:streamManager').error('Failed to initialize streamManager:', err);
     // TODO: show error dialog and abort launch
   }
 
@@ -681,13 +681,13 @@ void app.whenReady().then(async () => {
   initAutoUpdater();
 
   powerMonitor.on('resume', () => {
-    console.log('[main:powerMonitor] System resumed from sleep, invalidating streams');
+    createLogger('main:powerMonitor').info('System resumed from sleep, invalidating streams');
     streamManager.stopAllStreams();
     sendUiEvent(IPC.streams.invalidated);
   });
 
   streamManager.setOnStreamDied((cameraId) => {
-    console.info(`[main] stream died for ${cameraId}, notifying renderer`);
+    createLogger('main').info(`stream died for ${cameraId}, notifying renderer`);
     sendUiEvent(IPC.stream.died, cameraId);
   });
 

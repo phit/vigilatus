@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CameraConfig, PreviewPosition } from '../types';
+import { createLogger } from '../log';
+
+const log = createLogger('config');
 
 interface WindowState {
   x?: number;
@@ -54,9 +57,9 @@ export function init(userDataPath: string): void {
       try {
         fs.mkdirSync(userDataPath, { recursive: true });
         fs.copyFileSync(oldPath, configPath);
-        console.info('[config] Migrated config from TapoStudio →', configPath);
+        log.info('Migrated config from TapoStudio →', configPath);
       } catch (err) {
-        console.warn('[config] Failed to migrate old config:', err);
+        log.warn('Failed to migrate old config:', err);
       }
     }
   }

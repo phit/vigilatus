@@ -3,6 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { TapoClient } from '../tapo/client';
 import type { CameraConfig, Recording } from '../types';
+import { createLogger } from '../log';
+
+const log = createLogger('probe:playback');
 
 interface CliArgs {
   cameraId: string;
@@ -98,9 +101,7 @@ async function run(): Promise<void> {
   }
 
   const candidates = buildCandidates(camera);
-  console.info(
-    `[probe:playback] camera=${camera.id} date=${cli.date} candidates=${candidates.length} clipIndex=${cli.clipIndex}`,
-  );
+  log.info(`camera=${camera.id} date=${cli.date} candidates=${candidates.length} clipIndex=${cli.clipIndex}`);
 
   let succeeded = false;
 
@@ -110,28 +111,26 @@ async function run(): Promise<void> {
     try {
       const client = new TapoClient(candidate.cfg);
       const recordings = await client.getRecordingsForDate(cli.date);
-      console.info(
-        `[probe:playback] candidate=${i + 1}/${candidates.length} ${candidate.label} listCount=${recordings.length}`,
-      );
+      log.info(`candidate=${i + 1}/${candidates.length} ${candidate.label} listCount=${recordings.length}`);
 
       const clip = pickClip(recordings, cli.clipIndex);
       const durationSec = Math.max(0, Math.floor((clip.endTime - clip.startTime) / 1000));
-      console.info(
-        `[probe:playback] candidate=${i + 1}/${candidates.length} clipStart=${clip.startTime} clipEnd=${clip.endTime} durationSec=${durationSec}`,
+      log.info(
+        `candidate=${i + 1}/${candidates.length} clipStart=${clip.startTime} clipEnd=${clip.endTime} durationSec=${durationSec}`,
       );
 
       const output = await client.downloadRecording(clip.startTime, clip.endTime);
       const tookMs = Date.now() - startedAt;
       const stat = fs.statSync(output);
-      console.info(
-        `[probe:playback] candidate=${i + 1}/${candidates.length} success=true tookMs=${tookMs} output=${output} size=${stat.size}`,
+      log.info(
+        `candidate=${i + 1}/${candidates.length} success=true tookMs=${tookMs} output=${output} size=${stat.size}`,
       );
       succeeded = true;
       break;
     } catch (error) {
       const tookMs = Date.now() - startedAt;
-      console.warn(
-        `[probe:playback] candidate=${i + 1}/${candidates.length} success=false tookMs=${tookMs} error=${(error as Error).message}`,
+      log.warn(
+        `candidate=${i + 1}/${candidates.length} success=false tookMs=${tookMs} error=${(error as Error).message}`,
       );
     }
   }
@@ -142,6 +141,6 @@ async function run(): Promise<void> {
 }
 
 void run().catch((error) => {
-  console.error('[probe:playback] fatal', (error as Error).message);
+  log.error('fatal', (error as Error).message);
   process.exitCode = 1;
 });

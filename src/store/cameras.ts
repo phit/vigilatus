@@ -7,6 +7,9 @@ import type {
   PlaybackMode,
   PreviewPosition,
 } from '../types';
+import { createLogger } from '../log';
+
+const log = createLogger('cameras');
 
 const PLAYBACK_PREROLL_MS = 5_000;
 const PLAYBACK_WINDOW_MS = 120_000;
@@ -279,7 +282,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
       .cameras.filter((c) => c.status === 'live' || c.status === 'connecting')
       .map((c) => c.config.id);
     if (liveIds.length === 0) return;
-    console.log('[cameras] restarting streams after resume:', liveIds);
+    log.info('restarting streams after resume:', liveIds);
     set((s) => ({
       cameras: s.cameras.map((c) =>
         liveIds.includes(c.config.id) ? { ...c, status: 'idle', hlsUrl: undefined } : c,
@@ -362,8 +365,8 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
       try {
         const recs = await window.vigilatus.recordings.list(cameraId, date);
         const events = await window.vigilatus.recordings.events(cameraId, date).catch((error: unknown) => {
-          console.warn(
-            `[recordings:events:${cameraId}] failed for ${date}:`,
+          createLogger(`recordings:events:${cameraId}`).warn(
+            `failed for ${date}:`,
             (error as Error)?.message ?? String(error),
           );
           return [] as RecordingEvent[];
@@ -410,7 +413,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => ({
       return;
     }
 
-    console.info('[cameras:seekTo] clip found:', {
+    createLogger('cameras:seekTo').info('clip found:', {
       clickedTime: new Date(time).toISOString(),
       clipStart: new Date(clip.startTime).toISOString(),
       clipEnd: new Date(clip.endTime).toISOString(),

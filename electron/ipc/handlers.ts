@@ -8,6 +8,7 @@ import { TapoClient } from '../tapo/client';
 import type { CameraConfig, Recording, RecordingEvent } from '../types';
 import type { TestFixtures } from '../testing/fixtures';
 import { IPC } from './channels';
+import { createLogger } from '../log';
 
 type ActiveRecordingPlaybackJob = {
   assetPath?: string;
@@ -139,7 +140,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     } catch (error) {
       const message = (error as Error)?.message ?? String(error);
       if (message.includes('Stream start cancelled')) {
-        console.info(`[stream:start:${cameraId}] cancelled before ready`);
+        createLogger(`stream:start:${cameraId}`).info('cancelled before ready');
         return null;
       }
       throw error;
@@ -188,7 +189,6 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
       recordingsCredentialCache.set(cameraId, credential);
       recordingsClientCache.set(cameraId, client);
     }
-    // console.info(`[recordings:list:${cameraId}] fetching date=${date} user=${credential.username}`);
 
     const recordings = await client.getRecordingsForDate(date);
 
@@ -196,7 +196,6 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     if (typeof resolvedUserId === 'number') {
       recordingsUserIdCache.set(cameraId, resolvedUserId);
     }
-    // console.info(`[recordings:list:${cameraId}] fetched ${recordings.length} segments`);
     return recordings;
   });
 
@@ -237,9 +236,6 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
           until: Date.now() + RECORDING_EVENTS_RETRY_COOLDOWN_MS,
           reason,
         });
-        // console.info(
-        //   `[recordings:events:${cameraId}] suppressing event queries for ${Math.round(RECORDING_EVENTS_RETRY_COOLDOWN_MS / 60000)}m after ${reason}`,
-        // );
         return [];
       }
     },
@@ -261,6 +257,8 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
 
       const cam = configStore.getCameras().find((c) => c.id === cameraId);
       if (!cam) throw new Error(`Camera ${cameraId} not found`);
+
+      const log = createLogger(`recordings:play:${cameraId}`);
 
       const playbackWindow = normalizePlaybackWindow(startTime, endTime, requestedTime ?? startTime);
       startTime = playbackWindow.startTime;
@@ -342,9 +340,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
             if (!shouldRetryWithWiderWindow) {
               throw e;
             }
-            console.info(
-              `[recordings:play:${cameraId}] retrying with ${attempt.label} window failed: ${msg}`,
-            );
+            log.info(`retrying with ${attempt.label} window failed: ${msg}`);
           }
         }
 
@@ -397,8 +393,8 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
       let playbackJob: (ActiveRecordingPlaybackJob & { ready: Promise<string>; assetPath?: string }) | null =
         null;
 
-      console.info(
-        `[recordings:play:${cameraId}] starting foreground download` +
+      log.info(
+        `starting foreground download` +
           ` window=${new Date(startTime).toISOString()}..${new Date(endTime).toISOString()}` +
           ` requested=${new Date(requestedTime ?? startTime).toISOString()}` +
           ` clipStart=${clipStartTime ? new Date(clipStartTime).toISOString() : 'N/A'}` +
@@ -410,14 +406,14 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
         if (cachedClient) {
           try {
             playbackJob = await tryDownloadWithFallbackWindow(cachedClient, cachedUserId);
-            console.info(`[recordings:play:${cameraId}] playback stream started (cached client)`);
+            log.info('playback stream started (cached client)');
           } catch (e) {
             const msg = String((e as Error)?.message ?? e ?? '');
             if (signal.aborted) throw new Error('Recording playback cancelled');
             if (msg.includes('Camera closed the recording stream unexpectedly')) {
               try {
                 playbackJob = await tryDownloadNearbySegments(cachedClient, cachedUserId);
-                console.info(`[recordings:play:${cameraId}] playback stream started (nearby segments)`);
+                log.info('playback stream started (nearby segments)');
               } catch (nearbyError) {
                 if (signal.aborted) throw new Error('Recording playback cancelled');
                 lastError = nearbyError;
@@ -440,14 +436,14 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
             if (typeof resolvedUserId === 'number') {
               recordingsUserIdCache.set(cameraId, resolvedUserId);
             }
-            console.info(`[recordings:play:${cameraId}] playback stream started`);
+            log.info('playback stream started');
           } catch (e) {
             const msg = String((e as Error)?.message ?? e ?? '');
             if (signal.aborted) throw new Error('Recording playback cancelled');
             if (msg.includes('Camera closed the recording stream unexpectedly')) {
               try {
                 playbackJob = await tryDownloadNearbySegments(client, cachedUserId);
-                console.info(`[recordings:play:${cameraId}] playback stream started (nearby segments)`);
+                log.info('playback stream started (nearby segments)');
               } catch (nearbyError) {
                 if (signal.aborted) throw new Error('Recording playback cancelled');
                 lastError = nearbyError;
@@ -485,7 +481,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
           job.assetPath ?? '',
         );
         const url = streamManager.getPlaybackAssetUrl(relativeAssetPath);
-        console.info(`[recordings:play:${cameraId}] returning URL=${url}`);
+        log.info(`returning URL=${url}`);
         return url;
       } finally {
         if (pendingRecordingAborts.get(cameraId) === abortController) {

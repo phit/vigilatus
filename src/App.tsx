@@ -8,6 +8,9 @@ import { CameraPreview } from './components/CameraPreview';
 import { Timeline } from './components/Timeline';
 import { AddCameraModal } from './components/AddCameraModal';
 import type { CameraConfig, PreviewPosition } from './types';
+import { createLogger } from './log';
+
+const log = createLogger('App');
 
 /** Per-camera exponential backoff state for auto-restart after stream death. */
 const streamRestartBackoff = new Map<
@@ -23,9 +26,7 @@ function scheduleStreamRestart(cameraId: string, startStream: (id: string) => Pr
   const attempt = (existing?.attempt ?? 0) + 1;
   if (existing) clearTimeout(existing.timer);
 
-  console.warn(
-    `[App] stream restart scheduled for ${cameraId}: attempt ${attempt} in ${(delay / 1000).toFixed(0)}s`,
-  );
+  log.warn(`stream restart scheduled for ${cameraId}: attempt ${attempt} in ${(delay / 1000).toFixed(0)}s`);
   const timer = setTimeout(async () => {
     const state = useCameraStore.getState();
     const cam = state.cameras.find((c) => c.config.id === cameraId);
@@ -33,28 +34,25 @@ function scheduleStreamRestart(cameraId: string, startStream: (id: string) => Pr
     // restart attempt (status 'error'). Skip if the user manually stopped it ('idle').
     if (!cam || cam.status === 'idle') {
       streamRestartBackoff.delete(cameraId);
-      console.info(`[App] stream restart stopped for ${cameraId}: camera is idle or missing`);
+      log.info(`stream restart stopped for ${cameraId}: camera is idle or missing`);
       return;
     }
 
-    console.info(`[App] stream restart attempt ${attempt} starting for ${cameraId}`);
+    log.info(`stream restart attempt ${attempt} starting for ${cameraId}`);
     try {
       await startStream(cameraId);
     } catch (error) {
-      console.warn(
-        `[App] stream restart attempt ${attempt} threw for ${cameraId}:`,
-        (error as Error).message,
-      );
+      log.warn(`stream restart attempt ${attempt} threw for ${cameraId}:`, (error as Error).message);
     }
 
     // Check whether the restart actually succeeded
     const after = useCameraStore.getState().cameras.find((c) => c.config.id === cameraId);
     if (after?.status === 'live') {
       streamRestartBackoff.delete(cameraId);
-      console.info(`[App] stream restart recovered ${cameraId} on attempt ${attempt}`);
+      log.info(`stream restart recovered ${cameraId} on attempt ${attempt}`);
     } else if (!after || after.status === 'idle') {
       streamRestartBackoff.delete(cameraId);
-      console.info(`[App] stream restart stopped for ${cameraId}: camera is idle or missing`);
+      log.info(`stream restart stopped for ${cameraId}: camera is idle or missing`);
     } else {
       // Restart failed — schedule another attempt with increased backoff
       scheduleStreamRestart(cameraId, startStream);
