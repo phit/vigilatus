@@ -62,38 +62,39 @@ function scheduleStreamRestart(cameraId: string, startStream: (id: string) => Pr
 }
 
 export function App() {
-  const {
-    cameras,
-    selectedId,
-    showPreviews,
-    showTimeline,
-    showHeader,
-    previewPosition,
-    playbackMode,
-    playbackTime,
-    recordings,
-    recordingEvents,
-    recordingsLoading,
-    recordingsError,
-    loadCameras,
-    addCamera,
-    updateCamera,
-    removeCamera,
-    moveCamera,
-    selectCamera,
-    startStream,
-    stopStream,
-    restartActiveStreams,
-    setPreviewsVisible,
-    setTimelineVisible,
-    setHeaderVisible,
-    setDebugOverlayVisible,
-    setPreviewPosition,
-    setVolume,
-    loadRecordings,
-    seekTo,
-    goLive,
-  } = useCameraStore();
+  // State slices — subscribe only to what App renders.
+  const cameras = useCameraStore((s) => s.cameras);
+  const selectedId = useCameraStore((s) => s.selectedId);
+  const showPreviews = useCameraStore((s) => s.showPreviews);
+  const showTimeline = useCameraStore((s) => s.showTimeline);
+  const showHeader = useCameraStore((s) => s.showHeader);
+  const previewPosition = useCameraStore((s) => s.previewPosition);
+  const playbackMode = useCameraStore((s) => s.playbackMode);
+  const playbackTime = useCameraStore((s) => s.playbackTime);
+  const recordings = useCameraStore((s) => s.recordings);
+  const recordingEvents = useCameraStore((s) => s.recordingEvents);
+  const recordingsLoading = useCameraStore((s) => s.recordingsLoading);
+  const recordingsError = useCameraStore((s) => s.recordingsError);
+
+  // Actions — stable references, so selecting them never triggers re-renders.
+  const loadCameras = useCameraStore((s) => s.loadCameras);
+  const addCamera = useCameraStore((s) => s.addCamera);
+  const updateCamera = useCameraStore((s) => s.updateCamera);
+  const removeCamera = useCameraStore((s) => s.removeCamera);
+  const moveCamera = useCameraStore((s) => s.moveCamera);
+  const selectCamera = useCameraStore((s) => s.selectCamera);
+  const startStream = useCameraStore((s) => s.startStream);
+  const stopStream = useCameraStore((s) => s.stopStream);
+  const restartActiveStreams = useCameraStore((s) => s.restartActiveStreams);
+  const setPreviewsVisible = useCameraStore((s) => s.setPreviewsVisible);
+  const setTimelineVisible = useCameraStore((s) => s.setTimelineVisible);
+  const setHeaderVisible = useCameraStore((s) => s.setHeaderVisible);
+  const setDebugOverlayVisible = useCameraStore((s) => s.setDebugOverlayVisible);
+  const setPreviewPosition = useCameraStore((s) => s.setPreviewPosition);
+  const setVolume = useCameraStore((s) => s.setVolume);
+  const loadRecordings = useCameraStore((s) => s.loadRecordings);
+  const seekTo = useCameraStore((s) => s.seekTo);
+  const goLive = useCameraStore((s) => s.goLive);
 
   const { t } = useTranslation();
   const [showModal, setShowModal] = useState(false);
