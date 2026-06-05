@@ -24,6 +24,7 @@ import {
 } from './recordingDownloader';
 import type { RecordingAudioOptions } from './recordingAudio';
 import {
+  type ApiResponse,
   extractRecordingEventsFromResponse,
   extractRecordingsFromResponse,
   firstResponseErrorCode,
@@ -243,14 +244,9 @@ export class TapoClient {
     if (direct.length > 0) {
       return direct;
     }
-    if (
-      typeof userId === 'number' &&
-      STALE_USER_ID_ERROR_CODES.has(firstResponseErrorCode(resp) ?? Number.NaN)
-    ) {
-      const refreshedUserId = await this.tryResolvePlaybackUserId(true);
-      if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
-        return this.queryRecordingsForDate(date, refreshedUserId);
-      }
+    const directRefreshedUserId = await this.maybeRefreshStaleUserId(resp, userId);
+    if (directRefreshedUserId !== undefined) {
+      return this.queryRecordingsForDate(date, directRefreshedUserId);
     }
 
     // pytapo-compatible shape used by several firmware variants.
@@ -274,14 +270,9 @@ export class TapoClient {
     if (legacyParsed.length > 0) {
       return legacyParsed;
     }
-    if (
-      typeof userId === 'number' &&
-      STALE_USER_ID_ERROR_CODES.has(firstResponseErrorCode(legacyResp) ?? Number.NaN)
-    ) {
-      const refreshedUserId = await this.tryResolvePlaybackUserId(true);
-      if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
-        return this.queryRecordingsForDate(date, refreshedUserId);
-      }
+    const legacyRefreshedUserId = await this.maybeRefreshStaleUserId(legacyResp, userId);
+    if (legacyRefreshedUserId !== undefined) {
+      return this.queryRecordingsForDate(date, legacyRefreshedUserId);
     }
 
     // Some firmware/timezone combinations return empty day results but work with UTC range search.
@@ -704,6 +695,25 @@ export class TapoClient {
     }
   }
 
+  /**
+   * When a recordings query came back with a stale-user-id error code, resolve a
+   * fresh playback user id to retry with. Returns the new id (only when it
+   * differs from the one already tried) or undefined when no retry is warranted.
+   */
+  private async maybeRefreshStaleUserId(
+    resp: ApiResponse,
+    userId: number | undefined,
+  ): Promise<number | undefined> {
+    if (
+      typeof userId !== 'number' ||
+      !STALE_USER_ID_ERROR_CODES.has(firstResponseErrorCode(resp) ?? Number.NaN)
+    ) {
+      return undefined;
+    }
+    const refreshedUserId = await this.tryResolvePlaybackUserId(true);
+    return typeof refreshedUserId === 'number' && refreshedUserId !== userId ? refreshedUserId : undefined;
+  }
+
   private async searchRecordingsWithUtcRange(date: string, userId?: number): Promise<Recording[]> {
     const year = Number(date.slice(0, 4));
     const month = Number(date.slice(4, 6));
@@ -751,14 +761,9 @@ export class TapoClient {
       if (parsed.length > 0) {
         return parsed;
       }
-      if (
-        typeof userId === 'number' &&
-        STALE_USER_ID_ERROR_CODES.has(firstResponseErrorCode(resp) ?? Number.NaN)
-      ) {
-        const refreshedUserId = await this.tryResolvePlaybackUserId(true);
-        if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
-          return this.searchRecordingsWithUtcRange(date, refreshedUserId);
-        }
+      const refreshedUserId = await this.maybeRefreshStaleUserId(resp, userId);
+      if (refreshedUserId !== undefined) {
+        return this.searchRecordingsWithUtcRange(date, refreshedUserId);
       }
 
       const legacyUtcResp = await this.session.apiRequest({
@@ -777,13 +782,9 @@ export class TapoClient {
         },
       });
       const legacyParsed = extractRecordingsFromResponse(legacyUtcResp);
-      if (
-        legacyParsed.length === 0 &&
-        typeof userId === 'number' &&
-        STALE_USER_ID_ERROR_CODES.has(firstResponseErrorCode(legacyUtcResp) ?? Number.NaN)
-      ) {
-        const refreshedUserId = await this.tryResolvePlaybackUserId(true);
-        if (typeof refreshedUserId === 'number' && refreshedUserId !== userId) {
+      if (legacyParsed.length === 0) {
+        const refreshedUserId = await this.maybeRefreshStaleUserId(legacyUtcResp, userId);
+        if (refreshedUserId !== undefined) {
           return this.searchRecordingsWithUtcRange(date, refreshedUserId);
         }
       }
