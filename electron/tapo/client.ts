@@ -27,6 +27,7 @@ import {
   type ApiResponse,
   extractRecordingEventsFromResponse,
   extractRecordingsFromResponse,
+  extractUserIdFromResponse,
   firstResponseErrorCode,
 } from './recordingParse';
 import { TapoSession } from './tapoSession';
@@ -483,53 +484,9 @@ export class TapoClient {
       return this.getUserId(retryCount + 1);
     }
 
-    const asNumber = (v: unknown): number | null => {
-      if (typeof v === 'number' && Number.isFinite(v)) return v;
-      if (typeof v === 'string' && /^\d+$/.test(v)) return Number(v);
-      return null;
-    };
-
-    const direct = (resp.result as { user_id?: unknown }).user_id;
-    const directNum = asNumber(direct);
-    if (directNum != null) {
-      return this.rememberUserId(directNum);
-    }
-
-    const nested = (resp.result.responses?.[0] as { result?: { user_id?: unknown } } | undefined)?.result
-      ?.user_id;
-    const nestedNum = asNumber(nested);
-    if (nestedNum != null) {
-      return this.rememberUserId(nestedNum);
-    }
-
-    const systemNested = (
-      resp.result.responses?.[0] as
-        | {
-            result?: { system?: { get_user_id?: { id?: unknown; user_id?: unknown } } };
-          }
-        | undefined
-    )?.result?.system?.get_user_id;
-
-    const systemUserId = asNumber(systemNested?.user_id);
-    if (systemUserId != null) {
-      return this.rememberUserId(systemUserId);
-    }
-
-    const systemId = asNumber(systemNested?.id);
-    if (systemId != null) {
-      return this.rememberUserId(systemId);
-    }
-
-    const multiResponseUserId = (
-      resp.result.responses?.[0] as
-        | {
-            result?: { user_id?: unknown };
-          }
-        | undefined
-    )?.result?.user_id;
-    const multiResponseUserIdNum = asNumber(multiResponseUserId);
-    if (multiResponseUserIdNum != null) {
-      return this.rememberUserId(multiResponseUserIdNum);
+    const parsed = extractUserIdFromResponse(resp);
+    if (parsed != null) {
+      return this.rememberUserId(parsed);
     }
 
     const resultPreview = JSON.stringify(resp?.result ?? {}).slice(0, 500);

@@ -221,3 +221,56 @@ export function firstResponseErrorCode(resp: ApiResponse): number | undefined {
   const firstResponse = resp.result?.responses?.[0] as { error_code?: unknown } | undefined;
   return typeof firstResponse?.error_code === 'number' ? firstResponse.error_code : undefined;
 }
+
+export function extractUserIdFromResponse(resp: ApiResponse): number | null {
+  const asNumber = (v: unknown): number | null => {
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string' && /^\d+$/.test(v)) return Number(v);
+    return null;
+  };
+
+  const direct = (resp.result as { user_id?: unknown }).user_id;
+  const directNum = asNumber(direct);
+  if (directNum != null) {
+    return directNum;
+  }
+
+  const nested = (resp.result.responses?.[0] as { result?: { user_id?: unknown } } | undefined)?.result
+    ?.user_id;
+  const nestedNum = asNumber(nested);
+  if (nestedNum != null) {
+    return nestedNum;
+  }
+
+  const systemNested = (
+    resp.result.responses?.[0] as
+      | {
+          result?: { system?: { get_user_id?: { id?: unknown; user_id?: unknown } } };
+        }
+      | undefined
+  )?.result?.system?.get_user_id;
+
+  const systemUserId = asNumber(systemNested?.user_id);
+  if (systemUserId != null) {
+    return systemUserId;
+  }
+
+  const systemId = asNumber(systemNested?.id);
+  if (systemId != null) {
+    return systemId;
+  }
+
+  const multiResponseUserId = (
+    resp.result.responses?.[0] as
+      | {
+          result?: { user_id?: unknown };
+        }
+      | undefined
+  )?.result?.user_id;
+  const multiResponseUserIdNum = asNumber(multiResponseUserId);
+  if (multiResponseUserIdNum != null) {
+    return multiResponseUserIdNum;
+  }
+
+  return null;
+}
