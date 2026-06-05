@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import Hls, { ErrorTypes } from 'hls.js';
+import type Hls from 'hls.js';
 import type { CameraState } from '../types';
 import { useCameraStore } from '../store/cameras';
-import { createLogger } from '../log';
+import { useFullscreen, useHlsPlayer, usePlaybackTimeSync, useVideoStats } from './cameraViewerHooks';
 import {
   VolumeMutedIcon,
   VolumeLowIcon,
@@ -11,13 +11,6 @@ import {
   EnterFullscreenIcon,
   ExitFullscreenIcon,
 } from './icons';
-
-interface VideoStats {
-  resolution: string;
-  codec: string;
-  fps: number;
-  bitrate: number;
-}
 
 interface Props {
   camera: CameraState | undefined;
@@ -29,11 +22,7 @@ export function CameraViewer({ camera, playbackMode }: Props) {
   const viewerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
-  const [playerError, setPlayerError] = useState<string | null>(null);
   const [prevVolume, setPrevVolume] = useState(0.5);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [videoStats, setVideoStats] = useState<VideoStats | null>(null);
   const showDebugOverlay = useCameraStore((s) => s.showDebugOverlay);
   const volume = useCameraStore((s) => s.volume);
   const setVolume = useCameraStore((s) => s.setVolume);
@@ -53,192 +42,10 @@ export function CameraViewer({ camera, playbackMode }: Props) {
     video.volume = volume;
   }, [volume, hlsUrl]);
 
-  useEffect(() => {
-    const onFullscreenChange = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement));
-    };
-
-    document.addEventListener('fullscreenchange', onFullscreenChange);
-    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
-  }, []);
-
-  // Poll video stats for the debug overlay
-  useEffect(() => {
-    if (!showDebugOverlay) {
-      setVideoStats(null);
-      return;
-    }
-
-    const interval = setInterval(() => {
-      const video = videoRef.current;
-      const hls = hlsRef.current;
-      if (!video || !hlsUrl) {
-        setVideoStats(null);
-        return;
-      }
-
-      const w = video.videoWidth;
-      const h = video.videoHeight;
-      const resolution = w && h ? `${w}×${h}` : '—';
-
-      let codec = '—';
-      let fps = 0;
-      let bitrate = 0;
-
-      if (hls) {
-        const level = hls.levels?.[hls.currentLevel];
-        if (level) {
-          codec = level.codecSet || level.videoCodec || '—';
-          fps = level.frameRate || 0;
-          bitrate = Math.round((level.bitrate || 0) / 1000);
-        }
-      }
-
-      // Fallback FPS from getVideoPlaybackQuality
-      if (!fps && typeof video.getVideoPlaybackQuality === 'function') {
-        const q = video.getVideoPlaybackQuality();
-        if (q.totalVideoFrames > 0) {
-          const elapsed = (performance.now() - (q as any).creationTime) / 1000;
-          if (elapsed > 0) fps = Math.round(q.totalVideoFrames / elapsed);
-        }
-      }
-
-      setVideoStats({ resolution, codec, fps, bitrate });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [showDebugOverlay, hlsUrl]);
-
-  useEffect(() => {
-    setPlayerError(null);
-    setIsPaused(false);
-
-    const video = videoRef.current;
-    if (!video) return;
-
-    // Clean up previous instance
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
-    video.src = '';
-
-    if (!hlsUrl) return;
-
-    if (!isHlsSource) {
-      const startPlayback = () => {
-        video.play().catch(() => {
-          // Ignore early autoplay failures until the media pipeline has buffered enough data.
-        });
-      };
-
-      const onVideoError = () => {
-        const mediaError = video.error;
-        const message = mediaError
-          ? t('viewer.html5VideoError', { code: mediaError.code })
-          : t('viewer.html5VideoFailed');
-        createLogger('viewer:video').error('error', mediaError);
-        setPlayerError(message);
-      };
-
-      video.src = hlsUrl;
-      video.load();
-      video.addEventListener('loadedmetadata', startPlayback);
-      video.addEventListener('canplay', startPlayback);
-      video.addEventListener('error', onVideoError);
-      return () => {
-        video.removeEventListener('loadedmetadata', startPlayback);
-        video.removeEventListener('canplay', startPlayback);
-        video.removeEventListener('error', onVideoError);
-      };
-    }
-
-    if (Hls.isSupported()) {
-      const hls = new Hls({
-        lowLatencyMode: true,
-        enableWorker: true,
-        liveSyncDurationCount: 2,
-        liveMaxLatencyDurationCount: 4,
-        maxBufferLength: 4,
-        backBufferLength: 8,
-        maxLiveSyncPlaybackRate: 1.1,
-        // Retry quickly while stream is starting
-        manifestLoadingMaxRetry: 120,
-        manifestLoadingRetryDelay: 500,
-        levelLoadingMaxRetry: 120,
-        levelLoadingRetryDelay: 500,
-        fragLoadingMaxRetry: 60,
-        fragLoadingRetryDelay: 500,
-      });
-      hlsRef.current = hls;
-      hls.loadSource(hlsUrl);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.play().catch(() => {
-          /* autoplay may be blocked */
-        });
-      });
-      hls.on(Hls.Events.ERROR, (_event, data) => {
-        createLogger('viewer:hls').error('error', data);
-        if (!data.fatal) return;
-
-        if (data.type === ErrorTypes.NETWORK_ERROR) {
-          setPlayerError(t('viewer.hlsNetworkError'));
-        } else if (data.type === ErrorTypes.MEDIA_ERROR) {
-          setPlayerError(t('viewer.hlsMediaError'));
-        } else {
-          setPlayerError(data.details || t('viewer.hlsGenericError'));
-        }
-
-        hls.destroy();
-        hlsRef.current = null;
-      });
-
-      const onVideoError = () => {
-        const mediaError = video.error;
-        const message = mediaError
-          ? t('viewer.html5VideoError', { code: mediaError.code })
-          : t('viewer.html5VideoFailed');
-        createLogger('viewer:video').error('error', mediaError);
-        setPlayerError(message);
-      };
-
-      video.addEventListener('error', onVideoError);
-      return () => {
-        video.removeEventListener('error', onVideoError);
-        hls.destroy();
-        hlsRef.current = null;
-      };
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari native HLS
-      video.src = hlsUrl;
-      video.play().catch(() => {
-        setPlayerError(t('viewer.nativeHlsError'));
-      });
-    }
-  }, [hlsUrl, isHlsSource, t]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    const syncPlaybackTime = () => {
-      if (playbackMode !== 'playback' || playbackStartTime == null) {
-        return;
-      }
-      setPlaybackTime(playbackStartTime + Math.floor(video.currentTime * 1000));
-    };
-
-    video.addEventListener('timeupdate', syncPlaybackTime);
-    video.addEventListener('seeking', syncPlaybackTime);
-    video.addEventListener('loadedmetadata', syncPlaybackTime);
-
-    return () => {
-      video.removeEventListener('timeupdate', syncPlaybackTime);
-      video.removeEventListener('seeking', syncPlaybackTime);
-      video.removeEventListener('loadedmetadata', syncPlaybackTime);
-    };
-  }, [playbackMode, playbackStartTime, setPlaybackTime, hlsUrl]);
+  const { isFullscreen, toggleFullscreen } = useFullscreen(viewerRef);
+  const videoStats = useVideoStats(videoRef, hlsRef, showDebugOverlay, hlsUrl);
+  const { playerError, isPaused, togglePause } = useHlsPlayer(videoRef, hlsRef, hlsUrl, isHlsSource, t);
+  usePlaybackTimeSync(videoRef, playbackMode, playbackStartTime, setPlaybackTime, hlsUrl);
 
   const label = camera?.config.name ?? t('viewer.noCamera');
 
@@ -254,18 +61,6 @@ export function CameraViewer({ camera, playbackMode }: Props) {
     }
   };
 
-  const togglePause = () => {
-    const video = videoRef.current;
-    if (!video) return;
-    if (video.paused) {
-      video.play().catch(() => {});
-      setIsPaused(false);
-    } else {
-      video.pause();
-      setIsPaused(true);
-    }
-  };
-
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = parseFloat(e.target.value);
     setVolume(v);
@@ -276,18 +71,6 @@ export function CameraViewer({ camera, playbackMode }: Props) {
     volume === 0 ? <VolumeMutedIcon /> : volume < 0.5 ? <VolumeLowIcon /> : <VolumeHighIcon />;
 
   const fullscreenIcon = isFullscreen ? <ExitFullscreenIcon /> : <EnterFullscreenIcon />;
-
-  const toggleFullscreen = async () => {
-    const container = viewerRef.current;
-    if (!container) return;
-
-    if (document.fullscreenElement) {
-      await document.exitFullscreen();
-      return;
-    }
-
-    await container.requestFullscreen();
-  };
 
   return (
     <div className="viewer" ref={viewerRef}>
