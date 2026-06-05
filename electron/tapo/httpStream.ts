@@ -18,10 +18,9 @@ import {
   HLS_DIR,
   HTTP_STREAM_READY_TIMEOUT_MS,
   LIVE_AUDIO_FILTER,
-  LIVE_HLS_PLAYLIST_SIZE,
-  LIVE_HLS_SEGMENT_SECONDS,
   STDERR_HISTORY_LIMIT,
 } from './streamConstants';
+import { hlsMuxArgs, liveH264VideoArgs, pcmAudioInputArgs } from './ffmpegFragments';
 import { createHlsSessionToken, waitForHlsReady } from './streamHelpers';
 import { getHlsPort } from './mediaServer';
 import {
@@ -34,6 +33,64 @@ import {
 } from './streamRegistry';
 
 type HashMethod = 'md5' | 'sha256';
+
+/**
+ * Build the exact ffmpeg argument vector for the live HTTP-media-session → HLS
+ * pipeline. Pure so it can be snapshot-tested; `attemptHttpStream` spawns it.
+ */
+export function buildHttpLiveFfmpegArgs(opts: {
+  audioCodec: 'pcma' | 'pcmu' | undefined;
+  audioRate: number;
+  segDir: string;
+  sessionToken: string;
+  m3u8: string;
+}): string[] {
+  const { audioCodec, audioRate, segDir, sessionToken, m3u8 } = opts;
+
+  const ffmpegArgs = [
+    '-loglevel',
+    'warning',
+    '-fflags',
+    '+genpts+discardcorrupt',
+    '-err_detect',
+    'ignore_err',
+    '-analyzeduration',
+    '2000000',
+    '-probesize',
+    '1000000',
+    '-f',
+    'mpegts',
+    '-i',
+    'pipe:0',
+  ];
+
+  if (audioCodec) {
+    ffmpegArgs.push(...pcmAudioInputArgs(audioCodec, audioRate));
+  }
+
+  ffmpegArgs.push('-map', '0:v:0?', ...liveH264VideoArgs());
+
+  if (audioCodec) {
+    ffmpegArgs.push(
+      '-map',
+      '1:a:0',
+      '-af',
+      LIVE_AUDIO_FILTER,
+      '-c:a',
+      'aac',
+      '-ac',
+      '1',
+      '-ar',
+      '44100',
+      '-b:a',
+      '128k',
+    );
+  }
+
+  ffmpegArgs.push(...hlsMuxArgs(path.join(segDir, `segment-${sessionToken}-%03d.ts`)), m3u8);
+
+  return ffmpegArgs;
+}
 
 export function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<string> {
   const log = createLogger(`stream:${cameraId}`);
@@ -227,93 +284,7 @@ async function attemptHttpStream(
     const audioCodec = detectedAudioCodec;
     const audioRate = audioCodec === 'pcmu' ? 16000 : 8000;
 
-    const ffmpegArgs = [
-      '-loglevel',
-      'warning',
-      '-fflags',
-      '+genpts+discardcorrupt',
-      '-err_detect',
-      'ignore_err',
-      '-analyzeduration',
-      '2000000',
-      '-probesize',
-      '1000000',
-      '-f',
-      'mpegts',
-      '-i',
-      'pipe:0',
-    ];
-
-    if (audioCodec) {
-      ffmpegArgs.push(
-        '-analyzeduration',
-        '0',
-        '-probesize',
-        '32',
-        '-f',
-        audioCodec === 'pcmu' ? 'mulaw' : 'alaw',
-        '-ar',
-        String(audioRate),
-        '-ac',
-        '1',
-        '-i',
-        'pipe:3',
-      );
-    }
-
-    ffmpegArgs.push(
-      '-map',
-      '0:v:0?',
-      '-c:v',
-      'libx264',
-      '-preset',
-      'veryfast',
-      '-tune',
-      'zerolatency',
-      '-pix_fmt',
-      'yuv420p',
-      '-force_key_frames',
-      `expr:gte(t,n_forced*${LIVE_HLS_SEGMENT_SECONDS})`,
-      '-sc_threshold',
-      '0',
-    );
-
-    if (audioCodec) {
-      ffmpegArgs.push(
-        '-map',
-        '1:a:0',
-        '-af',
-        LIVE_AUDIO_FILTER,
-        '-c:a',
-        'aac',
-        '-ac',
-        '1',
-        '-ar',
-        '44100',
-        '-b:a',
-        '128k',
-      );
-    }
-
-    ffmpegArgs.push(
-      '-max_interleave_delta',
-      '0',
-      '-muxpreload',
-      '0',
-      '-muxdelay',
-      '0',
-      '-f',
-      'hls',
-      '-hls_time',
-      String(LIVE_HLS_SEGMENT_SECONDS),
-      '-hls_list_size',
-      String(LIVE_HLS_PLAYLIST_SIZE),
-      '-hls_flags',
-      'delete_segments+independent_segments',
-      '-hls_segment_filename',
-      path.join(segDir, `segment-${sessionToken}-%03d.ts`),
-      m3u8,
-    );
+    const ffmpegArgs = buildHttpLiveFfmpegArgs({ audioCodec, audioRate, segDir, sessionToken, m3u8 });
 
     ffmpegProc = spawn(ffmpegBinaryPath, ffmpegArgs, {
       stdio: audioCodec ? ['pipe', 'ignore', 'pipe', 'pipe'] : ['pipe', 'ignore', 'pipe'],

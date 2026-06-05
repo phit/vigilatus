@@ -1,4 +1,5 @@
 import type { RecordingAudioOptions } from './recordingAudio';
+import { pcmAudioInputArgs } from './ffmpegFragments';
 
 export function buildDownloadFfmpegArgs(outputPath: string, audio?: RecordingAudioOptions): string[] {
   const args = ['-loglevel', 'error', '-y'];
@@ -7,18 +8,7 @@ export function buildDownloadFfmpegArgs(outputPath: string, audio?: RecordingAud
 
   if (audio) {
     args.push(
-      '-analyzeduration',
-      '0',
-      '-probesize',
-      '32',
-      '-f',
-      audio.codec === 'pcmu' ? 'mulaw' : 'alaw',
-      '-ar',
-      String(audio.sampleRate),
-      '-ac',
-      '1',
-      '-i',
-      'pipe:3',
+      ...pcmAudioInputArgs(audio.codec, audio.sampleRate),
       '-map',
       '0:v:0',
       '-map',
@@ -64,20 +54,7 @@ export function buildPlaybackFfmpegArgs(
   args.push('-f', 'mpegts', '-i', 'pipe:0');
 
   if (audio) {
-    args.push(
-      '-analyzeduration',
-      '0',
-      '-probesize',
-      '32',
-      '-f',
-      audio.codec === 'pcmu' ? 'mulaw' : 'alaw',
-      '-ar',
-      String(audio.sampleRate),
-      '-ac',
-      '1',
-      '-i',
-      'pipe:3',
-    );
+    args.push(...pcmAudioInputArgs(audio.codec, audio.sampleRate));
   }
 
   args.push(

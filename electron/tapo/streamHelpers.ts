@@ -8,13 +8,8 @@ import ffmpeg from 'fluent-ffmpeg';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CameraConfig } from '../types';
-import {
-  LIVE_AUDIO_FILTER,
-  LIVE_HLS_PLAYLIST_SIZE,
-  LIVE_HLS_SEGMENT_SECONDS,
-  STDERR_HISTORY_LIMIT,
-  STREAM_READY_POLL_MS,
-} from './streamConstants';
+import { LIVE_AUDIO_FILTER, STDERR_HISTORY_LIMIT, STREAM_READY_POLL_MS } from './streamConstants';
+import { hlsMuxArgs, liveH264VideoArgs } from './ffmpegFragments';
 
 export function buildRtspUrl(cfg: CameraConfig, stream: 'main' | 'sub'): string {
   if (cfg.rtspUrl) {
@@ -42,6 +37,33 @@ export function withRtspAuth(url: string, username?: string, password?: string):
   }
 }
 
+/**
+ * The exact `.outputOptions([...])` vector for the live RTSP → HLS pipeline.
+ * Pure so it can be snapshot-tested; `createHlsCommand` spreads it.
+ */
+export function buildRtspHlsOutputOptions(segDir: string, sessionToken?: string): string[] {
+  return [
+    '-map',
+    '0:v:0',
+    '-map',
+    '0:a:0?',
+    ...liveH264VideoArgs(),
+    // NOTE: this AAC block lists `-c:a` before `-af`, the reverse of the HTTP
+    // pipeline's order, so it is intentionally NOT shared via a fragment.
+    '-c:a',
+    'aac',
+    '-af',
+    LIVE_AUDIO_FILTER,
+    '-ac',
+    '1',
+    '-ar',
+    '44100',
+    '-b:a',
+    '128k',
+    ...hlsMuxArgs(path.join(segDir, `segment-${sessionToken ?? 'live'}-%03d.ts`)),
+  ];
+}
+
 export function createHlsCommand(
   rtspUrl: string,
   segDir: string,
@@ -57,52 +79,7 @@ export function createHlsCommand(
     'low_delay',
   ]);
 
-  return command
-    .outputOptions([
-      '-map',
-      '0:v:0',
-      '-map',
-      '0:a:0?',
-      '-c:v',
-      'libx264',
-      '-preset',
-      'veryfast',
-      '-tune',
-      'zerolatency',
-      '-pix_fmt',
-      'yuv420p',
-      '-force_key_frames',
-      `expr:gte(t,n_forced*${LIVE_HLS_SEGMENT_SECONDS})`,
-      '-sc_threshold',
-      '0',
-      '-c:a',
-      'aac',
-      '-af',
-      LIVE_AUDIO_FILTER,
-      '-ac',
-      '1',
-      '-ar',
-      '44100',
-      '-b:a',
-      '128k',
-      '-max_interleave_delta',
-      '0',
-      '-muxpreload',
-      '0',
-      '-muxdelay',
-      '0',
-      '-f',
-      'hls',
-      '-hls_time',
-      String(LIVE_HLS_SEGMENT_SECONDS),
-      '-hls_list_size',
-      String(LIVE_HLS_PLAYLIST_SIZE),
-      '-hls_flags',
-      'delete_segments+independent_segments',
-      '-hls_segment_filename',
-      path.join(segDir, `segment-${sessionToken ?? 'live'}-%03d.ts`),
-    ])
-    .save(m3u8Path);
+  return command.outputOptions(buildRtspHlsOutputOptions(segDir, sessionToken)).save(m3u8Path);
 }
 
 export function createHlsSessionToken(): string {
