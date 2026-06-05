@@ -314,132 +314,82 @@ function setApplicationMenu(): void {
     { role: 'quit' },
   ];
 
+  // Boolean display toggles all share a state-update + (optional) persist + notify
+  // triplet; only the key, label, channel, and whether it persists differ.
+  type DisplayToggleKey = 'previews' | 'timeline' | 'header' | 'debugOverlay';
+  const makeDisplayToggle = (opts: {
+    label: string;
+    key: DisplayToggleKey;
+    channel: string;
+    persist?: boolean;
+  }): MenuItemConstructorOptions => ({
+    label: opts.label,
+    type: 'checkbox',
+    checked: uiDisplayState[opts.key],
+    click: (menuItem) => {
+      uiDisplayState[opts.key] = menuItem.checked;
+      if (opts.persist !== false && opts.key !== 'debugOverlay') {
+        configStore.setUiDisplayPreferences({ [opts.key]: menuItem.checked });
+      }
+      sendUiEvent(opts.channel, menuItem.checked);
+    },
+  });
+
+  const makePreviewPositionItem = (label: string, value: PreviewPosition): MenuItemConstructorOptions => ({
+    label,
+    type: 'radio',
+    checked: uiDisplayState.previewPosition === value,
+    click: () => {
+      uiDisplayState.previewPosition = value;
+      configStore.setUiDisplayPreferences({ previewPosition: value });
+      sendUiEvent(IPC.ui.setPreviewPosition, value);
+    },
+  });
+
+  const makeLanguageItem = (label: string, value: string): MenuItemConstructorOptions => ({
+    label,
+    type: 'radio',
+    checked: uiDisplayState.language === value,
+    click: () => {
+      uiDisplayState.language = value;
+      configStore.setUiDisplayPreferences({ language: value });
+      sendUiEvent(IPC.ui.setLanguage, value);
+      setLanguage(value);
+      setApplicationMenu();
+    },
+  });
+
+  const previewPositionItems: [string, PreviewPosition][] = [
+    [t('menu.left'), 'left'],
+    [t('menu.right'), 'right'],
+    [t('menu.top'), 'top'],
+    [t('menu.bottom'), 'bottom'],
+  ];
+
+  const languageItems: [string, string][] = [
+    [t('menu.systemDefault'), 'system'],
+    ['English', 'en'],
+    ['Deutsch', 'de'],
+  ];
+
   const viewSubmenu: MenuItemConstructorOptions[] = [
-    {
-      label: t('menu.previews'),
-      type: 'checkbox',
-      checked: uiDisplayState.previews,
-      click: (menuItem) => {
-        uiDisplayState.previews = menuItem.checked;
-        configStore.setUiDisplayPreferences({ previews: menuItem.checked });
-        sendUiEvent(IPC.ui.setPreviewsVisible, menuItem.checked);
-      },
-    },
-    {
-      label: t('menu.timeline'),
-      type: 'checkbox',
-      checked: uiDisplayState.timeline,
-      click: (menuItem) => {
-        uiDisplayState.timeline = menuItem.checked;
-        configStore.setUiDisplayPreferences({ timeline: menuItem.checked });
-        sendUiEvent(IPC.ui.setTimelineVisible, menuItem.checked);
-      },
-    },
-    {
-      label: t('menu.statusbar'),
-      type: 'checkbox',
-      checked: uiDisplayState.header,
-      click: (menuItem) => {
-        uiDisplayState.header = menuItem.checked;
-        configStore.setUiDisplayPreferences({ header: menuItem.checked });
-        sendUiEvent(IPC.ui.setHeaderVisible, menuItem.checked);
-      },
-    },
-    {
+    makeDisplayToggle({ label: t('menu.previews'), key: 'previews', channel: IPC.ui.setPreviewsVisible }),
+    makeDisplayToggle({ label: t('menu.timeline'), key: 'timeline', channel: IPC.ui.setTimelineVisible }),
+    makeDisplayToggle({ label: t('menu.statusbar'), key: 'header', channel: IPC.ui.setHeaderVisible }),
+    makeDisplayToggle({
       label: t('menu.debugOverlay'),
-      type: 'checkbox',
-      checked: uiDisplayState.debugOverlay,
-      click: (menuItem) => {
-        uiDisplayState.debugOverlay = menuItem.checked;
-        sendUiEvent(IPC.ui.setDebugOverlayVisible, menuItem.checked);
-      },
-    },
+      key: 'debugOverlay',
+      channel: IPC.ui.setDebugOverlayVisible,
+      persist: false,
+    }),
     {
       label: t('menu.previewPosition'),
-      submenu: [
-        {
-          label: t('menu.left'),
-          type: 'radio',
-          checked: uiDisplayState.previewPosition === 'left',
-          click: () => {
-            uiDisplayState.previewPosition = 'left';
-            configStore.setUiDisplayPreferences({ previewPosition: 'left' });
-            sendUiEvent(IPC.ui.setPreviewPosition, 'left');
-          },
-        },
-        {
-          label: t('menu.right'),
-          type: 'radio',
-          checked: uiDisplayState.previewPosition === 'right',
-          click: () => {
-            uiDisplayState.previewPosition = 'right';
-            configStore.setUiDisplayPreferences({ previewPosition: 'right' });
-            sendUiEvent(IPC.ui.setPreviewPosition, 'right');
-          },
-        },
-        {
-          label: t('menu.top'),
-          type: 'radio',
-          checked: uiDisplayState.previewPosition === 'top',
-          click: () => {
-            uiDisplayState.previewPosition = 'top';
-            configStore.setUiDisplayPreferences({ previewPosition: 'top' });
-            sendUiEvent(IPC.ui.setPreviewPosition, 'top');
-          },
-        },
-        {
-          label: t('menu.bottom'),
-          type: 'radio',
-          checked: uiDisplayState.previewPosition === 'bottom',
-          click: () => {
-            uiDisplayState.previewPosition = 'bottom';
-            configStore.setUiDisplayPreferences({ previewPosition: 'bottom' });
-            sendUiEvent(IPC.ui.setPreviewPosition, 'bottom');
-          },
-        },
-      ],
+      submenu: previewPositionItems.map(([label, value]) => makePreviewPositionItem(label, value)),
     },
     { type: 'separator' },
     {
       label: t('menu.language'),
-      submenu: [
-        {
-          label: t('menu.systemDefault'),
-          type: 'radio',
-          checked: uiDisplayState.language === 'system',
-          click: () => {
-            uiDisplayState.language = 'system';
-            configStore.setUiDisplayPreferences({ language: 'system' });
-            sendUiEvent(IPC.ui.setLanguage, 'system');
-            setLanguage('system');
-            setApplicationMenu();
-          },
-        },
-        {
-          label: 'English',
-          type: 'radio',
-          checked: uiDisplayState.language === 'en',
-          click: () => {
-            uiDisplayState.language = 'en';
-            configStore.setUiDisplayPreferences({ language: 'en' });
-            sendUiEvent(IPC.ui.setLanguage, 'en');
-            setLanguage('en');
-            setApplicationMenu();
-          },
-        },
-        {
-          label: 'Deutsch',
-          type: 'radio',
-          checked: uiDisplayState.language === 'de',
-          click: () => {
-            uiDisplayState.language = 'de';
-            configStore.setUiDisplayPreferences({ language: 'de' });
-            sendUiEvent(IPC.ui.setLanguage, 'de');
-            setLanguage('de');
-            setApplicationMenu();
-          },
-        },
-      ],
+      submenu: languageItems.map(([label, value]) => makeLanguageItem(label, value)),
     },
     { type: 'separator' },
     { role: 'reload' },
