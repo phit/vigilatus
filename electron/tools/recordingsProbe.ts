@@ -79,7 +79,6 @@ async function run(): Promise<void> {
     probeLabel = `camera=${camera.id}`;
     log.info(`${probeLabel} host=${camera.host} user=${camera.username} date=${cli.date}`);
   } else {
-    host = cli.host;
     log.info(`host=${host} user=${username} date=${cli.date}`);
   }
 

@@ -75,7 +75,7 @@ async function streamGrowingMp4(
   });
 
   while (!res.writableEnded) {
-    let stats: fs.Stats | null = null;
+    let stats: fs.Stats | null;
     try {
       stats = fs.statSync(filePath);
     } catch {
