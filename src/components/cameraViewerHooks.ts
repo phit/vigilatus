@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import type { TFunction } from 'i18next';
 import Hls, { ErrorTypes } from 'hls.js';
@@ -8,11 +8,15 @@ export interface VideoStats {
   resolution: string;
   codec: string;
   fps: number;
-  bitrate: number;
 }
 
-interface VideoPlaybackQualityWithCreationTime extends VideoPlaybackQuality {
-  creationTime?: number;
+/** Map a raw codec string (e.g. "avc1.640028") to a friendly label. */
+function friendlyVideoCodec(codec: string | null): string | null {
+  if (!codec) return null;
+  const c = codec.toLowerCase();
+  if (c.startsWith('avc') || c.includes('h264')) return 'H.264';
+  if (c.startsWith('hev') || c.startsWith('hvc') || c.includes('hevc') || c.includes('h265')) return 'H.265';
+  return codec;
 }
 
 export function useFullscreen(containerRef: RefObject<HTMLDivElement | null>) {
@@ -47,12 +51,16 @@ export function useVideoStats(
   hlsRef: RefObject<Hls | null>,
   enabled: boolean,
   hlsUrl: string | undefined,
+  videoCodecRef: RefObject<string | null>,
 ): VideoStats | null {
   const [videoStats, setVideoStats] = useState<VideoStats | null>(null);
+  // Previous frame-count sample, to derive fps as a delta between polls.
+  const frameSampleRef = useRef<{ frames: number; time: number } | null>(null);
 
   // Poll video stats for the debug overlay
   useEffect(() => {
     if (!enabled) return;
+    frameSampleRef.current = null;
 
     const interval = setInterval(() => {
       const video = videoRef.current;
@@ -66,33 +74,29 @@ export function useVideoStats(
       const h = video.videoHeight;
       const resolution = w && h ? `${w}×${h}` : '—';
 
-      let codec = '—';
-      let fps = 0;
-      let bitrate = 0;
+      // The app serves a single media playlist (no master), so the hls.js level
+      // has no codec/frame-rate/bandwidth metadata. Derive each from a source
+      // that actually works for this stream.
+      const level = hls?.levels?.[hls.currentLevel];
 
-      if (hls) {
-        const level = hls.levels?.[hls.currentLevel];
-        if (level) {
-          codec = level.codecSet || level.videoCodec || '—';
-          fps = level.frameRate || 0;
-          bitrate = Math.round((level.bitrate || 0) / 1000);
-        }
-      }
+      const codec = friendlyVideoCodec(videoCodecRef.current) || level?.codecSet || level?.videoCodec || '—';
 
-      // Fallback FPS from getVideoPlaybackQuality
+      let fps = level?.frameRate || 0;
       if (!fps && typeof video.getVideoPlaybackQuality === 'function') {
-        const q: VideoPlaybackQualityWithCreationTime = video.getVideoPlaybackQuality();
-        if (q.totalVideoFrames > 0) {
-          const elapsed = (performance.now() - (q.creationTime ?? 0)) / 1000;
-          if (elapsed > 0) fps = Math.round(q.totalVideoFrames / elapsed);
+        const q = video.getVideoPlaybackQuality();
+        const sampleTime = performance.now();
+        const prev = frameSampleRef.current;
+        if (prev && sampleTime > prev.time) {
+          fps = Math.round(((q.totalVideoFrames - prev.frames) * 1000) / (sampleTime - prev.time));
         }
+        frameSampleRef.current = { frames: q.totalVideoFrames, time: sampleTime };
       }
 
-      setVideoStats({ resolution, codec, fps, bitrate });
+      setVideoStats({ resolution, codec, fps });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [enabled, hlsUrl, hlsRef, videoRef]);
+  }, [enabled, hlsUrl, hlsRef, videoRef, videoCodecRef]);
 
   return enabled ? videoStats : null;
 }
@@ -107,6 +111,10 @@ export function useHlsPlayer(
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const [prevSource, setPrevSource] = useState({ hlsUrl, isHlsSource });
+  // Captured from hls.js's BUFFER_CODECS event — the only reliable codec source
+  // for our single media playlist (the level metadata is empty). Read by the
+  // debug-overlay stats hook.
+  const videoCodecRef = useRef<string | null>(null);
 
   // Reset transient player state when the source changes. Done during render
   // (the React "adjust state on prop change" pattern) so it lands before the
@@ -118,6 +126,7 @@ export function useHlsPlayer(
   }
 
   useEffect(() => {
+    videoCodecRef.current = null;
     const video = videoRef.current;
     if (!video) return;
 
@@ -183,6 +192,10 @@ export function useHlsPlayer(
           /* autoplay may be blocked */
         });
       });
+      hls.on(Hls.Events.BUFFER_CODECS, (_event, data) => {
+        const codec = data.video?.codec ?? data.audiovideo?.codec;
+        if (codec) videoCodecRef.current = codec;
+      });
       hls.on(Hls.Events.ERROR, (_event, data) => {
         createLogger('viewer:hls').error('error', data);
         if (!data.fatal) return;
@@ -226,7 +239,7 @@ export function useHlsPlayer(
     }
   };
 
-  return { playerError, isPaused, togglePause };
+  return { playerError, isPaused, togglePause, videoCodecRef };
 }
 
 export function usePlaybackTimeSync(

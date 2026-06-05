@@ -43,8 +43,14 @@ export function CameraViewer({ camera, playbackMode }: Props) {
   }, [volume, hlsUrl]);
 
   const { isFullscreen, toggleFullscreen } = useFullscreen(viewerRef);
-  const videoStats = useVideoStats(videoRef, hlsRef, showDebugOverlay, hlsUrl);
-  const { playerError, isPaused, togglePause } = useHlsPlayer(videoRef, hlsRef, hlsUrl, isHlsSource, t);
+  const { playerError, isPaused, togglePause, videoCodecRef } = useHlsPlayer(
+    videoRef,
+    hlsRef,
+    hlsUrl,
+    isHlsSource,
+    t,
+  );
+  const videoStats = useVideoStats(videoRef, hlsRef, showDebugOverlay, hlsUrl, videoCodecRef);
   usePlaybackTimeSync(videoRef, playbackMode, playbackStartTime, setPlaybackTime, hlsUrl);
 
   const label = camera?.config.name ?? t('viewer.noCamera');
@@ -155,7 +161,6 @@ export function CameraViewer({ camera, playbackMode }: Props) {
           <span>{videoStats.resolution}</span>
           <span>{videoStats.codec}</span>
           <span>{videoStats.fps ? `${videoStats.fps} fps` : '— fps'}</span>
-          <span>{videoStats.bitrate ? `${videoStats.bitrate} kbps` : '— kbps'}</span>
         </div>
       )}
     </div>
