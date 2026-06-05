@@ -83,7 +83,7 @@ export async function acquirePlaybackJob(
         job?.cancel();
         attemptError = e;
         const msg = String((e as Error)?.message ?? e ?? '');
-        if (signal.aborted) throw new Error('Recording playback cancelled');
+        if (signal.aborted) throw new Error('Recording playback cancelled', { cause: e });
         const shouldRetryWithWiderWindow = msg.includes('Camera closed the recording stream unexpectedly');
         if (!shouldRetryWithWiderWindow) {
           throw e;
@@ -126,7 +126,7 @@ export async function acquirePlaybackJob(
       } catch (e) {
         lastNearbyError = e;
         const msg = String((e as Error)?.message ?? e ?? '');
-        if (signal.aborted) throw new Error('Recording playback cancelled');
+        if (signal.aborted) throw new Error('Recording playback cancelled', { cause: e });
         if (!msg.includes('Camera closed the recording stream unexpectedly')) {
           throw e;
         }
@@ -155,7 +155,7 @@ export async function acquirePlaybackJob(
     try {
       return { job: await tryDownloadWithFallbackWindow(client, userIdHint), viaNearby: false };
     } catch (e) {
-      if (signal.aborted) throw new Error('Recording playback cancelled');
+      if (signal.aborted) throw new Error('Recording playback cancelled', { cause: e });
       const msg = String((e as Error)?.message ?? e ?? '');
       if (!msg.includes('Camera closed the recording stream unexpectedly')) throw e;
       return { job: await tryDownloadNearbySegments(client, userIdHint), viaNearby: true };
@@ -196,7 +196,7 @@ export async function acquirePlaybackJob(
       }
       break;
     } catch (e) {
-      if (signal.aborted) throw new Error('Recording playback cancelled');
+      if (signal.aborted) throw new Error('Recording playback cancelled', { cause: e });
       lastError = e;
     }
   }

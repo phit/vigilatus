@@ -114,6 +114,6 @@ export async function launchElectronApp(options: LaunchElectronAppOptions): Prom
     if (runtimeLogTail) {
       details.push(`--- vigilatus.log tail ---\n${runtimeLogTail}`);
     }
-    throw new Error(details.join('\n\n'));
+    throw new Error(details.join('\n\n'), { cause: error });
   }
 }
