@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type ffmpeg from 'fluent-ffmpeg';
 import type { ChildProcess } from 'node:child_process';
-import type { MediaSession } from './recordingDownloader';
+import type { MediaSession } from './mediaSession';
 import { createLogger } from '../log';
 import {
   EXPECTED_STOP_CLEAR_DELAY_MS,

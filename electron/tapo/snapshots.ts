@@ -9,7 +9,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { CameraConfig } from '../types';
 import { ffmpegBinaryPath } from './ffmpegPath';
-import { MediaSession, hashMediaPassword } from './recordingDownloader';
+import { MediaSession, hashMediaPassword } from './mediaSession';
 import * as configStore from '../config/store';
 import { createLogger } from '../log';
 import { SNAP_DIR } from './streamConstants';

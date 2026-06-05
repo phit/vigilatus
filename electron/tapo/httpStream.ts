@@ -10,7 +10,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import type { Writable } from 'node:stream';
 import type { CameraConfig } from '../types';
 import { ffmpegBinaryPath } from './ffmpegPath';
-import { MediaSession, hashMediaPassword } from './recordingDownloader';
+import { MediaSession, hashMediaPassword } from './mediaSession';
 import { writeAlignedTsPackets } from './tsDemux';
 import * as configStore from '../config/store';
 import { createLogger } from '../log';
