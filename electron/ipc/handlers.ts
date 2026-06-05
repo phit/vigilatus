@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 import path from 'node:path';
 import os from 'node:os';
-import { format, startOfDay } from 'date-fns';
+import { startOfDay } from 'date-fns';
 import * as configStore from '../config/store';
 import * as streamManager from '../tapo/streamManager';
 import { TapoClient } from '../tapo/client';
@@ -9,6 +9,12 @@ import type { CameraConfig, RecordingEvent } from '../types';
 import type { TestFixtures } from '../testing/fixtures';
 import { IPC } from './channels';
 import { normalizePlaybackWindow } from './playbackWindow';
+import {
+  recordingsUserIdCache,
+  getOrCreateRecordingsClient,
+  clearRecordingsClientCaches,
+} from './recordingsClients';
+import { acquirePlaybackJob } from './recordingsPlayback';
 import { createLogger } from '../log';
 
 type ActiveRecordingPlaybackJob = {
@@ -17,9 +23,6 @@ type ActiveRecordingPlaybackJob = {
   completed: Promise<string>;
 };
 
-const recordingsCredentialCache = new Map<string, Pick<CameraConfig, 'host' | 'username' | 'password'>>();
-const recordingsClientCache = new Map<string, TapoClient>();
-const recordingsUserIdCache = new Map<string, number>();
 const recordingEventsCooldownCache = new Map<string, { until: number; reason: string }>();
 const activeRecordingPlaybackJobs = new Map<string, ActiveRecordingPlaybackJob>();
 const pendingRecordingAborts = new Map<string, AbortController>();
@@ -38,18 +41,8 @@ function requireCamera(cameraId: string): CameraConfig {
 }
 
 function clearRecordingCaches(cameraId: string): void {
-  recordingsCredentialCache.delete(cameraId);
-  recordingsClientCache.delete(cameraId);
-  recordingsUserIdCache.delete(cameraId);
+  clearRecordingsClientCaches(cameraId);
   recordingEventsCooldownCache.delete(cameraId);
-}
-
-function dateFromEpochMs(epochMs: number): string {
-  return format(epochMs, 'yyyyMMdd');
-}
-
-function primaryCredential(cam: CameraConfig): Pick<CameraConfig, 'host' | 'username' | 'password'> {
-  return { host: cam.host, username: cam.username || 'admin', password: cam.password };
 }
 
 function classifyRecordingEventsFailure(error: unknown): string {
@@ -165,13 +158,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     const cam = getCamera(cameraId);
     if (!cam) return [];
 
-    const credential = recordingsCredentialCache.get(cameraId) ?? primaryCredential(cam);
-    let client = recordingsClientCache.get(cameraId);
-    if (!client) {
-      client = new TapoClient(credential);
-      recordingsCredentialCache.set(cameraId, credential);
-      recordingsClientCache.set(cameraId, client);
-    }
+    const client = getOrCreateRecordingsClient(cameraId, cam);
 
     const recordings = await client.getRecordingsForDate(date);
 
@@ -197,13 +184,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
       const cam = getCamera(cameraId);
       if (!cam) return [];
 
-      const credential = recordingsCredentialCache.get(cameraId) ?? primaryCredential(cam);
-      let client = recordingsClientCache.get(cameraId);
-      if (!client) {
-        client = new TapoClient(credential);
-        recordingsCredentialCache.set(cameraId, credential);
-        recordingsClientCache.set(cameraId, client);
-      }
+      const client = getOrCreateRecordingsClient(cameraId, cam);
 
       try {
         const events = await client.getRecordingEventsForDate(date);
@@ -258,7 +239,6 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
         }
       }
 
-      let lastError: unknown = null;
       const cachedUserId = recordingsUserIdCache.get(cameraId);
 
       stopRecordingPlayback(cameraId);
@@ -271,110 +251,6 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
       pendingRecordingAborts.set(cameraId, abortController);
       const { signal } = abortController;
 
-      const withAbort = <T>(promise: Promise<T>): Promise<T> =>
-        signal.aborted
-          ? Promise.reject(new Error('Recording playback cancelled'))
-          : Promise.race([
-              promise,
-              new Promise<never>((_, reject) => {
-                signal.addEventListener('abort', () => reject(new Error('Recording playback cancelled')), {
-                  once: true,
-                });
-              }),
-            ]);
-
-      const tryDownloadWithFallbackWindow = async (
-        client: TapoClient,
-        userIdHint?: number,
-        baseStart: number = startTime,
-        baseEnd: number = endTime,
-      ): Promise<ActiveRecordingPlaybackJob & { ready: Promise<string> }> => {
-        const attempts = [
-          { start: baseStart, end: baseEnd, label: 'exact' },
-          { start: Math.max(0, baseStart - 5_000), end: baseEnd + 60_000, label: 'wide-60s' },
-          { start: Math.max(0, baseStart - 10_000), end: baseEnd + 180_000, label: 'wide-180s' },
-        ];
-
-        let attemptError: unknown = null;
-        for (const attempt of attempts) {
-          if (signal.aborted) throw new Error('Recording playback cancelled');
-          const clipKey = `${Math.floor(attempt.start / 1000)}-${Math.floor(attempt.end / 1000)}`;
-          const outputDir = path.join(os.tmpdir(), 'vigilatus-playback', cameraId, clipKey);
-          let job: (ActiveRecordingPlaybackJob & { ready: Promise<string> }) | null = null;
-          try {
-            job = await client.startRecordingPlayback(
-              attempt.start,
-              attempt.end,
-              outputDir,
-              userIdHint,
-              seekOffsetSec,
-            );
-            await withAbort(job.ready);
-            return job;
-          } catch (e) {
-            job?.cancel();
-            attemptError = e;
-            const msg = String((e as Error)?.message ?? e ?? '');
-            if (signal.aborted) throw new Error('Recording playback cancelled');
-            const shouldRetryWithWiderWindow = msg.includes(
-              'Camera closed the recording stream unexpectedly',
-            );
-            if (!shouldRetryWithWiderWindow) {
-              throw e;
-            }
-            log.info(`retrying with ${attempt.label} window failed: ${msg}`);
-          }
-        }
-
-        throw attemptError instanceof Error ? attemptError : new Error('Unable to download recording stream');
-      };
-
-      const tryDownloadNearbySegments = async (
-        client: TapoClient,
-        userIdHint?: number,
-      ): Promise<ActiveRecordingPlaybackJob & { ready: Promise<string> }> => {
-        if (signal.aborted) throw new Error('Recording playback cancelled');
-        const targetDate = dateFromEpochMs(startTime);
-        const targetMid = Math.floor((startTime + endTime) / 2);
-        const all = await withAbort(client.getRecordingsForDate(targetDate));
-        const candidates = all
-          .filter((r) => r.endTime - r.startTime >= 30_000)
-          .filter((r) => !(r.startTime === startTime && r.endTime === endTime))
-          .map((r) => ({
-            ...r,
-            distance: Math.abs(Math.floor((r.startTime + r.endTime) / 2) - targetMid),
-          }))
-          .sort((a, b) => a.distance - b.distance)
-          .slice(0, 3);
-
-        let lastNearbyError: unknown = null;
-        for (const candidate of candidates) {
-          if (signal.aborted) throw new Error('Recording playback cancelled');
-          try {
-            return await tryDownloadWithFallbackWindow(
-              client,
-              userIdHint,
-              candidate.startTime,
-              candidate.endTime,
-            );
-          } catch (e) {
-            lastNearbyError = e;
-            const msg = String((e as Error)?.message ?? e ?? '');
-            if (signal.aborted) throw new Error('Recording playback cancelled');
-            if (!msg.includes('Camera closed the recording stream unexpectedly')) {
-              throw e;
-            }
-          }
-        }
-
-        throw lastNearbyError instanceof Error
-          ? lastNearbyError
-          : new Error('Unable to download nearby recording segment');
-      };
-
-      let playbackJob: (ActiveRecordingPlaybackJob & { ready: Promise<string>; assetPath?: string }) | null =
-        null;
-
       log.info(
         `starting foreground download` +
           ` window=${new Date(startTime).toISOString()}..${new Date(endTime).toISOString()}` +
@@ -383,74 +259,18 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
           ` seekOffset=${seekOffsetSec ?? 'none'}`,
       );
 
-      // Runs the shared fallback ladder for a single client: try the windowed
-      // download first, then (only for the "Camera closed ... unexpectedly"
-      // failure) the nearby-segments path. Returns the job and reports whether
-      // the nearby-segments fallback was used so callers can log accurately.
-      const acquirePlaybackJob = async (
-        client: TapoClient,
-        userIdHint?: number,
-      ): Promise<{
-        job: ActiveRecordingPlaybackJob & { ready: Promise<string>; assetPath?: string };
-        viaNearby: boolean;
-      }> => {
-        try {
-          return { job: await tryDownloadWithFallbackWindow(client, userIdHint), viaNearby: false };
-        } catch (e) {
-          if (signal.aborted) throw new Error('Recording playback cancelled');
-          const msg = String((e as Error)?.message ?? e ?? '');
-          if (!msg.includes('Camera closed the recording stream unexpectedly')) throw e;
-          return { job: await tryDownloadNearbySegments(client, userIdHint), viaNearby: true };
-        }
-      };
-
       try {
-        const cachedClient = recordingsClientCache.get(cameraId);
-        const credential = recordingsCredentialCache.get(cameraId) ?? primaryCredential(cam);
-        // Ordered client sources: the cached client first (when present), then a
-        // freshly-built one. The fresh client is created lazily via getClient()
-        // so the common cached-success path doesn't allocate an unused client.
-        const sources: Array<{ getClient: () => TapoClient; persist: boolean }> = [];
-        if (cachedClient) {
-          sources.push({ getClient: () => cachedClient, persist: false });
-        }
-        sources.push({ getClient: () => new TapoClient(credential), persist: true });
+        const job = await acquirePlaybackJob({
+          cameraId,
+          cam,
+          startTime,
+          endTime,
+          seekOffsetSec,
+          signal,
+          cachedUserId,
+          log,
+        });
 
-        for (const source of sources) {
-          if (signal.aborted) throw new Error('Recording playback cancelled');
-          const client = source.getClient();
-          try {
-            const { job, viaNearby } = await acquirePlaybackJob(client, cachedUserId);
-            playbackJob = job;
-            if (source.persist) {
-              recordingsCredentialCache.set(cameraId, credential);
-              recordingsClientCache.set(cameraId, client);
-              const resolvedUserId = client.getCachedUserId();
-              if (typeof resolvedUserId === 'number') {
-                recordingsUserIdCache.set(cameraId, resolvedUserId);
-              }
-            }
-            if (viaNearby) {
-              log.info('playback stream started (nearby segments)');
-            } else if (source.persist) {
-              log.info('playback stream started');
-            } else {
-              log.info('playback stream started (cached client)');
-            }
-            break;
-          } catch (e) {
-            if (signal.aborted) throw new Error('Recording playback cancelled');
-            lastError = e;
-          }
-        }
-
-        if (!playbackJob) {
-          throw lastError instanceof Error ? lastError : new Error('Failed to download recording clip');
-        }
-
-        // Capture into a const so the non-null narrowing survives into the
-        // deferred .finally() closure below (playbackJob is a mutable let).
-        const job = playbackJob;
         activeRecordingPlaybackJobs.set(cameraId, job);
         if (job.assetPath) {
           streamManager.registerActivePlaybackAsset(job.assetPath, job.completed);
