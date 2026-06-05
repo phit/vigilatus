@@ -29,6 +29,10 @@ function todayStr(): string {
   return toDateStr(new Date());
 }
 
+function nowMs(): number {
+  return Date.now();
+}
+
 function parseDate(dateStr: string): Date {
   return parse(dateStr, DATE_FMT, new Date());
 }
@@ -70,6 +74,16 @@ export function Timeline({
   const [dragging, setDragging] = useState(false);
   const [dragPreviewTime, setDragPreviewTime] = useState<number | null>(null);
   const [selectedDate, setSelectedDate] = useState(todayStr);
+  const [now, setNow] = useState(nowMs);
+  const [prevCameraId, setPrevCameraId] = useState(selectedCameraId);
+
+  // Reset to today when the camera changes. Done during render (the React
+  // "adjust state on prop change" pattern) so the load effect below runs once
+  // with the new date — and avoids a synchronous setState inside an effect.
+  if (selectedCameraId !== prevCameraId) {
+    setPrevCameraId(selectedCameraId);
+    setSelectedDate(toDateStr(new Date(now)));
+  }
 
   const isToday = isDateToday(parseDate(selectedDate));
   const windowStart = dateStartMs(selectedDate);
@@ -79,12 +93,15 @@ export function Timeline({
   useEffect(() => {
     if (!selectedCameraId) return;
     onLoadDate(selectedDate);
-  }, [selectedCameraId, selectedDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedCameraId, selectedDate, onLoadDate]);
 
-  // Reset to today when camera changes
+  // Keep a current-time value in state (instead of calling Date.now() during
+  // render) so the live "now" handle advances and the camera-change reset above
+  // always resolves to the real current day.
   useEffect(() => {
-    setSelectedDate(todayStr());
-  }, [selectedCameraId]);
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const goToPreviousDay = () => {
     setSelectedDate((d) => shiftDate(d, -1));
@@ -166,7 +183,7 @@ export function Timeline({
       : playbackMode === 'playback' && playbackTime
         ? playbackTime
         : isToday
-          ? Date.now()
+          ? now
           : windowEnd;
   const handlePos = timeToPercent(handleTime);
   const showHandleTime = dragging || playbackMode === 'playback';

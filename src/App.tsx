@@ -1,5 +1,5 @@
 // @refresh reset
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18n from './i18n';
 import { useCameraStore } from './store/cameras';
@@ -114,7 +114,7 @@ export function App() {
 
   useEffect(() => {
     void loadCameras();
-  }, []);
+  }, [loadCameras]);
 
   useEffect(() => {
     const offOpenAdd = window.vigilatus.ui.onOpenAddCamera(() => {
@@ -177,12 +177,13 @@ export function App() {
     startStream,
   ]);
 
-  // Auto-select + start first camera on load
+  // Auto-select the first camera when nothing is selected. The guard keeps this
+  // idempotent, so depending on the full inputs is safe.
   useEffect(() => {
     if (!selectedId && cameras.length > 0) {
       selectCamera(cameras[0].config.id);
     }
-  }, [cameras.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cameras, selectedId, selectCamera]);
 
   const openAdd = () => {
     setEditTarget(undefined);
@@ -205,6 +206,14 @@ export function App() {
   const handleRemove = async (id: string) => {
     if (confirm(t('app.confirmRemove'))) await removeCamera(id);
   };
+
+  // Stable so Timeline's load effect can depend on it without re-firing each render.
+  const handleLoadDate = useCallback(
+    (date: string) => {
+      if (selectedId) void loadRecordings(selectedId, date);
+    },
+    [selectedId, loadRecordings],
+  );
 
   return (
     <div
@@ -324,9 +333,7 @@ export function App() {
           selectedCameraId={selectedId}
           onSeek={(t) => void seekTo(t)}
           onGoLive={goLive}
-          onLoadDate={(date) => {
-            if (selectedId) void loadRecordings(selectedId, date);
-          }}
+          onLoadDate={handleLoadDate}
         />
       )}
 

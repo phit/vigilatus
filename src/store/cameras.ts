@@ -234,8 +234,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
         return existingStart;
       }
 
-      let startPromise: Promise<void> | undefined;
-      startPromise = (async () => {
+      const startPromise: Promise<void> = (async () => {
         try {
           const hlsUrl = await window.vigilatus.stream.start(id);
           if (!hlsUrl) {

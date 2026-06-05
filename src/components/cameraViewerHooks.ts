@@ -52,10 +52,7 @@ export function useVideoStats(
 
   // Poll video stats for the debug overlay
   useEffect(() => {
-    if (!enabled) {
-      setVideoStats(null);
-      return;
-    }
+    if (!enabled) return;
 
     const interval = setInterval(() => {
       const video = videoRef.current;
@@ -95,9 +92,9 @@ export function useVideoStats(
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [enabled, hlsUrl]);
+  }, [enabled, hlsUrl, hlsRef, videoRef]);
 
-  return videoStats;
+  return enabled ? videoStats : null;
 }
 
 export function useHlsPlayer(
@@ -109,11 +106,18 @@ export function useHlsPlayer(
 ) {
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
+  const [prevSource, setPrevSource] = useState({ hlsUrl, isHlsSource });
 
-  useEffect(() => {
+  // Reset transient player state when the source changes. Done during render
+  // (the React "adjust state on prop change" pattern) so it lands before the
+  // setup effect runs — and avoids a synchronous setState inside the effect.
+  if (prevSource.hlsUrl !== hlsUrl || prevSource.isHlsSource !== isHlsSource) {
+    setPrevSource({ hlsUrl, isHlsSource });
     setPlayerError(null);
     setIsPaused(false);
+  }
 
+  useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
@@ -208,7 +212,7 @@ export function useHlsPlayer(
         setPlayerError(t('viewer.nativeHlsError'));
       });
     }
-  }, [hlsUrl, isHlsSource, t]);
+  }, [hlsUrl, isHlsSource, t, hlsRef, videoRef]);
 
   const togglePause = () => {
     const video = videoRef.current;
@@ -252,5 +256,5 @@ export function usePlaybackTimeSync(
       video.removeEventListener('seeking', syncPlaybackTime);
       video.removeEventListener('loadedmetadata', syncPlaybackTime);
     };
-  }, [playbackMode, playbackStartTime, setPlaybackTime, hlsUrl]);
+  }, [playbackMode, playbackStartTime, setPlaybackTime, hlsUrl, videoRef]);
 }

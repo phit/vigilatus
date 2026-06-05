@@ -42,14 +42,6 @@ export default tseslint.config(
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
       ],
       'no-unused-vars': 'off',
-      // New ESLint 10 "recommended" rules that flag pre-existing patterns and
-      // would require behavioural changes (error-cause chaining, refactoring
-      // assignments) to satisfy. Keep them as warnings rather than rewriting
-      // working code in this change.
-      'preserve-caught-error': 'warn',
-      'no-useless-assignment': 'warn',
-      // One intentional `let` is self-referenced inside the IIFE it is
-      // assigned from (cameras.ts), so it cannot become `const`.
       'prefer-const': 'warn',
     },
   },
@@ -73,12 +65,6 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      'react-hooks/exhaustive-deps': 'warn',
-      // The v7 react-hooks "recommended" set ships several new error-level
-      // rules (set-state-in-effect, purity, ...) that flag pre-existing code.
-      // Keep them surfaced as warnings rather than changing behaviour here.
-      'react-hooks/set-state-in-effect': 'warn',
-      'react-hooks/purity': 'warn',
     },
   },
   prettier,
