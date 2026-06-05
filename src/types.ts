@@ -15,6 +15,7 @@ export interface CameraState {
   hlsUrl?: string;
   snapshotDataUrl?: string;
   errorMessage?: string;
+  retryAt?: number;
 }
 
 export type PlaybackMode = 'live' | 'playback';

@@ -18,13 +18,19 @@ const streamRestartBackoff = new Map<
   { attempt: number; delay: number; timer: ReturnType<typeof setTimeout> }
 >();
 const RESTART_INITIAL_DELAY_MS = 2_000;
-const RESTART_MAX_DELAY_MS = 10 * 60 * 1000; // 10 minutes
+const RESTART_MAX_DELAY_MS = 2 * 60 * 1000; // 2 minutes
 
-function scheduleStreamRestart(cameraId: string, startStream: (id: string) => Promise<void>): void {
+function scheduleStreamRestart(
+  cameraId: string,
+  startStream: (id: string) => Promise<void>,
+  onScheduled?: (retryAt: number) => void,
+): void {
   const existing = streamRestartBackoff.get(cameraId);
   const delay = existing ? Math.min(existing.delay * 2, RESTART_MAX_DELAY_MS) : RESTART_INITIAL_DELAY_MS;
   const attempt = (existing?.attempt ?? 0) + 1;
   if (existing) clearTimeout(existing.timer);
+
+  onScheduled?.(Date.now() + delay);
 
   log.warn(`stream restart scheduled for ${cameraId}: attempt ${attempt} in ${(delay / 1000).toFixed(0)}s`);
   const timer = setTimeout(async () => {
@@ -55,7 +61,7 @@ function scheduleStreamRestart(cameraId: string, startStream: (id: string) => Pr
       log.info(`stream restart stopped for ${cameraId}: camera is idle or missing`);
     } else {
       // Restart failed — schedule another attempt with increased backoff
-      scheduleStreamRestart(cameraId, startStream);
+      scheduleStreamRestart(cameraId, startStream, onScheduled);
     }
   }, delay);
   streamRestartBackoff.set(cameraId, { attempt, delay, timer });
@@ -86,6 +92,7 @@ export function App() {
   const startStream = useCameraStore((s) => s.startStream);
   const stopStream = useCameraStore((s) => s.stopStream);
   const restartActiveStreams = useCameraStore((s) => s.restartActiveStreams);
+  const setRetryAt = useCameraStore((s) => s.setRetryAt);
   const setPreviewsVisible = useCameraStore((s) => s.setPreviewsVisible);
   const setTimelineVisible = useCameraStore((s) => s.setTimelineVisible);
   const setHeaderVisible = useCameraStore((s) => s.setHeaderVisible);
@@ -140,7 +147,9 @@ export function App() {
       restartActiveStreams();
     });
     const offStreamDied = window.vigilatus.ui.onStreamDied((cameraId) => {
-      scheduleStreamRestart(cameraId, startStream);
+      scheduleStreamRestart(cameraId, startStream, (retryAt) => {
+        setRetryAt(cameraId, retryAt);
+      });
     });
     const offSetLanguage = window.vigilatus.ui.onSetLanguage((language) => {
       if (language === 'system') {
@@ -174,6 +183,7 @@ export function App() {
     setPreviewPosition,
     setVolume,
     restartActiveStreams,
+    setRetryAt,
     startStream,
   ]);
 

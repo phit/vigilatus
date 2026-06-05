@@ -93,6 +93,7 @@ interface CamerasStore {
   restartActiveStreams(): void;
   updateSnapshot(id: string, dataUrl: string): void;
   setStatus(id: string, status: CameraState['status'], error?: string): void;
+  setRetryAt(id: string, retryAt?: number): void;
 
   togglePreviews(): void;
   setPreviewsVisible(visible: boolean): void;
@@ -229,33 +230,43 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
         status: 'connecting',
         hlsUrl: existingStart ? c.hlsUrl : undefined,
         errorMessage: undefined,
+        retryAt: undefined,
       }));
       if (existingStart) {
         return existingStart;
       }
 
-      const startPromise: Promise<void> = (async () => {
-        try {
-          const hlsUrl = await window.vigilatus.stream.start(id);
+      const startPromise = window.vigilatus.stream
+        .start(id)
+        .then((hlsUrl) => {
           if (!hlsUrl) {
-            patchCamera(id, { status: 'idle', hlsUrl: undefined, errorMessage: undefined });
+            patchCamera(id, {
+              status: 'idle',
+              hlsUrl: undefined,
+              errorMessage: undefined,
+              retryAt: undefined,
+            });
             return;
           }
 
-          patchCamera(id, { status: 'live', hlsUrl, errorMessage: undefined });
-        } catch (e) {
+          patchCamera(id, { status: 'live', hlsUrl, errorMessage: undefined, retryAt: undefined });
+        })
+        .catch((e: unknown) => {
           const msg = (e as Error).message;
           if (msg.includes('Stream start cancelled')) {
-            patchCamera(id, { status: 'idle', hlsUrl: undefined, errorMessage: undefined });
+            patchCamera(id, {
+              status: 'idle',
+              hlsUrl: undefined,
+              errorMessage: undefined,
+              retryAt: undefined,
+            });
             return;
           }
           get().setStatus(id, 'error', msg);
-        } finally {
-          if (pendingStreamStarts.get(id) === startPromise) {
-            pendingStreamStarts.delete(id);
-          }
-        }
-      })();
+        })
+        .finally(() => {
+          pendingStreamStarts.delete(id);
+        });
 
       pendingStreamStarts.set(id, startPromise);
       return startPromise;
@@ -264,7 +275,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
     stopStream(id) {
       pendingStreamStarts.delete(id);
       void window.vigilatus.stream.stop(id);
-      patchCamera(id, { status: 'idle', hlsUrl: undefined });
+      patchCamera(id, { status: 'idle', hlsUrl: undefined, errorMessage: undefined, retryAt: undefined });
     },
 
     restartActiveStreams() {
@@ -289,6 +300,10 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
 
     setStatus(id, status, error) {
       patchCamera(id, { status, errorMessage: error });
+    },
+
+    setRetryAt(id, retryAt) {
+      patchCamera(id, { retryAt });
     },
 
     // ------------------------------------------------------------------

@@ -23,6 +23,7 @@ export function CameraViewer({ camera, playbackMode }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [prevVolume, setPrevVolume] = useState(0.5);
+  const [retryTick, setRetryTick] = useState(0);
   const showDebugOverlay = useCameraStore((s) => s.showDebugOverlay);
   const volume = useCameraStore((s) => s.volume);
   const setVolume = useCameraStore((s) => s.setVolume);
@@ -34,6 +35,22 @@ export function CameraViewer({ camera, playbackMode }: Props) {
   const snapshot = camera?.snapshotDataUrl;
   const status = camera?.status ?? 'idle';
   const isPlaybackLoading = playbackMode === 'playback' && status === 'connecting' && !hlsUrl;
+  const retryAt = camera?.retryAt;
+
+  useEffect(() => {
+    if (status !== 'error' || !retryAt) return;
+
+    const update = () => setRetryTick(Date.now());
+    const initialTimer = setTimeout(update, 0);
+    const timer = setInterval(() => {
+      update();
+    }, 1000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(timer);
+    };
+  }, [retryAt, status]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -55,8 +72,18 @@ export function CameraViewer({ camera, playbackMode }: Props) {
 
   const label = camera?.config.name ?? t('viewer.noCamera');
 
+  const retrySeconds =
+    status === 'error' && retryAt
+      ? Math.max(1, Math.ceil((retryAt - (retryTick || retryAt - 1000)) / 1000))
+      : null;
+
   const displayError =
-    playerError ?? (status === 'error' ? (camera?.errorMessage ?? t('viewer.streamError')) : null);
+    playerError ??
+    (status === 'error'
+      ? retrySeconds
+        ? t('viewer.retrying', { seconds: retrySeconds })
+        : (camera?.errorMessage ?? t('viewer.streamError'))
+      : null);
 
   const toggleMute = () => {
     if (volume > 0) {
@@ -132,13 +159,15 @@ export function CameraViewer({ camera, playbackMode }: Props) {
               ? isPlaybackLoading
                 ? t('viewer.loadingRecording')
                 : t('viewer.connecting')
-              : displayError
-                ? displayError
-                : status === 'offline'
-                  ? t('viewer.cameraOffline')
-                  : camera
-                    ? t('viewer.clickToStart')
-                    : t('viewer.selectCamera')}
+              : retrySeconds
+                ? t('viewer.retrying', { seconds: retrySeconds })
+                : displayError
+                  ? displayError
+                  : status === 'offline'
+                    ? t('viewer.cameraOffline')
+                    : camera
+                      ? t('viewer.clickToStart')
+                      : t('viewer.selectCamera')}
           </span>
         </div>
       )}

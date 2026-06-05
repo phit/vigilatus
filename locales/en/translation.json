@@ -29,6 +29,7 @@
     "playback": "Playback",
     "live": "Live",
     "streamError": "Stream error",
+    "retrying": "Retrying in {{seconds}}s...",
     "hlsNetworkError": "Failed to load HLS stream from local server",
     "hlsMediaError": "Browser could not decode the stream",
     "hlsGenericError": "HLS playback failed",

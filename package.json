@@ -1,6 +1,6 @@
 {
   "name": "vigilatus",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "description": "Cross-platform desktop app for viewing Tapo cameras and local recordings.",
   "author": "phit",
