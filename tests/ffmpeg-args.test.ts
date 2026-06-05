@@ -11,16 +11,23 @@ vi.mock('electron', () => {
   };
 });
 
+// The -hls_segment_filename value is built with path.join, so its separators
+// differ by OS. Normalise to forward slashes so the snapshots are stable on
+// both Windows (dev) and Linux (CI).
+const fwd = (args: string[]): string[] => args.map((a) => a.replace(/\\/g, '/'));
+
 describe('buildHttpLiveFfmpegArgs', () => {
   it('builds args with pcma (alaw) audio', () => {
     expect(
-      buildHttpLiveFfmpegArgs({
-        audioCodec: 'pcma',
-        audioRate: 8000,
-        segDir: '/seg',
-        sessionToken: 'tok',
-        m3u8: '/seg/stream-tok.m3u8',
-      }),
+      fwd(
+        buildHttpLiveFfmpegArgs({
+          audioCodec: 'pcma',
+          audioRate: 8000,
+          segDir: '/seg',
+          sessionToken: 'tok',
+          m3u8: '/seg/stream-tok.m3u8',
+        }),
+      ),
     ).toMatchInlineSnapshot(`
       [
         "-loglevel",
@@ -90,7 +97,7 @@ describe('buildHttpLiveFfmpegArgs', () => {
         "-hls_flags",
         "delete_segments+independent_segments",
         "-hls_segment_filename",
-        "\\seg\\segment-tok-%03d.ts",
+        "/seg/segment-tok-%03d.ts",
         "/seg/stream-tok.m3u8",
       ]
     `);
@@ -98,13 +105,15 @@ describe('buildHttpLiveFfmpegArgs', () => {
 
   it('builds args with pcmu (mulaw) audio', () => {
     expect(
-      buildHttpLiveFfmpegArgs({
-        audioCodec: 'pcmu',
-        audioRate: 16000,
-        segDir: '/seg',
-        sessionToken: 'tok',
-        m3u8: '/seg/stream-tok.m3u8',
-      }),
+      fwd(
+        buildHttpLiveFfmpegArgs({
+          audioCodec: 'pcmu',
+          audioRate: 16000,
+          segDir: '/seg',
+          sessionToken: 'tok',
+          m3u8: '/seg/stream-tok.m3u8',
+        }),
+      ),
     ).toMatchInlineSnapshot(`
       [
         "-loglevel",
@@ -174,7 +183,7 @@ describe('buildHttpLiveFfmpegArgs', () => {
         "-hls_flags",
         "delete_segments+independent_segments",
         "-hls_segment_filename",
-        "\\seg\\segment-tok-%03d.ts",
+        "/seg/segment-tok-%03d.ts",
         "/seg/stream-tok.m3u8",
       ]
     `);
@@ -182,13 +191,15 @@ describe('buildHttpLiveFfmpegArgs', () => {
 
   it('builds video-only args when no audio codec is detected', () => {
     expect(
-      buildHttpLiveFfmpegArgs({
-        audioCodec: undefined,
-        audioRate: 8000,
-        segDir: '/seg',
-        sessionToken: 'tok',
-        m3u8: '/seg/stream-tok.m3u8',
-      }),
+      fwd(
+        buildHttpLiveFfmpegArgs({
+          audioCodec: undefined,
+          audioRate: 8000,
+          segDir: '/seg',
+          sessionToken: 'tok',
+          m3u8: '/seg/stream-tok.m3u8',
+        }),
+      ),
     ).toMatchInlineSnapshot(`
       [
         "-loglevel",
@@ -234,7 +245,7 @@ describe('buildHttpLiveFfmpegArgs', () => {
         "-hls_flags",
         "delete_segments+independent_segments",
         "-hls_segment_filename",
-        "\\seg\\segment-tok-%03d.ts",
+        "/seg/segment-tok-%03d.ts",
         "/seg/stream-tok.m3u8",
       ]
     `);
@@ -243,7 +254,7 @@ describe('buildHttpLiveFfmpegArgs', () => {
 
 describe('buildRtspHlsOutputOptions', () => {
   it('builds the output options with a session token', () => {
-    expect(buildRtspHlsOutputOptions('/seg', 'tok')).toMatchInlineSnapshot(`
+    expect(fwd(buildRtspHlsOutputOptions('/seg', 'tok'))).toMatchInlineSnapshot(`
       [
         "-map",
         "0:v:0",
@@ -286,13 +297,13 @@ describe('buildRtspHlsOutputOptions', () => {
         "-hls_flags",
         "delete_segments+independent_segments",
         "-hls_segment_filename",
-        "\\seg\\segment-tok-%03d.ts",
+        "/seg/segment-tok-%03d.ts",
       ]
     `);
   });
 
   it('falls back to the "live" segment token when none is provided', () => {
-    expect(buildRtspHlsOutputOptions('/seg')).toMatchInlineSnapshot(`
+    expect(fwd(buildRtspHlsOutputOptions('/seg'))).toMatchInlineSnapshot(`
       [
         "-map",
         "0:v:0",
@@ -335,7 +346,7 @@ describe('buildRtspHlsOutputOptions', () => {
         "-hls_flags",
         "delete_segments+independent_segments",
         "-hls_segment_filename",
-        "\\seg\\segment-live-%03d.ts",
+        "/seg/segment-live-%03d.ts",
       ]
     `);
   });
