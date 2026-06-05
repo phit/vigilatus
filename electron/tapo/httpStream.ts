@@ -184,6 +184,14 @@ async function attemptHttpStream(
   sessionToken: string,
 ): Promise<string> {
   const log = createLogger(`stream:${cameraId}`);
+  let diedNotified = false;
+
+  const notifyDiedOnce = () => {
+    if (diedNotified) return;
+    diedNotified = true;
+    notifyStreamDied(cameraId);
+  };
+
   let session: MediaSession | null = null;
   let ffmpegProc: ChildProcess | null = null;
 
@@ -273,7 +281,7 @@ async function attemptHttpStream(
         if (!expectedStops.has(cameraId)) {
           log.error(`http media session error:`, (err as Error).message);
           cleanup();
-          notifyStreamDied(cameraId);
+          notifyDiedOnce();
         }
       });
 
@@ -353,7 +361,7 @@ async function attemptHttpStream(
       if (!expectedStops.has(cameraId)) {
         log.error(`http ffmpeg exited with code ${code}`);
         streams.delete(cameraId);
-        notifyStreamDied(cameraId);
+        notifyDiedOnce();
       }
     });
 

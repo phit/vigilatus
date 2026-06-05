@@ -160,6 +160,13 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
   const proc = createHlsCommand(rtsp, segDir, m3u8, sessionToken);
 
   const ready = waitForHlsReady(m3u8, STREAM_READY_TIMEOUT_MS, stderrLines);
+  let diedNotified = false;
+
+  const notifyDiedOnce = () => {
+    if (diedNotified) return;
+    diedNotified = true;
+    notifyStreamDied(cameraId);
+  };
 
   const streamReady = new Promise<string>((resolve, reject) => {
     let settled = false;
@@ -185,7 +192,7 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
         settled = true;
         reject(new Error(message));
       }
-      notifyStreamDied(cameraId);
+      notifyDiedOnce();
     });
 
     proc.on('end', () => {
@@ -193,7 +200,7 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
       expectedStops.delete(cameraId);
       streams.delete(cameraId);
       if (!wasExpected && settled) {
-        notifyStreamDied(cameraId);
+        notifyDiedOnce();
       }
     });
 
@@ -215,7 +222,7 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
         if (!settled) {
           settled = true;
           reject(err);
-          notifyStreamDied(cameraId);
+          notifyDiedOnce();
         }
       });
   });

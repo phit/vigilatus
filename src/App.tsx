@@ -26,7 +26,7 @@ function scheduleStreamRestart(
   onScheduled?: (retryAt: number) => void,
 ): void {
   const existing = streamRestartBackoff.get(cameraId);
-  const delay = existing ? Math.min(existing.delay * 2, RESTART_MAX_DELAY_MS) : RESTART_INITIAL_DELAY_MS;
+  const delay = existing ? Math.min(existing.delay * 1.2, RESTART_MAX_DELAY_MS) : RESTART_INITIAL_DELAY_MS;
   const attempt = (existing?.attempt ?? 0) + 1;
   if (existing) clearTimeout(existing.timer);
 
