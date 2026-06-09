@@ -30,12 +30,8 @@ const RECORDING_EVENTS_RETRY_COOLDOWN_MS = 5 * 60_000;
 
 let testFixtures: TestFixtures | null = null;
 
-function getCamera(cameraId: string): CameraConfig | undefined {
-  return configStore.getCameras().find((c) => c.id === cameraId);
-}
-
 function requireCamera(cameraId: string): CameraConfig {
-  const cam = getCamera(cameraId);
+  const cam = configStore.getCameras().find((c) => c.id === cameraId);
   if (!cam) throw new Error(`Camera ${cameraId} not found`);
   return cam;
 }
@@ -142,8 +138,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     if (testFixtures?.snapshots) {
       return testFixtures.snapshots[cameraId] ?? null;
     }
-    const cam = getCamera(cameraId);
-    if (!cam) return null;
+    const cam = requireCamera(cameraId);
     return streamManager.getSnapshot(cameraId, cam);
   });
 
@@ -155,9 +150,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     if (testFixtures) {
       return testFixtures.recordings?.[cameraId] ?? [];
     }
-    const cam = getCamera(cameraId);
-    if (!cam) return [];
-
+    const cam = requireCamera(cameraId);
     const client = getOrCreateRecordingsClient(cameraId, cam);
 
     const recordings = await client.getRecordingsForDate(date);
@@ -181,9 +174,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
         return [];
       }
 
-      const cam = getCamera(cameraId);
-      if (!cam) return [];
-
+      const cam = requireCamera(cameraId);
       const client = getOrCreateRecordingsClient(cameraId, cam);
 
       try {
