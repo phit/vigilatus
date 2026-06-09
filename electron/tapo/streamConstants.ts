@@ -24,5 +24,5 @@ export const RECORDING_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 // HLS output tuning (shared by the RTSP and HTTP-media-session pipelines).
 export const LIVE_HLS_SEGMENT_SECONDS = 1;
-export const LIVE_HLS_PLAYLIST_SIZE = 3;
+export const LIVE_HLS_PLAYLIST_SIZE = 5;
 export const LIVE_AUDIO_FILTER = 'aresample=async=1:first_pts=0';

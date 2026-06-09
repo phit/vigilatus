@@ -212,8 +212,30 @@ export function useHlsPlayer(
         hlsRef.current = null;
       });
 
+      // Renderer-side stall recovery: if currentTime stops advancing for
+      // HLS_STALL_RECOVERY_MS while the video is not paused, the playlist
+      // window has likely scrolled past what hls.js last buffered. Jump back
+      // to the live edge rather than waiting for the user to refresh.
+      const HLS_STALL_RECOVERY_MS = 10_000;
+      const HLS_STALL_CHECK_INTERVAL_MS = 3_000;
+      let lastCurrentTime = NaN;
+      let lastProgressAt = Date.now();
+      const stallCheck = setInterval(() => {
+        if (video.paused || !hlsRef.current) return;
+        if (video.currentTime !== lastCurrentTime) {
+          lastCurrentTime = video.currentTime;
+          lastProgressAt = Date.now();
+        } else if (Date.now() - lastProgressAt >= HLS_STALL_RECOVERY_MS) {
+          createLogger('viewer:hls').warn('stall detected — jumping to live edge');
+          hlsRef.current.stopLoad();
+          hlsRef.current.startLoad(-1);
+          lastProgressAt = Date.now();
+        }
+      }, HLS_STALL_CHECK_INTERVAL_MS);
+
       video.addEventListener('error', onVideoError);
       return () => {
+        clearInterval(stallCheck);
         video.removeEventListener('error', onVideoError);
         hls.destroy();
         hlsRef.current = null;
