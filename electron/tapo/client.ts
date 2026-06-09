@@ -508,69 +508,38 @@ export class TapoClient {
     }
   }
 
-  private appendPlaybackUserIdCandidate(
-    candidateUserIds: number[],
-    seenUserIds: Set<number>,
-    value: unknown,
-  ): void {
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-      return;
-    }
-    if (seenUserIds.has(value)) {
-      return;
-    }
-    seenUserIds.add(value);
-    candidateUserIds.push(value);
-  }
-
-  private appendNearbyPlaybackUserIds(
-    candidateUserIds: number[],
-    seenUserIds: Set<number>,
-    seed: number,
-  ): void {
-    this.appendPlaybackUserIdCandidate(candidateUserIds, seenUserIds, seed + 1);
-    if (seed > 0) {
-      this.appendPlaybackUserIdCandidate(candidateUserIds, seenUserIds, seed - 1);
-    }
-    this.appendPlaybackUserIdCandidate(candidateUserIds, seenUserIds, seed + 2);
-    if (seed > 1) {
-      this.appendPlaybackUserIdCandidate(candidateUserIds, seenUserIds, seed - 2);
-    }
-  }
-
   private async resolvePlaybackUserIdCandidates(userIdOverride: number | undefined): Promise<number[]> {
-    const candidateUserIds: number[] = [];
-    const seenUserIds = new Set<number>();
-    const appendCandidate = (value: unknown): void => {
-      this.appendPlaybackUserIdCandidate(candidateUserIds, seenUserIds, value);
+    const result: number[] = [];
+    const seen = new Set<number>();
+
+    const add = (id: unknown): void => {
+      if (typeof id !== 'number' || !Number.isFinite(id) || id < 0 || seen.has(id)) return;
+      seen.add(id);
+      result.push(id);
     };
-    const appendNearbyCandidates = (seed: number): void => {
-      this.appendNearbyPlaybackUserIds(candidateUserIds, seenUserIds, seed);
+    const addNearby = (seed: number): void => {
+      add(seed + 1);
+      if (seed > 0) add(seed - 1);
+      add(seed + 2);
+      if (seed > 1) add(seed - 2);
     };
 
-    appendCandidate(userIdOverride);
-    appendCandidate(this.cachedUserId);
+    // Prefer caller-supplied and cached IDs first, then their neighbors.
+    add(userIdOverride);
+    add(this.cachedUserId);
+    for (const seed of result.slice()) addNearby(seed);
 
-    const initialSeeds = [...candidateUserIds];
-    for (const seed of initialSeeds) {
-      appendNearbyCandidates(seed);
+    // Well-known fallback IDs.
+    for (const id of DEFAULT_PLAYBACK_USER_IDS) add(id);
+
+    // API-resolved ID and its neighbors (last resort — requires a network round-trip).
+    const apiUserId = await this.tryResolvePlaybackUserId(false);
+    if (typeof apiUserId === 'number') {
+      add(apiUserId);
+      addNearby(apiUserId);
     }
 
-    for (const fallbackUserId of DEFAULT_PLAYBACK_USER_IDS) {
-      appendCandidate(fallbackUserId);
-    }
-
-    const resolvedUserId = await this.tryResolvePlaybackUserId(false);
-    if (typeof resolvedUserId === 'number') {
-      appendCandidate(resolvedUserId);
-      appendNearbyCandidates(resolvedUserId);
-    }
-
-    if (candidateUserIds.length === 0) {
-      throw new Error('Failed to resolve playback user ID');
-    }
-
-    return candidateUserIds;
+    return result;
   }
 
   private isRetryablePlaybackStreamError(message: string): boolean {
