@@ -1,5 +1,5 @@
 import { waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetRecordingsCache, useCameraStore } from '../src/store/cameras';
 import type { CameraConfig } from '../src/types';
 import { createVigilatusMock, installVigilatusMock } from './helpers/mockVigilatus';
@@ -155,6 +155,71 @@ describe('useCameraStore', () => {
 
     expect(useCameraStore.getState().recordings).toEqual([]);
     expect(useCameraStore.getState().recordingEvents).toEqual([]);
+  });
+});
+
+describe('scheduleStreamRestart', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetRecordingsCache();
+    installVigilatusMock(createVigilatusMock());
+    resetStore();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('sets retryAt immediately and calls stream.start after the initial 2 s delay', async () => {
+    const mock = createVigilatusMock();
+    mock.stream.start.mockResolvedValueOnce('http://127.0.0.1/live.m3u8');
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'error' }] });
+
+    const before = Date.now();
+    useCameraStore.getState().scheduleStreamRestart('cam-1');
+
+    expect(useCameraStore.getState().cameras[0]?.retryAt).toBe(before + 2_000);
+    expect(mock.stream.start).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(mock.stream.start).toHaveBeenCalledWith('cam-1');
+    expect(useCameraStore.getState().cameras[0]?.status).toBe('live');
+    expect(useCameraStore.getState().cameras[0]?.retryAt).toBeUndefined();
+  });
+
+  it('does not restart if the camera is idle when the timer fires', async () => {
+    const mock = createVigilatusMock();
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'idle' }] });
+
+    useCameraStore.getState().scheduleStreamRestart('cam-1');
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(mock.stream.start).not.toHaveBeenCalled();
+  });
+
+  it('reschedules with increased delay when the restart attempt fails', async () => {
+    const mock = createVigilatusMock();
+    mock.stream.start
+      .mockRejectedValueOnce(new Error('connection refused'))
+      .mockResolvedValueOnce('http://127.0.0.1/live.m3u8');
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'error' }] });
+
+    useCameraStore.getState().scheduleStreamRestart('cam-1');
+
+    // First attempt fires at 2 000 ms — rejects, camera lands in 'error'
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(mock.stream.start).toHaveBeenCalledTimes(1);
+
+    // Second attempt fires at 2 000 * 1.2 = 2 400 ms — succeeds
+    await vi.advanceTimersByTimeAsync(2_400);
+    expect(mock.stream.start).toHaveBeenCalledTimes(2);
+    expect(useCameraStore.getState().cameras[0]?.status).toBe('live');
   });
 });
 

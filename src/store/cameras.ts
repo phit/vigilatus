@@ -64,6 +64,13 @@ export function resetRecordingsCache(): void {
 const httpStopTimers = new Map<string, ReturnType<typeof setTimeout>>();
 /** Renderer-side in-flight start operations keyed by camera id. */
 const pendingStreamStarts = new Map<string, Promise<void>>();
+/** Per-camera exponential backoff state for auto-restart after stream death. */
+const streamRestartBackoff = new Map<
+  string,
+  { attempt: number; delay: number; timer: ReturnType<typeof setTimeout> }
+>();
+const RESTART_INITIAL_DELAY_MS = 2_000;
+const RESTART_MAX_DELAY_MS = 2 * 60 * 1000;
 
 interface CamerasStore {
   cameras: CameraState[];
@@ -94,6 +101,7 @@ interface CamerasStore {
   updateSnapshot(id: string, dataUrl: string): void;
   setStatus(id: string, status: CameraState['status'], error?: string): void;
   setRetryAt(id: string, retryAt?: number): void;
+  scheduleStreamRestart(id: string): void;
 
   togglePreviews(): void;
   setPreviewsVisible(visible: boolean): void;
@@ -304,6 +312,44 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
 
     setRetryAt(id, retryAt) {
       patchCamera(id, { retryAt });
+    },
+
+    scheduleStreamRestart(id) {
+      const existing = streamRestartBackoff.get(id);
+      const delay = existing ? Math.min(existing.delay * 1.2, RESTART_MAX_DELAY_MS) : RESTART_INITIAL_DELAY_MS;
+      const attempt = (existing?.attempt ?? 0) + 1;
+      if (existing) clearTimeout(existing.timer);
+
+      patchCamera(id, { retryAt: Date.now() + delay });
+
+      log.warn(`stream restart scheduled for ${id}: attempt ${attempt} in ${(delay / 1000).toFixed(0)}s`);
+      const timer = setTimeout(async () => {
+        const cam = get().cameras.find((c) => c.config.id === id);
+        if (!cam || cam.status === 'idle') {
+          streamRestartBackoff.delete(id);
+          log.info(`stream restart stopped for ${id}: camera is idle or missing`);
+          return;
+        }
+
+        log.info(`stream restart attempt ${attempt} starting for ${id}`);
+        try {
+          await get().startStream(id);
+        } catch (error) {
+          log.warn(`stream restart attempt ${attempt} threw for ${id}:`, (error as Error).message);
+        }
+
+        const after = get().cameras.find((c) => c.config.id === id);
+        if (after?.status === 'live') {
+          streamRestartBackoff.delete(id);
+          log.info(`stream restart recovered ${id} on attempt ${attempt}`);
+        } else if (!after || after.status === 'idle') {
+          streamRestartBackoff.delete(id);
+          log.info(`stream restart stopped for ${id}: camera is idle or missing`);
+        } else {
+          get().scheduleStreamRestart(id);
+        }
+      }, delay);
+      streamRestartBackoff.set(id, { attempt, delay, timer });
     },
 
     // ------------------------------------------------------------------

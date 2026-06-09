@@ -8,64 +8,6 @@ import { CameraPreview } from './components/CameraPreview';
 import { Timeline } from './components/Timeline';
 import { AddCameraModal } from './components/AddCameraModal';
 import type { CameraConfig, PreviewPosition } from './types';
-import { createLogger } from './log';
-
-const log = createLogger('App');
-
-/** Per-camera exponential backoff state for auto-restart after stream death. */
-const streamRestartBackoff = new Map<
-  string,
-  { attempt: number; delay: number; timer: ReturnType<typeof setTimeout> }
->();
-const RESTART_INITIAL_DELAY_MS = 2_000;
-const RESTART_MAX_DELAY_MS = 2 * 60 * 1000; // 2 minutes
-
-function scheduleStreamRestart(
-  cameraId: string,
-  startStream: (id: string) => Promise<void>,
-  onScheduled?: (retryAt: number) => void,
-): void {
-  const existing = streamRestartBackoff.get(cameraId);
-  const delay = existing ? Math.min(existing.delay * 1.2, RESTART_MAX_DELAY_MS) : RESTART_INITIAL_DELAY_MS;
-  const attempt = (existing?.attempt ?? 0) + 1;
-  if (existing) clearTimeout(existing.timer);
-
-  onScheduled?.(Date.now() + delay);
-
-  log.warn(`stream restart scheduled for ${cameraId}: attempt ${attempt} in ${(delay / 1000).toFixed(0)}s`);
-  const timer = setTimeout(async () => {
-    const state = useCameraStore.getState();
-    const cam = state.cameras.find((c) => c.config.id === cameraId);
-    // Only restart if the camera was live/connecting or failed during a previous
-    // restart attempt (status 'error'). Skip if the user manually stopped it ('idle').
-    if (!cam || cam.status === 'idle') {
-      streamRestartBackoff.delete(cameraId);
-      log.info(`stream restart stopped for ${cameraId}: camera is idle or missing`);
-      return;
-    }
-
-    log.info(`stream restart attempt ${attempt} starting for ${cameraId}`);
-    try {
-      await startStream(cameraId);
-    } catch (error) {
-      log.warn(`stream restart attempt ${attempt} threw for ${cameraId}:`, (error as Error).message);
-    }
-
-    // Check whether the restart actually succeeded
-    const after = useCameraStore.getState().cameras.find((c) => c.config.id === cameraId);
-    if (after?.status === 'live') {
-      streamRestartBackoff.delete(cameraId);
-      log.info(`stream restart recovered ${cameraId} on attempt ${attempt}`);
-    } else if (!after || after.status === 'idle') {
-      streamRestartBackoff.delete(cameraId);
-      log.info(`stream restart stopped for ${cameraId}: camera is idle or missing`);
-    } else {
-      // Restart failed — schedule another attempt with increased backoff
-      scheduleStreamRestart(cameraId, startStream, onScheduled);
-    }
-  }, delay);
-  streamRestartBackoff.set(cameraId, { attempt, delay, timer });
-}
 
 export function App() {
   // State slices — subscribe only to what App renders.
@@ -92,7 +34,7 @@ export function App() {
   const startStream = useCameraStore((s) => s.startStream);
   const stopStream = useCameraStore((s) => s.stopStream);
   const restartActiveStreams = useCameraStore((s) => s.restartActiveStreams);
-  const setRetryAt = useCameraStore((s) => s.setRetryAt);
+  const scheduleStreamRestart = useCameraStore((s) => s.scheduleStreamRestart);
   const setPreviewsVisible = useCameraStore((s) => s.setPreviewsVisible);
   const setTimelineVisible = useCameraStore((s) => s.setTimelineVisible);
   const setHeaderVisible = useCameraStore((s) => s.setHeaderVisible);
@@ -147,9 +89,7 @@ export function App() {
       restartActiveStreams();
     });
     const offStreamDied = window.vigilatus.ui.onStreamDied((cameraId) => {
-      scheduleStreamRestart(cameraId, startStream, (retryAt) => {
-        setRetryAt(cameraId, retryAt);
-      });
+      scheduleStreamRestart(cameraId);
     });
     const offSetLanguage = window.vigilatus.ui.onSetLanguage((language) => {
       if (language === 'system') {
@@ -183,8 +123,7 @@ export function App() {
     setPreviewPosition,
     setVolume,
     restartActiveStreams,
-    setRetryAt,
-    startStream,
+    scheduleStreamRestart,
   ]);
 
   // Auto-select the first camera when nothing is selected. The guard keeps this
