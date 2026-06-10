@@ -316,7 +316,9 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
 
     scheduleStreamRestart(id) {
       const existing = streamRestartBackoff.get(id);
-      const delay = existing ? Math.min(existing.delay * 1.2, RESTART_MAX_DELAY_MS) : RESTART_INITIAL_DELAY_MS;
+      const delay = existing
+        ? Math.min(existing.delay * 1.2, RESTART_MAX_DELAY_MS)
+        : RESTART_INITIAL_DELAY_MS;
       const attempt = (existing?.attempt ?? 0) + 1;
       if (existing) clearTimeout(existing.timer);
 
