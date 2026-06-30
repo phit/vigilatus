@@ -286,6 +286,10 @@ describe('layout actions', () => {
   });
 });
 
+function tileFor(cameraId: string, id = `tile-${cameraId}`) {
+  return { id, cameraId, x: 0, y: 0, w: 1, h: 1, z: 0, locked: false };
+}
+
 describe('scheduleStreamRestart', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -302,7 +306,10 @@ describe('scheduleStreamRestart', () => {
     mock.stream.start.mockResolvedValueOnce('http://127.0.0.1/live.m3u8');
     installVigilatusMock(mock);
 
-    useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'error' }] });
+    useCameraStore.setState({
+      cameras: [{ config: camera('cam-1'), status: 'error' }],
+      layout: { tiles: [tileFor('cam-1')], focusedTileId: 'tile-cam-1' },
+    });
 
     const before = Date.now();
     useCameraStore.getState().scheduleStreamRestart('cam-1');
@@ -321,7 +328,10 @@ describe('scheduleStreamRestart', () => {
     const mock = createVigilatusMock();
     installVigilatusMock(mock);
 
-    useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'idle' }] });
+    useCameraStore.setState({
+      cameras: [{ config: camera('cam-1'), status: 'idle' }],
+      layout: { tiles: [tileFor('cam-1')], focusedTileId: 'tile-cam-1' },
+    });
 
     useCameraStore.getState().scheduleStreamRestart('cam-1');
     await vi.advanceTimersByTimeAsync(2_000);
@@ -336,7 +346,10 @@ describe('scheduleStreamRestart', () => {
       .mockResolvedValueOnce('http://127.0.0.1/live.m3u8');
     installVigilatusMock(mock);
 
-    useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'error' }] });
+    useCameraStore.setState({
+      cameras: [{ config: camera('cam-1'), status: 'error' }],
+      layout: { tiles: [tileFor('cam-1')], focusedTileId: 'tile-cam-1' },
+    });
 
     useCameraStore.getState().scheduleStreamRestart('cam-1');
 
@@ -348,6 +361,88 @@ describe('scheduleStreamRestart', () => {
     await vi.advanceTimersByTimeAsync(2_400);
     expect(mock.stream.start).toHaveBeenCalledTimes(2);
     expect(useCameraStore.getState().cameras[0]?.status).toBe('live');
+  });
+
+  it('does not enter the backoff loop for a camera that is not in any tile', async () => {
+    const mock = createVigilatusMock();
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({
+      cameras: [{ config: camera('cam-1'), status: 'error' }],
+      layout: { tiles: [], focusedTileId: null },
+    });
+
+    useCameraStore.getState().scheduleStreamRestart('cam-1');
+    expect(useCameraStore.getState().cameras[0]?.retryAt).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mock.stream.start).not.toHaveBeenCalled();
+  });
+
+  it('HTTP removal race: removing the tile before the backoff fires cancels the restart', async () => {
+    const mock = createVigilatusMock();
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({
+      cameras: [{ config: { ...camera('cam-1'), streamProtocol: 'http' }, status: 'live' }],
+      layout: { tiles: [tileFor('cam-1')], focusedTileId: 'tile-cam-1' },
+    });
+
+    useCameraStore.getState().scheduleStreamRestart('cam-1');
+    // Removing the tile defers the actual stopStream for an HTTP camera by
+    // HTTP_STREAM_LINGER_MS — the camera is not yet 'idle' when the restart
+    // timer below fires, so the membership check must be what blocks it.
+    useCameraStore.getState().removeTile('tile-cam-1');
+    expect(useCameraStore.getState().cameras[0]?.status).not.toBe('idle');
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(mock.stream.start).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(useCameraStore.getState().cameras[0]?.status).toBe('idle');
+  });
+
+  it('in-flight explicit stop cancels a pending restart timer', async () => {
+    const mock = createVigilatusMock();
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({
+      cameras: [{ config: camera('cam-1'), status: 'error' }],
+      layout: { tiles: [tileFor('cam-1')], focusedTileId: 'tile-cam-1' },
+    });
+
+    useCameraStore.getState().scheduleStreamRestart('cam-1');
+    useCameraStore.getState().stopStream('cam-1');
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(mock.stream.start).not.toHaveBeenCalled();
+    expect(useCameraStore.getState().cameras[0]?.status).toBe('idle');
+  });
+
+  it('swapTileCamera: a restart pending for the swapped-out camera does not revive it', async () => {
+    const mock = createVigilatusMock();
+    mock.stream.start.mockResolvedValue('http://127.0.0.1/live.m3u8');
+    installVigilatusMock(mock);
+
+    // HTTP + live so swapTileCamera's stopCameraStream call defers the stop by
+    // HTTP_STREAM_LINGER_MS instead of cancelling the backoff timer immediately —
+    // this isolates the inView() membership check as what blocks the revival.
+    useCameraStore.setState({
+      cameras: [
+        { config: { ...camera('cam-1'), streamProtocol: 'http' }, status: 'live' },
+        { config: camera('cam-2', 'Side Yard'), status: 'idle' },
+      ],
+      layout: { tiles: [tileFor('cam-1')], focusedTileId: 'tile-cam-1' },
+    });
+
+    useCameraStore.getState().scheduleStreamRestart('cam-1');
+    useCameraStore.getState().swapTileCamera('tile-cam-1', 'cam-2');
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(mock.stream.start).not.toHaveBeenCalledWith('cam-1');
+    expect(mock.stream.start).toHaveBeenCalledWith('cam-2');
   });
 });
 

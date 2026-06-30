@@ -563,6 +563,11 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
     },
 
     stopStream(id) {
+      const backoff = streamRestartBackoff.get(id);
+      if (backoff) {
+        clearTimeout(backoff.timer);
+        streamRestartBackoff.delete(id);
+      }
       pendingStreamStarts.delete(id);
       void window.vigilatus.stream.stop(id);
       patchCamera(id, { status: 'idle', hlsUrl: undefined, errorMessage: undefined, retryAt: undefined });
@@ -597,6 +602,14 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
     },
 
     scheduleStreamRestart(id) {
+      const inView = (cid: string) => get().layout.tiles.some((t) => t.cameraId === cid);
+      const isPlaybackFocus = (cid: string) => get().playbackMode === 'playback' && get().selectedId === cid;
+
+      if (!inView(id) || isPlaybackFocus(id)) {
+        streamRestartBackoff.delete(id);
+        return;
+      }
+
       const existing = streamRestartBackoff.get(id);
       const delay = existing
         ? Math.min(existing.delay * 1.2, RESTART_MAX_DELAY_MS)
@@ -609,9 +622,9 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
       log.warn(`stream restart scheduled for ${id}: attempt ${attempt} in ${(delay / 1000).toFixed(0)}s`);
       const timer = setTimeout(async () => {
         const cam = get().cameras.find((c) => c.config.id === id);
-        if (!cam || cam.status === 'idle') {
+        if (!cam || !inView(id) || cam.status === 'idle' || isPlaybackFocus(id)) {
           streamRestartBackoff.delete(id);
-          log.info(`stream restart stopped for ${id}: camera is idle or missing`);
+          log.info(`stream restart stopped for ${id}: camera is out of view, idle, or in playback`);
           return;
         }
 
@@ -626,9 +639,9 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
         if (after?.status === 'live') {
           streamRestartBackoff.delete(id);
           log.info(`stream restart recovered ${id} on attempt ${attempt}`);
-        } else if (!after || after.status === 'idle') {
+        } else if (!after || !inView(id) || after.status === 'idle' || isPlaybackFocus(id)) {
           streamRestartBackoff.delete(id);
-          log.info(`stream restart stopped for ${id}: camera is idle or missing`);
+          log.info(`stream restart stopped for ${id}: camera is out of view, idle, or in playback`);
         } else {
           get().scheduleStreamRestart(id);
         }
