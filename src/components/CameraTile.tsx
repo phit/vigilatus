@@ -19,6 +19,7 @@ interface DragState {
   startY: number;
   startRect: { x: number; y: number; w: number; h: number };
   mode: DragMode;
+  currentRect: { x: number; y: number; w: number; h: number } | null;
 }
 
 export function CameraTile({ tile, camera, containerW, containerH, isFocused }: Props) {
@@ -35,6 +36,7 @@ export function CameraTile({ tile, camera, containerW, containerH, isFocused }: 
   const clearTiles = useCameraStore((s) => s.clearTiles);
 
   const dragState = useRef<DragState | null>(null);
+  const tileElRef = useRef<HTMLDivElement>(null);
   const px = toPixels(tile, containerW, containerH);
 
   const startDrag = (e: React.PointerEvent, mode: DragMode) => {
@@ -46,6 +48,7 @@ export function CameraTile({ tile, camera, containerW, containerH, isFocused }: 
       startY: e.clientY,
       startRect: { x: tile.x, y: tile.y, w: tile.w, h: tile.h },
       mode,
+      currentRect: null,
     };
   };
 
@@ -70,14 +73,26 @@ export function CameraTile({ tile, camera, containerW, containerH, isFocused }: 
     }
     r = clampRect(r);
 
-    if (mode === 'move') {
-      moveTile(tile.id, r);
-    } else {
-      resizeTile(tile.id, r);
+    dragState.current.currentRect = r;
+    const el = tileElRef.current;
+    if (el) {
+      const p = toPixels(r, containerW, containerH);
+      el.style.left = `${p.left}px`;
+      el.style.top = `${p.top}px`;
+      el.style.width = `${p.width}px`;
+      el.style.height = `${p.height}px`;
     }
   };
 
   const handleDragPointerUp = () => {
+    const ds = dragState.current;
+    if (ds?.currentRect) {
+      if (ds.mode === 'move') {
+        moveTile(tile.id, ds.currentRect);
+      } else {
+        resizeTile(tile.id, ds.currentRect);
+      }
+    }
     dragState.current = null;
   };
 
@@ -110,6 +125,7 @@ export function CameraTile({ tile, camera, containerW, containerH, isFocused }: 
 
   return (
     <div
+      ref={tileElRef}
       className={`camera-tile${isFocused ? ' camera-tile--focused' : ''}${tile.locked ? ' camera-tile--locked' : ''}`}
       style={{
         position: 'absolute',
