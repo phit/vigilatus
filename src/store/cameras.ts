@@ -497,6 +497,9 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
     },
 
     clearFocus() {
+      if (get().playbackMode === 'playback') {
+        get().goLive();
+      }
       set((s) => ({ layout: { ...s.layout, focusedTileId: null }, selectedId: null }));
     },
 

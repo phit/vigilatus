@@ -284,6 +284,51 @@ describe('layout actions', () => {
     expect(layout.tiles.every((t) => t.cameraId !== 'cam-b')).toBe(true);
     expect(selectedId).not.toBe('cam-b');
   });
+
+  it('clearFocus during playback exits playback and restarts the live stream', async () => {
+    const mock = createVigilatusMock();
+    mock.stream.start.mockResolvedValue('http://127.0.0.1/live.m3u8');
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({
+      cameras: [{ config: camera('cam-1'), status: 'live', hlsUrl: 'blob:recording' }],
+      selectedId: 'cam-1',
+      layout: { tiles: [tileFor('cam-1')], focusedTileId: 'tile-cam-1' },
+      playbackMode: 'playback',
+      playbackTime: 150_000,
+      playbackStartTime: 100_000,
+    });
+
+    useCameraStore.getState().clearFocus();
+
+    const s = useCameraStore.getState();
+    expect(s.playbackMode).toBe('live');
+    expect(s.playbackTime).toBeNull();
+    expect(s.playbackStartTime).toBeNull();
+    expect(s.layout.focusedTileId).toBeNull();
+    expect(s.selectedId).toBeNull();
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1'));
+  });
+
+  it('clearFocus in live mode does not call goLive or restart the stream', () => {
+    const mock = createVigilatusMock();
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({
+      cameras: [{ config: camera('cam-1'), status: 'live', hlsUrl: 'http://x' }],
+      selectedId: 'cam-1',
+      layout: { tiles: [tileFor('cam-1')], focusedTileId: 'tile-cam-1' },
+      playbackMode: 'live',
+    });
+
+    useCameraStore.getState().clearFocus();
+
+    const s = useCameraStore.getState();
+    expect(s.playbackMode).toBe('live');
+    expect(s.layout.focusedTileId).toBeNull();
+    expect(s.selectedId).toBeNull();
+    expect(mock.stream.start).not.toHaveBeenCalled();
+  });
 });
 
 function tileFor(cameraId: string, id = `tile-${cameraId}`) {
