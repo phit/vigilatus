@@ -37,8 +37,14 @@ export const IPC = {
   diagnostics: {
     getRuntimeInfo: 'diagnostics:getRuntimeInfo',
   },
+  layout: {
+    get: 'layout:get',
+    save: 'layout:save',
+  },
   ui: {
     showCameraContextMenu: 'ui:showCameraContextMenu',
+    showTileContextMenu: 'ui:showTileContextMenu',
+    showLayoutContextMenu: 'ui:showLayoutContextMenu',
     saveVolume: 'ui:saveVolume',
     openAddCamera: 'ui:openAddCamera',
     setPreviewsVisible: 'ui:setPreviewsVisible',

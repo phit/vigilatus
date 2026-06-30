@@ -2,7 +2,8 @@
   "app": {
     "noCameras": "No cameras yet.",
     "addFirstCamera": "+ Add your first camera",
-    "confirmRemove": "Remove this camera?"
+    "confirmRemove": "Remove this camera?",
+    "cancel": "Cancel"
   },
   "header": {
     "stopStream": "Stop stream",
@@ -25,6 +26,8 @@
     "connecting": "Connecting...",
     "cameraOffline": "Camera offline",
     "clickToStart": "Click to start stream",
+    "dragCameraHere": "Drag a camera here",
+    "addCameraFromPreview": "or right-click a preview card and select \"Show in Main Area\"",
     "selectCamera": "Select a camera",
     "playback": "Playback",
     "live": "Live",
@@ -96,7 +99,16 @@
     "edit": "Edit",
     "remove": "Remove",
     "moveUp": "Move Up",
-    "moveDown": "Move Down"
+    "moveDown": "Move Down",
+    "showInMainArea": "Show in Main Area",
+    "lock": "Lock Position",
+    "unlock": "Unlock Position",
+    "removeFromLayout": "Remove from Layout",
+    "lockAll": "Lock All",
+    "unlockAll": "Unlock All",
+    "clearCameras": "Clear Cameras",
+    "clearCamerasMessage": "Remove all cameras from the layout?",
+    "clearCamerasConfirm": "Clear"
   },
   "menu": {
     "app": "Vigilatus",

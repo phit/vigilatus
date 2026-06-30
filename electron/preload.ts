@@ -3,6 +3,7 @@ import { preloadBindings } from 'i18next-electron-fs-backend';
 import { IPC } from './ipc/channels';
 import type {
   CameraConfig,
+  MainLayout,
   PreviewPosition,
   Recording,
   RecordingEvent,
@@ -48,9 +49,16 @@ const api: VigilatusApi = {
   diagnostics: {
     getRuntimeInfo: (): Promise<RuntimeInfo> => ipcRenderer.invoke(IPC.diagnostics.getRuntimeInfo),
   },
+  layout: {
+    get: (): Promise<MainLayout> => ipcRenderer.invoke(IPC.layout.get),
+    save: (layout: MainLayout): Promise<void> => ipcRenderer.invoke(IPC.layout.save, layout),
+  },
   contextMenu: {
     showCameraMenu: (isFirst: boolean, isLast: boolean): Promise<string | null> =>
       ipcRenderer.invoke(IPC.ui.showCameraContextMenu, isFirst, isLast),
+    showTileContextMenu: (locked: boolean): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.ui.showTileContextMenu, locked),
+    showLayoutContextMenu: (): Promise<string | null> => ipcRenderer.invoke(IPC.ui.showLayoutContextMenu),
   },
   ui: {
     onOpenAddCamera: (callback: () => void): (() => void) => {

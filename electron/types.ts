@@ -42,6 +42,29 @@ export interface RecordingEvent {
 
 export type PreviewPosition = 'left' | 'right' | 'top' | 'bottom';
 
+/** One free-floating camera tile in the main area. Rect is normalised 0..1
+ *  against the main-area box so it survives window/area resize. */
+export interface LayoutTile {
+  /** stable tile id (not the camera id — a camera may appear once) */
+  id: string;
+  cameraId: string;
+  /** normalised rect, each field in [0,1] */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** z-order; higher renders on top */
+  z: number;
+  /** locked tiles cannot be moved/resized by drag */
+  locked: boolean;
+}
+
+export interface MainLayout {
+  tiles: LayoutTile[];
+  /** focused tile id — timeline/header target; survives restart */
+  focusedTileId: string | null;
+}
+
 export interface RuntimeInfo {
   userData: string;
   logPath: string | null;
@@ -95,8 +118,14 @@ export interface VigilatusApi {
   diagnostics: {
     getRuntimeInfo: () => Promise<RuntimeInfo>;
   };
+  layout: {
+    get: () => Promise<MainLayout>;
+    save: (layout: MainLayout) => Promise<void>;
+  };
   contextMenu: {
     showCameraMenu: (isFirst: boolean, isLast: boolean) => Promise<string | null>;
+    showTileContextMenu: (locked: boolean) => Promise<string | null>;
+    showLayoutContextMenu: () => Promise<string | null>;
   };
   ui: {
     onOpenAddCamera: (callback: () => void) => () => void;

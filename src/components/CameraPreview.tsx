@@ -13,6 +13,7 @@ interface Props {
   onRemove(): void;
   onMoveUp(): void;
   onMoveDown(): void;
+  onAddToMain?(): void;
 }
 
 const REFRESH_BASE_MS = 20_000;
@@ -29,6 +30,7 @@ export function CameraPreview({
   onRemove,
   onMoveUp,
   onMoveDown,
+  onAddToMain,
 }: Props) {
   const { t } = useTranslation();
   const [snapshot, setSnapshot] = useState<string | null>(camera.snapshotDataUrl ?? null);
@@ -82,13 +84,21 @@ export function CameraPreview({
     else if (action === 'moveDown') onMoveDown();
     else if (action === 'edit') onEdit();
     else if (action === 'remove') onRemove();
+    else if (action === 'addToMain') onAddToMain?.();
+  };
+
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData('cameraId', camera.config.id);
+    e.dataTransfer.effectAllowed = 'copy';
   };
 
   return (
     <button
       type="button"
       className={`preview-card${isSelected ? ' preview-card--selected' : ''}`}
+      draggable
       onClick={onSelect}
+      onDragStart={handleDragStart}
       onContextMenu={handleContextMenu}
       title={t('preview.switchTo', { name })}
     >

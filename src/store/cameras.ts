@@ -2,11 +2,14 @@ import { create } from 'zustand';
 import type {
   CameraConfig,
   CameraState,
+  LayoutTile,
+  MainLayout,
   Recording,
   RecordingEvent,
   PlaybackMode,
   PreviewPosition,
 } from '../types';
+import { cascadeRect, clampRect } from '../components/layoutGeometry';
 import { createLogger } from '../log';
 
 const log = createLogger('cameras');
@@ -15,6 +18,10 @@ const PLAYBACK_PREROLL_MS = 5_000;
 const PLAYBACK_WINDOW_MS = 120_000;
 const RECORDINGS_CACHE_TTL_MS = 2 * 60_000;
 const HTTP_STREAM_LINGER_MS = 60_000;
+const SAVE_LAYOUT_DEBOUNCE_MS = 300;
+const MAX_CONCURRENT_TILES = 4;
+
+const DEFAULT_LAYOUT: MainLayout = { tiles: [], focusedTileId: null };
 
 type RecordingsCacheEntry = {
   recordings: Recording[];
@@ -72,9 +79,13 @@ const streamRestartBackoff = new Map<
 const RESTART_INITIAL_DELAY_MS = 2_000;
 const RESTART_MAX_DELAY_MS = 2 * 60 * 1000;
 
+/** Debounce timer for saving the layout. */
+let saveLayoutTimer: ReturnType<typeof setTimeout> | null = null;
+
 interface CamerasStore {
   cameras: CameraState[];
   selectedId: string | null;
+  layout: MainLayout;
   showPreviews: boolean;
   showTimeline: boolean;
   showHeader: boolean;
@@ -94,6 +105,22 @@ interface CamerasStore {
   removeCamera(id: string): Promise<void>;
   moveCamera(id: string, direction: 'up' | 'down'): Promise<void>;
 
+  // Layout actions
+  loadLayout(): Promise<void>;
+  addTile(cameraId: string, rect?: { x: number; y: number; w: number; h: number }): void;
+  removeTile(tileId: string): void;
+  moveTile(tileId: string, rect: { x: number; y: number; w: number; h: number }): void;
+  resizeTile(tileId: string, rect: { x: number; y: number; w: number; h: number }): void;
+  setTileLocked(tileId: string, locked: boolean): void;
+  lockAllTiles(): void;
+  unlockAllTiles(): void;
+  clearTiles(): void;
+  focusTile(tileId: string): void;
+  swapTileCamera(tileId: string, cameraId: string): void;
+  bringToFront(tileId: string): void;
+  clearFocus(): void;
+
+  // Legacy — kept for compat; internally delegates to tile actions
   selectCamera(id: string): void;
   startStream(id: string): Promise<void>;
   stopStream(id: string): void;
@@ -129,9 +156,45 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
       ),
     }));
 
+  /** Schedule a debounced save of the current layout. */
+  function scheduleSaveLayout() {
+    if (saveLayoutTimer) clearTimeout(saveLayoutTimer);
+    saveLayoutTimer = setTimeout(() => {
+      void window.vigilatus.layout.save(get().layout);
+      saveLayoutTimer = null;
+    }, SAVE_LAYOUT_DEBOUNCE_MS);
+  }
+
+  /** Stop a camera's stream, respecting the HTTP grace period. */
+  function stopCameraStream(cameraId: string) {
+    const cam = get().cameras.find((c) => c.config.id === cameraId);
+    if (!cam) return;
+    if (cam.config.streamProtocol === 'http' && (cam.status === 'live' || cam.status === 'connecting')) {
+      const timer = setTimeout(() => {
+        httpStopTimers.delete(cameraId);
+        if (!get().layout.tiles.some((t) => t.cameraId === cameraId)) {
+          get().stopStream(cameraId);
+        }
+      }, HTTP_STREAM_LINGER_MS);
+      httpStopTimers.set(cameraId, timer);
+    } else {
+      get().stopStream(cameraId);
+    }
+  }
+
+  /** Cancel any pending stop timer for a camera (because it was re-added). */
+  function cancelStopTimer(cameraId: string) {
+    const pending = httpStopTimers.get(cameraId);
+    if (pending) {
+      clearTimeout(pending);
+      httpStopTimers.delete(cameraId);
+    }
+  }
+
   return {
     cameras: [],
     selectedId: null,
+    layout: DEFAULT_LAYOUT,
     showPreviews: true,
     showTimeline: true,
     showHeader: true,
@@ -173,8 +236,19 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
       clearRecordingsCache(id);
       set((s) => {
         const cameras = s.cameras.filter((c) => c.config.id !== id);
-        const selectedId = s.selectedId === id ? (cameras[0]?.config.id ?? null) : s.selectedId;
-        return { cameras, selectedId };
+
+        // Remove tiles for this camera and update layout
+        const newTiles = s.layout.tiles.filter((t) => t.cameraId !== id);
+        let focusedTileId = s.layout.focusedTileId;
+        if (focusedTileId && !newTiles.some((t) => t.id === focusedTileId)) {
+          focusedTileId = newTiles[0]?.id ?? null;
+        }
+
+        const focusedCamId = newTiles.find((t) => t.id === focusedTileId)?.cameraId ?? null;
+        const selectedId =
+          s.selectedId === id ? (focusedCamId ?? cameras[0]?.config.id ?? null) : s.selectedId;
+
+        return { cameras, layout: { tiles: newTiles, focusedTileId }, selectedId };
       });
     },
 
@@ -184,14 +258,65 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
     },
 
     // ------------------------------------------------------------------
-    // Selection + streaming
+    // Layout operations
     // ------------------------------------------------------------------
 
-    selectCamera(id) {
-      const cached = getFreshRecordingsCache(id, getCurrentDateString());
-      const prevId = get().selectedId;
+    async loadLayout() {
+      const persisted = await window.vigilatus.layout.get();
+      const { cameras } = get();
+
+      const validCameraIds = new Set(cameras.map((c) => c.config.id));
+      const tiles = persisted.tiles.filter((t) => validCameraIds.has(t.cameraId));
+
+      let focusedTileId = persisted.focusedTileId;
+      if (focusedTileId && !tiles.some((t) => t.id === focusedTileId)) {
+        focusedTileId = tiles[0]?.id ?? null;
+      }
+
+      const layout: MainLayout = { tiles, focusedTileId };
+      const focusedCameraId = tiles.find((t) => t.id === focusedTileId)?.cameraId ?? null;
+
+      set({ layout, selectedId: focusedCameraId });
+
+      for (const tile of tiles) {
+        void get().startStream(tile.cameraId);
+      }
+    },
+
+    addTile(cameraId, rect) {
+      const { layout, cameras } = get();
+
+      // If already in layout, just focus it
+      const existing = layout.tiles.find((t) => t.cameraId === cameraId);
+      if (existing) {
+        get().focusTile(existing.id);
+        return;
+      }
+
+      if (layout.tiles.length >= MAX_CONCURRENT_TILES) {
+        log.warn('tile cap reached, cannot add more tiles');
+        return;
+      }
+
+      const tileRect = rect ? clampRect(rect) : cascadeRect(layout.tiles.length);
+      const maxZ = layout.tiles.reduce((z, t) => Math.max(z, t.z), -1);
+      const tile: LayoutTile = {
+        id: crypto.randomUUID(),
+        cameraId,
+        ...tileRect,
+        z: maxZ + 1,
+        locked: false,
+      };
+
+      const cached = getFreshRecordingsCache(cameraId, getCurrentDateString());
+      const newLayout: MainLayout = {
+        tiles: [...layout.tiles, tile],
+        focusedTileId: tile.id,
+      };
+
       set({
-        selectedId: id,
+        layout: newLayout,
+        selectedId: cameraId,
         playbackMode: 'live',
         playbackTime: null,
         playbackStartTime: null,
@@ -200,35 +325,192 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
         recordingsLoading: false,
         recordingsError: null,
       });
+      scheduleSaveLayout();
 
-      // Cancel any pending stop for the newly selected camera
-      const pending = httpStopTimers.get(id);
-      if (pending) {
-        clearTimeout(pending);
-        httpStopTimers.delete(id);
+      cancelStopTimer(cameraId);
+
+      const cam = cameras.find((c) => c.config.id === cameraId);
+      if (cam && !cam.hlsUrl) {
+        void get().startStream(cameraId);
+      }
+    },
+
+    removeTile(tileId) {
+      const { layout } = get();
+      const tile = layout.tiles.find((t) => t.id === tileId);
+      if (!tile) return;
+
+      const newTiles = layout.tiles.filter((t) => t.id !== tileId);
+      const stillUsed = newTiles.some((t) => t.cameraId === tile.cameraId);
+
+      let focusedTileId = layout.focusedTileId;
+      if (focusedTileId === tileId) {
+        focusedTileId = newTiles[newTiles.length - 1]?.id ?? null;
       }
 
-      // Schedule stop for the previously selected HTTP camera after a grace period
-      if (prevId && prevId !== id) {
-        const prev = get().cameras.find((c) => c.config.id === prevId);
-        if (
-          prev?.config.streamProtocol === 'http' &&
-          (prev.status === 'live' || prev.status === 'connecting')
-        ) {
-          const timer = setTimeout(() => {
-            httpStopTimers.delete(prevId);
-            // Only stop if still not selected
-            if (get().selectedId !== prevId) {
-              get().stopStream(prevId);
+      const focusedCamId = newTiles.find((t) => t.id === focusedTileId)?.cameraId ?? null;
+
+      set({
+        layout: { tiles: newTiles, focusedTileId },
+        selectedId: focusedCamId,
+      });
+      scheduleSaveLayout();
+
+      if (!stillUsed) {
+        stopCameraStream(tile.cameraId);
+      }
+    },
+
+    moveTile(tileId, rect) {
+      set((s) => ({
+        layout: {
+          ...s.layout,
+          tiles: s.layout.tiles.map((t) => (t.id === tileId && !t.locked ? { ...t, ...clampRect(rect) } : t)),
+        },
+      }));
+      scheduleSaveLayout();
+    },
+
+    resizeTile(tileId, rect) {
+      set((s) => ({
+        layout: {
+          ...s.layout,
+          tiles: s.layout.tiles.map((t) => (t.id === tileId && !t.locked ? { ...t, ...clampRect(rect) } : t)),
+        },
+      }));
+      scheduleSaveLayout();
+    },
+
+    setTileLocked(tileId, locked) {
+      set((s) => ({
+        layout: {
+          ...s.layout,
+          tiles: s.layout.tiles.map((t) => (t.id === tileId ? { ...t, locked } : t)),
+        },
+      }));
+      scheduleSaveLayout();
+    },
+
+    lockAllTiles() {
+      set((s) => ({ layout: { ...s.layout, tiles: s.layout.tiles.map((t) => ({ ...t, locked: true })) } }));
+      scheduleSaveLayout();
+    },
+
+    unlockAllTiles() {
+      set((s) => ({ layout: { ...s.layout, tiles: s.layout.tiles.map((t) => ({ ...t, locked: false })) } }));
+      scheduleSaveLayout();
+    },
+
+    clearTiles() {
+      const cameraIds = [...new Set(get().layout.tiles.map((t) => t.cameraId))];
+      set({ layout: { tiles: [], focusedTileId: null }, selectedId: null });
+      scheduleSaveLayout();
+      for (const cameraId of cameraIds) {
+        stopCameraStream(cameraId);
+      }
+    },
+
+    focusTile(tileId) {
+      const tile = get().layout.tiles.find((t) => t.id === tileId);
+      if (!tile) return;
+      const cached = getFreshRecordingsCache(tile.cameraId, getCurrentDateString());
+      set((s) => ({
+        layout: { ...s.layout, focusedTileId: tileId },
+        selectedId: tile.cameraId,
+        playbackMode: 'live',
+        playbackTime: null,
+        playbackStartTime: null,
+        recordings: cached?.recordings ?? [],
+        recordingEvents: cached?.recordingEvents ?? [],
+        recordingsLoading: false,
+        recordingsError: null,
+      }));
+      scheduleSaveLayout();
+    },
+
+    swapTileCamera(tileId, cameraId) {
+      const { layout, cameras } = get();
+      const tile = layout.tiles.find((t) => t.id === tileId);
+      if (!tile || tile.cameraId === cameraId) return;
+
+      const oldCameraId = tile.cameraId;
+      const isFocused = layout.focusedTileId === tileId;
+
+      // If the target camera already occupies another tile, swap the two tiles.
+      const conflictTile = layout.tiles.find((t) => t.id !== tileId && t.cameraId === cameraId);
+      if (conflictTile) {
+        const newTiles = layout.tiles.map((t) => {
+          if (t.id === tileId) return { ...t, cameraId };
+          if (t.id === conflictTile.id) return { ...t, cameraId: oldCameraId };
+          return t;
+        });
+        set({
+          layout: { ...layout, tiles: newTiles },
+          ...(isFocused ? { selectedId: cameraId } : {}),
+        });
+        scheduleSaveLayout();
+        return;
+      }
+
+      const newTiles = layout.tiles.map((t) => (t.id === tileId ? { ...t, cameraId } : t));
+      const cached = isFocused ? getFreshRecordingsCache(cameraId, getCurrentDateString()) : null;
+
+      set({
+        layout: { ...layout, tiles: newTiles },
+        ...(isFocused
+          ? {
+              selectedId: cameraId,
+              playbackMode: 'live',
+              playbackTime: null,
+              playbackStartTime: null,
+              recordings: cached?.recordings ?? [],
+              recordingEvents: cached?.recordingEvents ?? [],
+              recordingsLoading: false,
+              recordingsError: null,
             }
-          }, HTTP_STREAM_LINGER_MS);
-          httpStopTimers.set(prevId, timer);
-        }
+          : {}),
+      });
+      scheduleSaveLayout();
+
+      cancelStopTimer(cameraId);
+      const newCam = cameras.find((c) => c.config.id === cameraId);
+      if (newCam && !newCam.hlsUrl) {
+        void get().startStream(cameraId);
       }
 
-      const selected = get().cameras.find((c) => c.config.id === id);
-      if (!selected?.hlsUrl) {
-        void get().startStream(id);
+      const stillUsed = newTiles.some((t) => t.cameraId === oldCameraId);
+      if (!stillUsed) {
+        stopCameraStream(oldCameraId);
+      }
+    },
+
+    bringToFront(tileId) {
+      set((s) => {
+        const maxZ = s.layout.tiles.reduce((z, t) => Math.max(z, t.z), 0);
+        return {
+          layout: {
+            ...s.layout,
+            tiles: s.layout.tiles.map((t) => (t.id === tileId ? { ...t, z: maxZ + 1 } : t)),
+          },
+        };
+      });
+    },
+
+    clearFocus() {
+      set((s) => ({ layout: { ...s.layout, focusedTileId: null }, selectedId: null }));
+    },
+
+    // ------------------------------------------------------------------
+    // Selection + streaming (selectCamera delegates to tile actions)
+    // ------------------------------------------------------------------
+
+    selectCamera(id) {
+      const { layout } = get();
+      const existing = layout.tiles.find((t) => t.cameraId === id);
+      if (existing) {
+        get().focusTile(existing.id);
+      } else {
+        get().addTile(id);
       }
     },
 
@@ -479,8 +761,6 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
       set({ playbackMode: 'playback', playbackTime: time, playbackStartTime: requestedStartTime });
 
       // Clear live source immediately while recording clip is being prepared.
-      // Do not stop the live process here because it can race with an in-flight
-      // stream:start and surface SIGKILL as a start failure.
       patchCamera(selectedId, { hlsUrl: undefined, status: 'connecting', errorMessage: undefined });
 
       try {
@@ -491,13 +771,11 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
           time,
           clip.startTime,
         );
-        // Discard result if the user navigated away (clicked Live or a different clip)
-        // while this long-running download was in flight.
+        // Discard result if the user navigated away while this long-running download was in flight.
         const s = get();
         if (s.playbackMode !== 'playback' || s.playbackStartTime !== requestedStartTime) return;
         patchCamera(selectedId, { hlsUrl: playbackUrl, status: 'live' });
       } catch (e) {
-        // Discard error if the user navigated away while this was in flight.
         const s = get();
         if (s.playbackMode !== 'playback' || s.playbackStartTime !== requestedStartTime) return;
         const msg = (e as Error).message;

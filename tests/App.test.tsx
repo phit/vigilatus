@@ -8,6 +8,7 @@ function resetStore(): void {
   useCameraStore.setState({
     cameras: [],
     selectedId: null,
+    layout: { tiles: [], focusedTileId: null },
     showPreviews: true,
     showTimeline: true,
     showDebugOverlay: false,

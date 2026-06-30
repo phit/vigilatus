@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18n from './i18n';
 import { useCameraStore } from './store/cameras';
-import { CameraViewer } from './components/CameraViewer';
+import { MainLayoutArea } from './components/MainLayoutArea';
 import { CameraPreview } from './components/CameraPreview';
 import { Timeline } from './components/Timeline';
 import { AddCameraModal } from './components/AddCameraModal';
@@ -13,6 +13,7 @@ export function App() {
   // State slices — subscribe only to what App renders.
   const cameras = useCameraStore((s) => s.cameras);
   const selectedId = useCameraStore((s) => s.selectedId);
+  const layout = useCameraStore((s) => s.layout);
   const showPreviews = useCameraStore((s) => s.showPreviews);
   const showTimeline = useCameraStore((s) => s.showTimeline);
   const showHeader = useCameraStore((s) => s.showHeader);
@@ -26,11 +27,13 @@ export function App() {
 
   // Actions — stable references, so selecting them never triggers re-renders.
   const loadCameras = useCameraStore((s) => s.loadCameras);
+  const loadLayout = useCameraStore((s) => s.loadLayout);
   const addCamera = useCameraStore((s) => s.addCamera);
   const updateCamera = useCameraStore((s) => s.updateCamera);
   const removeCamera = useCameraStore((s) => s.removeCamera);
   const moveCamera = useCameraStore((s) => s.moveCamera);
-  const selectCamera = useCameraStore((s) => s.selectCamera);
+  const addTile = useCameraStore((s) => s.addTile);
+  const swapTileCamera = useCameraStore((s) => s.swapTileCamera);
   const startStream = useCameraStore((s) => s.startStream);
   const stopStream = useCameraStore((s) => s.stopStream);
   const restartActiveStreams = useCameraStore((s) => s.restartActiveStreams);
@@ -62,8 +65,11 @@ export function App() {
           : t('timeline.noSegments');
 
   useEffect(() => {
-    void loadCameras();
-  }, [loadCameras]);
+    void (async () => {
+      await loadCameras();
+      await loadLayout();
+    })();
+  }, [loadCameras, loadLayout]);
 
   useEffect(() => {
     const offOpenAdd = window.vigilatus.ui.onOpenAddCamera(() => {
@@ -126,14 +132,6 @@ export function App() {
     scheduleStreamRestart,
   ]);
 
-  // Auto-select the first camera when nothing is selected. The guard keeps this
-  // idempotent, so depending on the full inputs is safe.
-  useEffect(() => {
-    if (!selectedId && cameras.length > 0) {
-      selectCamera(cameras[0].config.id);
-    }
-  }, [cameras, selectedId, selectCamera]);
-
   const openAdd = () => {
     setEditTarget(undefined);
     setShowModal(true);
@@ -162,6 +160,19 @@ export function App() {
       if (selectedId) void loadRecordings(selectedId, date);
     },
     [selectedId, loadRecordings],
+  );
+
+  /** Preview click: if a tile is focused, swap its camera; otherwise add a new tile. */
+  const handlePreviewSelect = useCallback(
+    (cameraId: string) => {
+      const { focusedTileId } = layout;
+      if (focusedTileId) {
+        swapTileCamera(focusedTileId, cameraId);
+      } else {
+        addTile(cameraId);
+      }
+    },
+    [layout, swapTileCamera, addTile],
   );
 
   return (
@@ -214,22 +225,9 @@ export function App() {
       <div
         className={`workspace${showPreviews && cameras.length > 0 ? ` workspace--previews-${previewPosition}` : ''}`}
       >
-        {/* Main viewer */}
-        <div
-          className="viewer-wrap"
-          data-testid="viewer-shell"
-          onClick={() => {
-            if (
-              playbackMode === 'live' &&
-              !selectedCamera?.hlsUrl &&
-              selectedCamera &&
-              selectedCamera.status !== 'connecting'
-            ) {
-              void startStream(selectedCamera.config.id);
-            }
-          }}
-        >
-          <CameraViewer camera={selectedCamera} playbackMode={playbackMode} />
+        {/* Main layout area */}
+        <div className="viewer-wrap" data-testid="viewer-shell">
+          <MainLayoutArea />
         </div>
 
         {/* Preview strip */}
@@ -243,11 +241,12 @@ export function App() {
                 isFirst={idx === 0}
                 isLast={idx === cameras.length - 1}
                 playbackMode={playbackMode}
-                onSelect={() => selectCamera(cam.config.id)}
+                onSelect={() => handlePreviewSelect(cam.config.id)}
                 onEdit={() => openEdit(cam.config)}
                 onRemove={() => void handleRemove(cam.config.id)}
                 onMoveUp={() => void moveCamera(cam.config.id, 'up')}
                 onMoveDown={() => void moveCamera(cam.config.id, 'down')}
+                onAddToMain={() => addTile(cam.config.id)}
               />
             ))}
           </aside>

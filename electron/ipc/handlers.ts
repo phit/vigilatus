@@ -5,7 +5,7 @@ import { startOfDay } from 'date-fns';
 import * as configStore from '../config/store';
 import * as streamManager from '../tapo/streamManager';
 import { TapoClient } from '../tapo/client';
-import type { CameraConfig, RecordingEvent } from '../types';
+import type { CameraConfig, MainLayout, RecordingEvent } from '../types';
 import type { TestFixtures } from '../testing/fixtures';
 import { IPC } from './channels';
 import { normalizePlaybackWindow } from './playbackWindow';
@@ -101,6 +101,13 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     const client = new TapoClient(cfg);
     return client.testConnection();
   });
+
+  // ------------------------------------------------------------------
+  // Layout
+  // ------------------------------------------------------------------
+
+  ipcMain.handle(IPC.layout.get, () => configStore.getMainLayout());
+  ipcMain.handle(IPC.layout.save, (_e, layout: MainLayout) => configStore.setMainLayout(layout));
 
   // ------------------------------------------------------------------
   // Streaming

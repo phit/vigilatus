@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { CameraConfig } from '../../electron/types';
+import type { TestFixtures } from '../../electron/testing/fixtures';
 import { launchElectronApp } from './helpers/launchElectronApp';
 
 test('launches the real app and creates a camera through the UI', async () => {
@@ -76,6 +78,12 @@ test('drives the timeline into playback using mocked recordings', async () => {
   const { app, window } = await launchElectronApp({ fixtures, cameras });
 
   try {
+    // Click the camera preview card to add it to the main area and set selectedId
+    // (the layout starts empty — no camera is auto-selected on first launch).
+    const previewCard = window.getByTestId('preview-strip').getByRole('button', { name: /Front Door/i });
+    await expect(previewCard).toBeVisible();
+    await previewCard.click();
+
     await expect(window.getByTestId('timeline')).toBeVisible();
     await expect(window.getByText(/1 recording segment found/i)).toBeVisible();
 

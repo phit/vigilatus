@@ -8,6 +8,7 @@ function resetStore(): void {
   useCameraStore.setState({
     cameras: [],
     selectedId: null,
+    layout: { tiles: [], focusedTileId: null },
     showPreviews: true,
     showTimeline: true,
     previewPosition: 'right',
@@ -155,6 +156,133 @@ describe('useCameraStore', () => {
 
     expect(useCameraStore.getState().recordings).toEqual([]);
     expect(useCameraStore.getState().recordingEvents).toEqual([]);
+  });
+});
+
+describe('layout actions', () => {
+  beforeEach(() => {
+    resetRecordingsCache();
+    installVigilatusMock(createVigilatusMock());
+    resetStore();
+  });
+
+  it('addTile creates a tile and starts the stream', async () => {
+    const mock = createVigilatusMock();
+    mock.stream.start.mockResolvedValueOnce('http://127.0.0.1/live.m3u8');
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'idle' }] });
+
+    useCameraStore.getState().addTile('cam-1');
+
+    const { layout, selectedId } = useCameraStore.getState();
+    expect(layout.tiles).toHaveLength(1);
+    expect(layout.tiles[0]?.cameraId).toBe('cam-1');
+    expect(layout.focusedTileId).toBe(layout.tiles[0]?.id);
+    expect(selectedId).toBe('cam-1');
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1'));
+  });
+
+  it('addTile with a position uses the given rect', () => {
+    useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'idle' }] });
+
+    useCameraStore.getState().addTile('cam-1', { x: 0.1, y: 0.2, w: 0.4, h: 0.4 });
+
+    const tile = useCameraStore.getState().layout.tiles[0]!;
+    expect(tile.x).toBeCloseTo(0.1);
+    expect(tile.y).toBeCloseTo(0.2);
+    expect(tile.w).toBeCloseTo(0.4);
+    expect(tile.h).toBeCloseTo(0.4);
+  });
+
+  it('addTile with an existing camera focuses the existing tile instead of duplicating', () => {
+    useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'idle' }] });
+
+    const store = useCameraStore.getState();
+    store.addTile('cam-1');
+    const tileIdFirst = useCameraStore.getState().layout.tiles[0]?.id;
+
+    store.addTile('cam-1');
+
+    const { layout } = useCameraStore.getState();
+    expect(layout.tiles).toHaveLength(1);
+    expect(layout.focusedTileId).toBe(tileIdFirst);
+  });
+
+  it('removeTile removes the tile and stops the stream when no other tile uses the camera', async () => {
+    const mock = createVigilatusMock();
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'live', hlsUrl: 'http://x' }] });
+
+    useCameraStore.getState().addTile('cam-1');
+    const tileId = useCameraStore.getState().layout.tiles[0]!.id;
+
+    useCameraStore.getState().removeTile(tileId);
+
+    const { layout, selectedId } = useCameraStore.getState();
+    expect(layout.tiles).toHaveLength(0);
+    expect(layout.focusedTileId).toBeNull();
+    expect(selectedId).toBeNull();
+    await waitFor(() => expect(mock.stream.stop).toHaveBeenCalledWith('cam-1'));
+  });
+
+  it('swapTileCamera replaces the camera and starts its stream', async () => {
+    const mock = createVigilatusMock();
+    mock.stream.start.mockResolvedValue('http://127.0.0.1/cam2.m3u8');
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({
+      cameras: [
+        { config: camera('cam-1'), status: 'live', hlsUrl: 'http://x' },
+        { config: camera('cam-2'), status: 'idle' },
+      ],
+    });
+
+    useCameraStore.getState().addTile('cam-1');
+    const tileId = useCameraStore.getState().layout.tiles[0]!.id;
+    mock.stream.start.mockClear();
+
+    useCameraStore.getState().swapTileCamera(tileId, 'cam-2');
+
+    const { layout, selectedId } = useCameraStore.getState();
+    expect(layout.tiles[0]?.cameraId).toBe('cam-2');
+    expect(selectedId).toBe('cam-2');
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-2'));
+    await waitFor(() => expect(mock.stream.stop).toHaveBeenCalledWith('cam-1'));
+  });
+
+  it('setTileLocked prevents moveTile from changing the rect', () => {
+    useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'idle' }] });
+
+    useCameraStore.getState().addTile('cam-1');
+    const tileId = useCameraStore.getState().layout.tiles[0]!.id;
+    const originalRect = { x: 0, y: 0, w: 1, h: 1 };
+
+    useCameraStore.getState().setTileLocked(tileId, true);
+    useCameraStore.getState().moveTile(tileId, { x: 0.2, y: 0.2, w: 0.5, h: 0.5 });
+
+    const tile = useCameraStore.getState().layout.tiles[0]!;
+    expect(tile.x).toBeCloseTo(originalRect.x);
+    expect(tile.y).toBeCloseTo(originalRect.y);
+  });
+
+  it('removeCamera removes associated tiles and updates selectedId', async () => {
+    useCameraStore.setState({
+      cameras: [
+        { config: camera('cam-a', 'Front Door'), status: 'idle' },
+        { config: camera('cam-b', 'Back Patio'), status: 'idle' },
+      ],
+    });
+
+    useCameraStore.getState().addTile('cam-a');
+    useCameraStore.getState().addTile('cam-b');
+
+    await useCameraStore.getState().removeCamera('cam-b');
+
+    const { layout, selectedId } = useCameraStore.getState();
+    expect(layout.tiles.every((t) => t.cameraId !== 'cam-b')).toBe(true);
+    expect(selectedId).not.toBe('cam-b');
   });
 });
 

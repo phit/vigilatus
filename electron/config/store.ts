@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { CameraConfig, PreviewPosition } from '../types';
+import type { CameraConfig, MainLayout, PreviewPosition } from '../types';
 import { createLogger } from '../log';
 
 const log = createLogger('config');
@@ -26,12 +26,18 @@ interface Config {
   cameras: CameraConfig[];
   uiDisplay: UiDisplay;
   windowState: WindowState;
+  mainLayout: MainLayout;
 }
+
+const DEFAULT_MAIN_LAYOUT: MainLayout = {
+  tiles: [],
+  focusedTileId: null,
+};
 
 const DEFAULT_UI_DISPLAY: UiDisplay = {
   previews: true,
   timeline: true,
-  header: true,
+  header: false,
   previewPosition: 'right',
   language: 'system',
   volume: 0,
@@ -50,6 +56,7 @@ function createDefaultConfig(): Config {
     cameras: [],
     uiDisplay: { ...DEFAULT_UI_DISPLAY },
     windowState: { ...defaultWindowState },
+    mainLayout: { ...DEFAULT_MAIN_LAYOUT, tiles: [] },
   };
 }
 
@@ -71,6 +78,10 @@ function mergeConfig(parsed: Partial<Config>): Config {
       width: parsed.windowState?.width ?? defaultWindowState.width,
       height: parsed.windowState?.height ?? defaultWindowState.height,
       isMaximized: parsed.windowState?.isMaximized ?? defaultWindowState.isMaximized,
+    },
+    mainLayout: {
+      tiles: parsed.mainLayout?.tiles ?? DEFAULT_MAIN_LAYOUT.tiles,
+      focusedTileId: parsed.mainLayout?.focusedTileId ?? DEFAULT_MAIN_LAYOUT.focusedTileId,
     },
   };
 }
@@ -180,6 +191,15 @@ export function getWindowState(): WindowState {
 
 export function setWindowState(windowState: WindowState): void {
   config.windowState = { ...windowState };
+  save();
+}
+
+export function getMainLayout(): MainLayout {
+  return { ...config.mainLayout, tiles: [...config.mainLayout.tiles] };
+}
+
+export function setMainLayout(layout: MainLayout): void {
+  config.mainLayout = { tiles: [...layout.tiles], focusedTileId: layout.focusedTileId };
   save();
 }
 

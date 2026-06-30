@@ -1,5 +1,7 @@
 export type {
   CameraConfig,
+  LayoutTile,
+  MainLayout,
   Recording,
   RecordingEvent,
   PreviewPosition,

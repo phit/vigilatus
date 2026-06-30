@@ -7,7 +7,7 @@ import * as configStore from '../electron/config/store';
 const DEFAULTS = {
   previews: true,
   timeline: true,
-  header: true,
+  header: false,
   previewPosition: 'right' as const,
   language: 'system',
   volume: 0,
@@ -157,6 +157,34 @@ describe('config store', () => {
     });
     // The migrated file now lives in the new location.
     expect(fs.existsSync(path.join(userDataDir, 'cameras.json'))).toBe(true);
+  });
+
+  it('returns default mainLayout when the field is absent in a legacy config', () => {
+    const dir = makeTmpDir();
+    fs.writeFileSync(
+      path.join(dir, 'cameras.json'),
+      JSON.stringify({ cameras: [], uiDisplay: { previews: false } }),
+      'utf8',
+    );
+
+    configStore.init(dir);
+
+    expect(configStore.getMainLayout()).toEqual({ tiles: [], focusedTileId: null });
+  });
+
+  it('round-trips mainLayout through save and re-init', () => {
+    const dir = makeTmpDir();
+    configStore.init(dir);
+
+    const layout = {
+      tiles: [{ id: 'tile-1', cameraId: 'cam-1', x: 0.1, y: 0.1, w: 0.8, h: 0.8, z: 0, locked: false }],
+      focusedTileId: 'tile-1',
+    };
+    configStore.setMainLayout(layout);
+
+    configStore.init(dir);
+
+    expect(configStore.getMainLayout()).toEqual(layout);
   });
 
   it('falls back to defaults when the config is corrupt and no backup exists', () => {

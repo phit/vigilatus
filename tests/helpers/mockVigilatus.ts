@@ -1,5 +1,12 @@
 import { vi, type Mock } from 'vitest';
-import type { CameraConfig, PreviewPosition, Recording, RecordingEvent, RuntimeInfo } from '../../src/types';
+import type {
+  CameraConfig,
+  MainLayout,
+  PreviewPosition,
+  Recording,
+  RecordingEvent,
+  RuntimeInfo,
+} from '../../src/types';
 
 type Unsubscribe = () => void;
 type FnMock<Args extends unknown[], Result> = Mock<(...args: Args) => Result>;
@@ -30,8 +37,14 @@ export type VigilatusMock = {
   diagnostics: {
     getRuntimeInfo: FnMock<[], Promise<RuntimeInfo>>;
   };
+  layout: {
+    get: FnMock<[], Promise<MainLayout>>;
+    save: FnMock<[MainLayout], Promise<void>>;
+  };
   contextMenu: {
     showCameraMenu: FnMock<[], Promise<string | null>>;
+    showTileContextMenu: FnMock<[boolean], Promise<string | null>>;
+    showLayoutContextMenu: FnMock<[], Promise<string | null>>;
   };
   ui: {
     onOpenAddCamera: FnMock<[() => void], Unsubscribe>;
@@ -78,8 +91,14 @@ export function createVigilatusMock(overrides: Partial<VigilatusMock> = {}): Vig
         isPackaged: false,
       }),
     },
+    layout: {
+      get: vi.fn().mockResolvedValue({ tiles: [], focusedTileId: null }),
+      save: vi.fn().mockResolvedValue(undefined),
+    },
     contextMenu: {
       showCameraMenu: vi.fn().mockResolvedValue(null),
+      showTileContextMenu: vi.fn().mockResolvedValue(null),
+      showLayoutContextMenu: vi.fn().mockResolvedValue(null),
     },
     ui: {
       onOpenAddCamera: vi.fn().mockImplementation(() => noop),
