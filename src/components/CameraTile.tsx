@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import type { CameraState, LayoutTile } from '../types';
 import { useCameraStore } from '../store/cameras';
 import { CameraViewer } from './CameraViewer';
@@ -38,6 +38,20 @@ export function CameraTile({ tile, camera, containerW, containerH, isFocused }: 
   const dragState = useRef<DragState | null>(null);
   const tileElRef = useRef<HTMLDivElement>(null);
   const px = toPixels(tile, containerW, containerH);
+
+  // If a drag is in progress, re-assert its position after every render so an
+  // external re-render (snapshot/status change) mid-gesture doesn't snap the
+  // tile back to its committed box. Runs before paint, so there's no flicker.
+  useLayoutEffect(() => {
+    const rect = dragState.current?.currentRect;
+    const el = tileElRef.current;
+    if (!rect || !el) return;
+    const p = toPixels(rect, containerW, containerH);
+    el.style.left = `${p.left}px`;
+    el.style.top = `${p.top}px`;
+    el.style.width = `${p.width}px`;
+    el.style.height = `${p.height}px`;
+  });
 
   const startDrag = (e: React.PointerEvent, mode: DragMode) => {
     if (tile.locked) return;
