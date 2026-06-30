@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18n from './i18n';
-import { useCameraStore } from './store/cameras';
+import { useCameraStore, MAX_CONCURRENT_TILES } from './store/cameras';
 import { MainLayoutArea } from './components/MainLayoutArea';
 import { CameraPreview } from './components/CameraPreview';
 import { Timeline } from './components/Timeline';
@@ -24,6 +24,7 @@ export function App() {
   const recordingEvents = useCameraStore((s) => s.recordingEvents);
   const recordingsLoading = useCameraStore((s) => s.recordingsLoading);
   const recordingsError = useCameraStore((s) => s.recordingsError);
+  const notice = useCameraStore((s) => s.notice);
 
   // Actions — stable references, so selecting them never triggers re-renders.
   const loadCameras = useCameraStore((s) => s.loadCameras);
@@ -291,6 +292,13 @@ export function App() {
           onGoLive={goLive}
           onLoadDate={handleLoadDate}
         />
+      )}
+
+      {/* ── Notice toast ───────────────────────────────── */}
+      {notice && (
+        <div className="toast" role="status">
+          {t(notice, { count: MAX_CONCURRENT_TILES })}
+        </div>
       )}
 
       {/* ── Add / edit modal ───────────────────────────── */}

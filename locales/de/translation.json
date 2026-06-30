@@ -140,6 +140,9 @@
     "later": "Später",
     "noUpdates": "Die neueste Version ist bereits installiert."
   },
+  "notices": {
+    "tileCapReached": "Maximal {{count}} Kameras in der Hauptansicht"
+  },
   "startupError": {
     "title": "Vigilatus konnte nicht gestartet werden",
     "body": "Vigilatus konnte sein Medien-Subsystem nicht initialisieren und muss geschlossen werden.\n\n{{error}}",

@@ -140,6 +140,9 @@
     "later": "Later",
     "noUpdates": "You are running the latest version."
   },
+  "notices": {
+    "tileCapReached": "Maximum of {{count}} cameras in the main view"
+  },
   "startupError": {
     "title": "Vigilatus could not start",
     "body": "Vigilatus could not initialise its media subsystem and needs to close.\n\n{{error}}",

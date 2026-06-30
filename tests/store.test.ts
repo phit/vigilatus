@@ -19,6 +19,7 @@ function resetStore(): void {
     recordingEvents: [],
     recordingsLoading: false,
     recordingsError: null,
+    notice: null,
   });
 }
 
@@ -328,6 +329,31 @@ describe('layout actions', () => {
     expect(s.layout.focusedTileId).toBeNull();
     expect(s.selectedId).toBeNull();
     expect(mock.stream.start).not.toHaveBeenCalled();
+  });
+
+  it('addTile past MAX_CONCURRENT_TILES sets the tileCapReached notice', () => {
+    useCameraStore.setState({
+      cameras: [
+        { config: camera('cam-1'), status: 'idle' },
+        { config: camera('cam-2'), status: 'idle' },
+        { config: camera('cam-3'), status: 'idle' },
+        { config: camera('cam-4'), status: 'idle' },
+        { config: camera('cam-5'), status: 'idle' },
+      ],
+    });
+
+    useCameraStore.getState().addTile('cam-1');
+    useCameraStore.getState().addTile('cam-2');
+    useCameraStore.getState().addTile('cam-3');
+    useCameraStore.getState().addTile('cam-4');
+
+    expect(useCameraStore.getState().layout.tiles).toHaveLength(4);
+    expect(useCameraStore.getState().notice).toBeNull();
+
+    useCameraStore.getState().addTile('cam-5');
+
+    expect(useCameraStore.getState().layout.tiles).toHaveLength(4);
+    expect(useCameraStore.getState().notice).toBe('notices.tileCapReached');
   });
 });
 

@@ -19,7 +19,7 @@ const PLAYBACK_WINDOW_MS = 120_000;
 const RECORDINGS_CACHE_TTL_MS = 2 * 60_000;
 const HTTP_STREAM_LINGER_MS = 60_000;
 const SAVE_LAYOUT_DEBOUNCE_MS = 300;
-const MAX_CONCURRENT_TILES = 4;
+export const MAX_CONCURRENT_TILES = 4;
 
 const DEFAULT_LAYOUT: MainLayout = { tiles: [], focusedTileId: null };
 
@@ -81,6 +81,8 @@ const RESTART_MAX_DELAY_MS = 2 * 60 * 1000;
 
 /** Debounce timer for saving the layout. */
 let saveLayoutTimer: ReturnType<typeof setTimeout> | null = null;
+/** Auto-clear timer for transient UI notices. */
+let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
 interface CamerasStore {
   cameras: CameraState[];
@@ -98,6 +100,7 @@ interface CamerasStore {
   recordingEvents: RecordingEvent[];
   recordingsLoading: boolean;
   recordingsError: string | null;
+  notice: string | null;
 
   loadCameras(): Promise<void>;
   addCamera(cfg: CameraConfig): Promise<void>;
@@ -142,6 +145,7 @@ interface CamerasStore {
   loadRecordings(cameraId: string, date: string): Promise<void>;
   seekTo(time: number): Promise<void>;
   goLive(): void;
+  setNotice(key: string | null): void;
 }
 
 export const useCameraStore = create<CamerasStore>((set, get) => {
@@ -208,6 +212,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
     recordingEvents: [],
     recordingsLoading: false,
     recordingsError: null,
+    notice: null,
 
     // ------------------------------------------------------------------
     // Config operations
@@ -295,6 +300,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
 
       if (layout.tiles.length >= MAX_CONCURRENT_TILES) {
         log.warn('tile cap reached, cannot add more tiles');
+        get().setNotice('notices.tileCapReached');
         return;
       }
 
@@ -809,6 +815,12 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
         }
         void get().startStream(selectedId);
       }
+    },
+
+    setNotice(key) {
+      if (noticeTimer) clearTimeout(noticeTimer);
+      set({ notice: key });
+      noticeTimer = key ? setTimeout(() => set({ notice: null }), 4000) : null;
     },
   };
 });
