@@ -34,6 +34,8 @@ export function App() {
   const moveCamera = useCameraStore((s) => s.moveCamera);
   const addTile = useCameraStore((s) => s.addTile);
   const swapTileCamera = useCameraStore((s) => s.swapTileCamera);
+  const focusTile = useCameraStore((s) => s.focusTile);
+  const bringToFront = useCameraStore((s) => s.bringToFront);
   const startStream = useCameraStore((s) => s.startStream);
   const stopStream = useCameraStore((s) => s.stopStream);
   const restartActiveStreams = useCameraStore((s) => s.restartActiveStreams);
@@ -162,17 +164,23 @@ export function App() {
     [selectedId, loadRecordings],
   );
 
-  /** Preview click: if a tile is focused, swap its camera; otherwise add a new tile. */
+  /** Preview click: focus the existing tile if the camera is already in the layout;
+   *  otherwise swap the focused tile's camera or add a new tile. */
   const handlePreviewSelect = useCallback(
     (cameraId: string) => {
-      const { focusedTileId } = layout;
-      if (focusedTileId) {
-        swapTileCamera(focusedTileId, cameraId);
+      const existingTile = layout.tiles.find((t) => t.cameraId === cameraId);
+      if (existingTile) {
+        bringToFront(existingTile.id);
+        focusTile(existingTile.id);
+        return;
+      }
+      if (layout.focusedTileId) {
+        swapTileCamera(layout.focusedTileId, cameraId);
       } else {
         addTile(cameraId);
       }
     },
-    [layout, swapTileCamera, addTile],
+    [layout, bringToFront, focusTile, swapTileCamera, addTile],
   );
 
   return (
