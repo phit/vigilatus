@@ -76,6 +76,7 @@ export function Timeline({
   const [selectedDate, setSelectedDate] = useState(todayStr);
   const [now, setNow] = useState(nowMs);
   const [prevCameraId, setPrevCameraId] = useState(selectedCameraId);
+  const [prevTodayStr, setPrevTodayStr] = useState(todayStr);
 
   // Reset to today when the camera changes. Done during render (the React
   // "adjust state on prop change" pattern) so the load effect below runs once
@@ -83,6 +84,17 @@ export function Timeline({
   if (selectedCameraId !== prevCameraId) {
     setPrevCameraId(selectedCameraId);
     setSelectedDate(toDateStr(new Date(now)));
+  }
+
+  // Roll the selected date forward when the real-world day changes (the app
+  // can stay open across midnight). Only follow the rollover if the view was
+  // still on "today" — a user parked on a past date shouldn't get bumped.
+  const currentTodayStr = toDateStr(new Date(now));
+  if (currentTodayStr !== prevTodayStr) {
+    if (selectedDate === prevTodayStr) {
+      setSelectedDate(currentTodayStr);
+    }
+    setPrevTodayStr(currentTodayStr);
   }
 
   const isToday = isDateToday(parseDate(selectedDate));
