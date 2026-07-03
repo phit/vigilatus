@@ -571,6 +571,10 @@ async function confirmClear(win: Electron.BrowserWindow): Promise<boolean> {
     type: 'question',
     buttons: [t('contextMenu.clearCamerasConfirm'), t('app.cancel')],
     defaultId: 1,
+    // Esc must map to Cancel in every locale; without cancelId Electron only
+    // matches labels literally named "cancel"/"no" and otherwise falls back
+    // to button 0 (the destructive confirm).
+    cancelId: 1,
     message: t('contextMenu.clearCamerasMessage'),
   });
   return response === 0;
