@@ -621,9 +621,22 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
     scheduleStreamRestart(id) {
       const inView = (cid: string) => get().layout.tiles.some((t) => t.cameraId === cid);
       const isPlaybackFocus = (cid: string) => get().playbackMode === 'playback' && get().selectedId === cid;
+      // A died camera with no tile gets no restart, so its state must not keep
+      // claiming 'live' with the dead stream's hlsUrl — addTile/swapTileCamera
+      // skip startStream when an hlsUrl is present and would render a dead tile.
+      // During playback focus the hlsUrl intentionally holds the playback asset
+      // and is restored by exitPlaybackToLive, so that bail stays hands-off.
+      const bailOutOfView = (cid: string) => {
+        streamRestartBackoff.delete(cid);
+        patchCamera(cid, { status: 'idle', hlsUrl: undefined, errorMessage: undefined, retryAt: undefined });
+      };
 
-      if (!inView(id) || isPlaybackFocus(id)) {
+      if (isPlaybackFocus(id)) {
         streamRestartBackoff.delete(id);
+        return;
+      }
+      if (!inView(id)) {
+        bailOutOfView(id);
         return;
       }
 
@@ -639,9 +652,14 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
       log.warn(`stream restart scheduled for ${id}: attempt ${attempt} in ${(delay / 1000).toFixed(0)}s`);
       const timer = setTimeout(async () => {
         const cam = get().cameras.find((c) => c.config.id === id);
-        if (!cam || !inView(id) || cam.status === 'idle' || isPlaybackFocus(id)) {
+        if (!cam || cam.status === 'idle' || isPlaybackFocus(id)) {
           streamRestartBackoff.delete(id);
-          log.info(`stream restart stopped for ${id}: camera is out of view, idle, or in playback`);
+          log.info(`stream restart stopped for ${id}: camera is idle, removed, or in playback`);
+          return;
+        }
+        if (!inView(id)) {
+          bailOutOfView(id);
+          log.info(`stream restart stopped for ${id}: camera is out of view`);
           return;
         }
 

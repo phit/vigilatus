@@ -528,6 +528,57 @@ describe('scheduleStreamRestart', () => {
     expect(mock.stream.start).not.toHaveBeenCalled();
   });
 
+  it('resets a tileless died camera to idle so re-adding it starts the stream again', () => {
+    const mock = createVigilatusMock();
+    mock.stream.start.mockResolvedValue('http://127.0.0.1/live.m3u8');
+    installVigilatusMock(mock);
+
+    // Stale state left by a stream that died during the HTTP linger window:
+    // still 'live' with the dead stream's hlsUrl, but no tile.
+    useCameraStore.setState({
+      cameras: [
+        {
+          config: { ...camera('cam-1'), streamProtocol: 'http' },
+          status: 'live',
+          hlsUrl: 'http://127.0.0.1/dead.m3u8',
+        },
+      ],
+      layout: { tiles: [], focusedTileId: null },
+    });
+
+    useCameraStore.getState().scheduleStreamRestart('cam-1');
+
+    const cam = useCameraStore.getState().cameras[0]!;
+    expect(cam.status).toBe('idle');
+    expect(cam.hlsUrl).toBeUndefined();
+
+    useCameraStore.getState().addTile('cam-1');
+
+    expect(mock.stream.start).toHaveBeenCalledWith('cam-1');
+  });
+
+  it('bail during playback focus leaves the playback hlsUrl untouched', async () => {
+    const mock = createVigilatusMock();
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({
+      cameras: [{ config: camera('cam-1'), status: 'live', hlsUrl: 'blob:recording-clip' }],
+      selectedId: 'cam-1',
+      layout: { tiles: [tileFor('cam-1')], focusedTileId: 'tile-cam-1' },
+      playbackMode: 'playback',
+      playbackTime: 150_000,
+      playbackStartTime: 100_000,
+    });
+
+    useCameraStore.getState().scheduleStreamRestart('cam-1');
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    const cam = useCameraStore.getState().cameras[0]!;
+    expect(cam.status).toBe('live');
+    expect(cam.hlsUrl).toBe('blob:recording-clip');
+    expect(mock.stream.start).not.toHaveBeenCalled();
+  });
+
   it('HTTP removal race: removing the tile before the backoff fires cancels the restart', async () => {
     const mock = createVigilatusMock();
     installVigilatusMock(mock);
