@@ -540,32 +540,6 @@ ipcMain.handle(IPC.diagnostics.getRuntimeInfo, () => ({
   isPackaged: app.isPackaged,
 }));
 
-ipcMain.handle(
-  IPC.ui.showCameraContextMenu,
-  (_e, isFirst: boolean, isLast: boolean): Promise<string | null> => {
-    const win = BrowserWindow.getFocusedWindow();
-    if (!win) return Promise.resolve(null);
-
-    return new Promise((resolve) => {
-      const menu = Menu.buildFromTemplate([
-        { label: t('contextMenu.moveUp'), enabled: !isFirst, click: () => resolve('moveUp') },
-        { label: t('contextMenu.moveDown'), enabled: !isLast, click: () => resolve('moveDown') },
-        { type: 'separator' },
-        { label: t('contextMenu.showInMainArea'), click: () => resolve('addToMain') },
-        { type: 'separator' },
-        { label: t('contextMenu.edit'), click: () => resolve('edit') },
-        { type: 'separator' },
-        { label: t('contextMenu.remove'), click: () => resolve('remove') },
-      ]);
-      menu.once('menu-will-close', () => {
-        // Resolve null if nothing was clicked (menu dismissed)
-        setTimeout(() => resolve(null), 50);
-      });
-      menu.popup({ window: win });
-    });
-  },
-);
-
 async function confirmClear(win: Electron.BrowserWindow): Promise<boolean> {
   const { response } = await dialog.showMessageBox(win, {
     type: 'question',
@@ -580,80 +554,106 @@ async function confirmClear(win: Electron.BrowserWindow): Promise<boolean> {
   return response === 0;
 }
 
-function makeSettled(resolve: (v: string | null) => void): {
-  done: (v: string | null) => void;
-  pendingDialog: { value: boolean };
-} {
-  let settled = false;
-  const pendingDialog = { value: false };
-  return {
-    done: (v) => {
+/**
+ * Electron fires an item's `click` handler *after* `menu-will-close`, so the
+ * dismissed-without-selection fallback must wait long enough for a click to
+ * land first. If it fires too early the user's choice is silently dropped; a
+ * longer delay only postpones how quickly a dismissal resolves `null`, which
+ * is imperceptible, so err on the generous side.
+ */
+const MENU_CLOSE_RESOLVE_DELAY_MS = 200;
+
+/**
+ * Pop up a context menu built by `buildItems` and resolve once with the chosen
+ * action string, or `null` when the menu is dismissed. Items that open a dialog
+ * before settling (e.g. Clear Cameras) must set `pendingDialog.value` in their
+ * click handler so the close fallback does not resolve `null` underneath them.
+ */
+function popupMenuWithResult(
+  win: Electron.BrowserWindow,
+  buildItems: (
+    done: (v: string | null) => void,
+    pendingDialog: { value: boolean },
+  ) => Electron.MenuItemConstructorOptions[],
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const pendingDialog = { value: false };
+    const done = (v: string | null) => {
       if (!settled) {
         settled = true;
         resolve(v);
       }
-    },
-    pendingDialog,
-  };
+    };
+    const menu = Menu.buildFromTemplate(buildItems(done, pendingDialog));
+    menu.once('menu-will-close', () => {
+      setTimeout(() => {
+        if (!pendingDialog.value) done(null);
+      }, MENU_CLOSE_RESOLVE_DELAY_MS);
+    });
+    menu.popup({ window: win });
+  });
 }
+
+/** Lock All / Unlock All / Clear Cameras — shared by the tile and layout menus. */
+function sharedLayoutItems(
+  win: Electron.BrowserWindow,
+  done: (v: string | null) => void,
+  pendingDialog: { value: boolean },
+): Electron.MenuItemConstructorOptions[] {
+  return [
+    { label: t('contextMenu.lockAll'), click: () => done('lockAll') },
+    { label: t('contextMenu.unlockAll'), click: () => done('unlockAll') },
+    { type: 'separator' },
+    {
+      label: t('contextMenu.clearCameras'),
+      click: () => {
+        pendingDialog.value = true;
+        void confirmClear(win).then((ok) => done(ok ? 'clearTiles' : null));
+      },
+    },
+  ];
+}
+
+ipcMain.handle(
+  IPC.ui.showCameraContextMenu,
+  (_e, isFirst: boolean, isLast: boolean): Promise<string | null> => {
+    const win = BrowserWindow.getFocusedWindow();
+    if (!win) return Promise.resolve(null);
+
+    return popupMenuWithResult(win, (done) => [
+      { label: t('contextMenu.moveUp'), enabled: !isFirst, click: () => done('moveUp') },
+      { label: t('contextMenu.moveDown'), enabled: !isLast, click: () => done('moveDown') },
+      { type: 'separator' },
+      { label: t('contextMenu.showInMainArea'), click: () => done('addToMain') },
+      { type: 'separator' },
+      { label: t('contextMenu.edit'), click: () => done('edit') },
+      { type: 'separator' },
+      { label: t('contextMenu.remove'), click: () => done('remove') },
+    ]);
+  },
+);
 
 ipcMain.handle(IPC.ui.showTileContextMenu, (_e, locked: boolean): Promise<string | null> => {
   const win = BrowserWindow.getFocusedWindow();
   if (!win) return Promise.resolve(null);
 
-  return new Promise((resolve) => {
-    const { done, pendingDialog } = makeSettled(resolve);
-    const menu = Menu.buildFromTemplate([
-      locked
-        ? { label: t('contextMenu.unlock'), click: () => done('unlock') }
-        : { label: t('contextMenu.lock'), click: () => done('lock') },
-      { type: 'separator' },
-      { label: t('contextMenu.removeFromLayout'), click: () => done('removeTile') },
-      { type: 'separator' },
-      { label: t('contextMenu.lockAll'), click: () => done('lockAll') },
-      { label: t('contextMenu.unlockAll'), click: () => done('unlockAll') },
-      {
-        label: t('contextMenu.clearCameras'),
-        click: () => {
-          pendingDialog.value = true;
-          void confirmClear(win).then((ok) => done(ok ? 'clearTiles' : null));
-        },
-      },
-    ]);
-    menu.once('menu-will-close', () => {
-      setTimeout(() => {
-        if (!pendingDialog.value) done(null);
-      }, 50);
-    });
-    menu.popup({ window: win });
-  });
+  return popupMenuWithResult(win, (done, pendingDialog) => [
+    locked
+      ? { label: t('contextMenu.unlock'), click: () => done('unlock') }
+      : { label: t('contextMenu.lock'), click: () => done('lock') },
+    { type: 'separator' },
+    { label: t('contextMenu.removeFromLayout'), click: () => done('removeTile') },
+    { type: 'separator' },
+    ...sharedLayoutItems(win, done, pendingDialog),
+  ]);
 });
 
 ipcMain.handle(IPC.ui.showLayoutContextMenu, (): Promise<string | null> => {
   const win = BrowserWindow.getFocusedWindow();
   if (!win) return Promise.resolve(null);
 
-  return new Promise((resolve) => {
-    const { done, pendingDialog } = makeSettled(resolve);
-    const menu = Menu.buildFromTemplate([
-      { label: t('contextMenu.lockAll'), click: () => done('lockAll') },
-      { label: t('contextMenu.unlockAll'), click: () => done('unlockAll') },
-      { type: 'separator' },
-      {
-        label: t('contextMenu.clearCameras'),
-        click: () => {
-          pendingDialog.value = true;
-          void confirmClear(win).then((ok) => done(ok ? 'clearTiles' : null));
-        },
-      },
-    ]);
-    menu.once('menu-will-close', () => {
-      setTimeout(() => {
-        if (!pendingDialog.value) done(null);
-      }, 50);
-    });
-    menu.popup({ window: win });
-  });
+  return popupMenuWithResult(win, (done, pendingDialog) => sharedLayoutItems(win, done, pendingDialog));
 });
 
 void app.whenReady().then(async () => {
