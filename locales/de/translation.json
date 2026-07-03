@@ -106,9 +106,9 @@
     "removeFromLayout": "Aus Layout entfernen",
     "lockAll": "Alle fixieren",
     "unlockAll": "Alle lösen",
-    "clearCameras": "Kameras entfernen",
+    "clearCameras": "Layout leeren",
     "clearCamerasMessage": "Alle Kameras aus dem Layout entfernen?",
-    "clearCamerasConfirm": "Entfernen"
+    "clearCamerasConfirm": "Leeren"
   },
   "menu": {
     "app": "Vigilatus",
