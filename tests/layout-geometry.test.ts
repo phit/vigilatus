@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cascadeRect, clampRect, nextZ, toNormalisedDelta, toPixels } from '../src/components/layoutGeometry';
+import { cascadeRect, clampRect, toPixels } from '../src/components/layoutGeometry';
 
 describe('clampRect', () => {
   it('returns a rect unchanged when it is already valid', () => {
@@ -64,12 +64,6 @@ describe('toPixels', () => {
   });
 });
 
-describe('toNormalisedDelta', () => {
-  it('converts pixel deltas to normalised fractions', () => {
-    expect(toNormalisedDelta(100, 50, 1000, 500)).toEqual({ dx: 0.1, dy: 0.1 });
-  });
-});
-
 describe('cascadeRect', () => {
   it('returns full area for the first tile', () => {
     expect(cascadeRect(0)).toEqual({ x: 0, y: 0, w: 1, h: 1 });
@@ -85,12 +79,5 @@ describe('cascadeRect', () => {
       expect(r.w).toBeGreaterThanOrEqual(0.1);
       expect(r.h).toBeGreaterThanOrEqual(0.1);
     }
-  });
-});
-
-describe('nextZ', () => {
-  it('returns one more than the current max', () => {
-    expect(nextZ(3)).toBe(4);
-    expect(nextZ(0)).toBe(1);
   });
 });

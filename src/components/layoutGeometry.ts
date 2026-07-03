@@ -31,16 +31,6 @@ export function toPixels(
   };
 }
 
-/** Convert absolute pixel deltas to a normalised rect delta. */
-export function toNormalisedDelta(
-  dxPx: number,
-  dyPx: number,
-  containerW: number,
-  containerH: number,
-): { dx: number; dy: number } {
-  return { dx: dxPx / containerW, dy: dyPx / containerH };
-}
-
 /**
  * Return a sensible default rect for a new tile based on how many tiles already exist.
  * The first tile fills the whole area; subsequent tiles cascade with decreasing size.
@@ -50,9 +40,4 @@ export function cascadeRect(existingCount: number): NormalizedRect {
   const offset = Math.min(0.05 * existingCount, 0.3);
   const size = Math.max(0.5, 1 - offset * 2);
   return clampRect({ x: offset, y: offset, w: size, h: size });
-}
-
-/** Return the next z value to bring a tile to the front. */
-export function nextZ(currentMaxZ: number): number {
-  return currentMaxZ + 1;
 }
