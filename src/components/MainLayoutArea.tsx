@@ -67,7 +67,6 @@ export function MainLayoutArea() {
     else if (action === 'clearTiles') clearTiles();
   };
 
-  const sortedTiles = [...layout.tiles].sort((a, b) => a.z - b.z);
   const selectedCamera = cameras.find((c) => c.config.id === selectedId);
 
   return (
@@ -85,7 +84,11 @@ export function MainLayoutArea() {
         </div>
       ) : (
         <>
-          {sortedTiles.map((tile) => {
+          {/* Render in stable array order — stacking is done purely via each tile's
+              z-index. Sorting here would make React move the tile DOM nodes when a
+              tile is raised (focus click → bringToFront), and relocating a playing
+              <video> element causes a visible flicker. */}
+          {layout.tiles.map((tile) => {
             const camera = cameras.find((c) => c.config.id === tile.cameraId);
             if (!camera) return null;
             return (
