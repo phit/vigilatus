@@ -19,7 +19,6 @@ interface UiDisplay {
   header: boolean;
   previewPosition: PreviewPosition;
   language: string;
-  volume: number;
 }
 
 interface Config {
@@ -40,7 +39,6 @@ const DEFAULT_UI_DISPLAY: UiDisplay = {
   header: false,
   previewPosition: 'right',
   language: 'system',
-  volume: 0,
 };
 
 const defaultWindowState: WindowState = {
@@ -62,15 +60,19 @@ function createDefaultConfig(): Config {
 
 /** Merge a parsed (possibly partial / legacy) config against the current defaults. */
 function mergeConfig(parsed: Partial<Config>): Config {
+  // Volume used to be a single global uiDisplay preference; seed cameras that
+  // predate per-camera volume with it so users keep their configured level.
+  const legacyVolume = (parsed.uiDisplay as { volume?: number } | undefined)?.volume;
   return {
-    cameras: parsed.cameras ?? [],
+    cameras: (parsed.cameras ?? []).map((c) =>
+      c.volume === undefined && legacyVolume !== undefined ? { ...c, volume: legacyVolume } : c,
+    ),
     uiDisplay: {
       previews: parsed.uiDisplay?.previews ?? DEFAULT_UI_DISPLAY.previews,
       timeline: parsed.uiDisplay?.timeline ?? DEFAULT_UI_DISPLAY.timeline,
       header: parsed.uiDisplay?.header ?? DEFAULT_UI_DISPLAY.header,
       previewPosition: parsed.uiDisplay?.previewPosition ?? DEFAULT_UI_DISPLAY.previewPosition,
       language: parsed.uiDisplay?.language ?? DEFAULT_UI_DISPLAY.language,
-      volume: parsed.uiDisplay?.volume ?? DEFAULT_UI_DISPLAY.volume,
     },
     windowState: {
       x: parsed.windowState?.x,
@@ -180,7 +182,6 @@ export function setUiDisplayPreferences(preferences: Partial<UiDisplay>): void {
     header: preferences.header ?? config.uiDisplay.header,
     previewPosition: preferences.previewPosition ?? config.uiDisplay.previewPosition,
     language: preferences.language ?? config.uiDisplay.language,
-    volume: preferences.volume ?? config.uiDisplay.volume,
   };
   save();
 }

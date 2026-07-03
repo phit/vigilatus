@@ -43,7 +43,6 @@ const uiDisplayState = {
   previewPosition: 'right' as PreviewPosition,
   language: 'system',
   debugOverlay: false,
-  volume: 0,
 };
 
 let mainWindow: BrowserWindow | null = null;
@@ -134,7 +133,6 @@ function applyUiDisplayStateToRenderer(): void {
   sendUiEvent(IPC.ui.setHeaderVisible, uiDisplayState.header);
   sendUiEvent(IPC.ui.setPreviewPosition, uiDisplayState.previewPosition);
   sendUiEvent(IPC.ui.setLanguage, uiDisplayState.language);
-  sendUiEvent(IPC.ui.setVolume, uiDisplayState.volume);
 }
 
 function wireExternalLinks(win: BrowserWindow): void {
@@ -542,11 +540,6 @@ ipcMain.handle(IPC.diagnostics.getRuntimeInfo, () => ({
   isPackaged: app.isPackaged,
 }));
 
-ipcMain.on(IPC.ui.saveVolume, (_e, volume: number) => {
-  uiDisplayState.volume = volume;
-  configStore.setUiDisplayPreferences({ volume });
-});
-
 ipcMain.handle(
   IPC.ui.showCameraContextMenu,
   (_e, isFirst: boolean, isLast: boolean): Promise<string | null> => {
@@ -700,7 +693,6 @@ void app.whenReady().then(async () => {
   uiDisplayState.header = persistedUiDisplay.header;
   uiDisplayState.previewPosition = persistedUiDisplay.previewPosition;
   uiDisplayState.language = persistedUiDisplay.language;
-  uiDisplayState.volume = persistedUiDisplay.volume;
   setLanguage(uiDisplayState.language);
 
   setupLogging();

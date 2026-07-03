@@ -517,6 +517,62 @@ describe('scheduleStreamRestart', () => {
   });
 });
 
+describe('setCameraVolume', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetRecordingsCache();
+    installVigilatusMock(createVigilatusMock());
+    resetStore();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('updates the camera volume in state immediately', () => {
+    useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'idle' }] });
+
+    useCameraStore.getState().setCameraVolume('cam-1', 0.6);
+
+    expect(useCameraStore.getState().cameras[0]?.config.volume).toBe(0.6);
+  });
+
+  it('debounces persistence and saves only the last value', () => {
+    const mock = createVigilatusMock();
+    installVigilatusMock(mock);
+    useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'idle' }] });
+
+    useCameraStore.getState().setCameraVolume('cam-1', 0.2);
+    useCameraStore.getState().setCameraVolume('cam-1', 0.6);
+    expect(mock.cameras.saveVolume).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(300);
+
+    expect(mock.cameras.saveVolume).toHaveBeenCalledTimes(1);
+    expect(mock.cameras.saveVolume).toHaveBeenCalledWith('cam-1', 0.6);
+  });
+
+  it('tracks and persists volume independently per camera', () => {
+    const mock = createVigilatusMock();
+    installVigilatusMock(mock);
+    useCameraStore.setState({
+      cameras: [
+        { config: camera('cam-1'), status: 'idle' },
+        { config: camera('cam-2', 'Side Yard'), status: 'idle' },
+      ],
+    });
+
+    useCameraStore.getState().setCameraVolume('cam-1', 0.3);
+    useCameraStore.getState().setCameraVolume('cam-2', 0.9);
+    vi.advanceTimersByTime(300);
+
+    const cams = useCameraStore.getState().cameras;
+    expect(cams[0]?.config.volume).toBe(0.3);
+    expect(cams[1]?.config.volume).toBe(0.9);
+    expect(mock.cameras.saveVolume).toHaveBeenCalledWith('cam-1', 0.3);
+    expect(mock.cameras.saveVolume).toHaveBeenCalledWith('cam-2', 0.9);
+  });
+});
+
 function camera(id: string, name = 'Camera'): CameraConfig {
   return {
     id,

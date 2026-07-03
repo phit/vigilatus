@@ -10,7 +10,6 @@ const DEFAULTS = {
   header: false,
   previewPosition: 'right' as const,
   language: 'system',
-  volume: 0,
 };
 
 const tmpDirs: string[] = [];
@@ -54,20 +53,20 @@ describe('config store', () => {
     const dir = makeTmpDir();
     configStore.init(dir);
 
-    configStore.setUiDisplayPreferences({ volume: 0.5, header: false });
+    configStore.setUiDisplayPreferences({ previewPosition: 'left', header: true });
 
     expect(configStore.getUiDisplayPreferences()).toEqual({
       ...DEFAULTS,
-      volume: 0.5,
-      header: false,
+      previewPosition: 'left',
+      header: true,
     });
 
     // Re-init the SAME dir to verify save + parse-merge round-trip.
     configStore.init(dir);
     expect(configStore.getUiDisplayPreferences()).toEqual({
       ...DEFAULTS,
-      volume: 0.5,
-      header: false,
+      previewPosition: 'left',
+      header: true,
     });
   });
 
@@ -93,7 +92,7 @@ describe('config store', () => {
 
     const before = configStore.getUiDisplayPreferences();
     const prefs = configStore.getUiDisplayPreferences();
-    prefs.volume = 99;
+    prefs.language = 'xx';
     prefs.previews = !prefs.previews;
 
     expect(configStore.getUiDisplayPreferences()).toEqual(before);
@@ -102,27 +101,31 @@ describe('config store', () => {
   it('writes atomically and keeps a backup of the previous config', () => {
     const dir = makeTmpDir();
     const cfgPath = path.join(dir, 'cameras.json');
-    fs.writeFileSync(cfgPath, JSON.stringify({ cameras: [], uiDisplay: { volume: 0.1 } }), 'utf8');
+    fs.writeFileSync(cfgPath, JSON.stringify({ cameras: [], uiDisplay: { previews: false } }), 'utf8');
 
     configStore.init(dir);
-    configStore.setUiDisplayPreferences({ volume: 0.9 });
+    configStore.setUiDisplayPreferences({ previews: true });
 
     // No temp file is left behind after a successful save.
     expect(fs.existsSync(`${cfgPath}.tmp`)).toBe(false);
     // The backup holds the previous good config, the primary holds the new value.
-    expect(JSON.parse(fs.readFileSync(`${cfgPath}.bak`, 'utf8')).uiDisplay.volume).toBe(0.1);
-    expect(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).uiDisplay.volume).toBe(0.9);
+    expect(JSON.parse(fs.readFileSync(`${cfgPath}.bak`, 'utf8')).uiDisplay.previews).toBe(false);
+    expect(JSON.parse(fs.readFileSync(cfgPath, 'utf8')).uiDisplay.previews).toBe(true);
   });
 
   it('recovers from the backup when the primary config is corrupt', () => {
     const dir = makeTmpDir();
     const cfgPath = path.join(dir, 'cameras.json');
     fs.writeFileSync(cfgPath, '{ this is not valid json', 'utf8');
-    fs.writeFileSync(`${cfgPath}.bak`, JSON.stringify({ cameras: [], uiDisplay: { volume: 0.7 } }), 'utf8');
+    fs.writeFileSync(
+      `${cfgPath}.bak`,
+      JSON.stringify({ cameras: [], uiDisplay: { previewPosition: 'left' } }),
+      'utf8',
+    );
 
     configStore.init(dir);
 
-    expect(configStore.getUiDisplayPreferences()).toEqual({ ...DEFAULTS, volume: 0.7 });
+    expect(configStore.getUiDisplayPreferences()).toEqual({ ...DEFAULTS, previewPosition: 'left' });
   });
 
   it('migrates a config from the legacy TapoStudio folder when no new config exists', () => {
@@ -149,14 +152,37 @@ describe('config store', () => {
 
     configStore.init(userDataDir);
 
-    expect(configStore.getCameras()).toEqual([camera]);
+    // The legacy global volume is seeded onto the migrated camera.
+    expect(configStore.getCameras()).toEqual([{ ...camera, volume: 0.42 }]);
     expect(configStore.getUiDisplayPreferences()).toEqual({
       ...DEFAULTS,
       previews: false,
-      volume: 0.42,
     });
     // The migrated file now lives in the new location.
     expect(fs.existsSync(path.join(userDataDir, 'cameras.json'))).toBe(true);
+  });
+
+  it('seeds cameras with the legacy global uiDisplay.volume only when they have none', () => {
+    const dir = makeTmpDir();
+    const base = { name: 'Cam', host: '192.168.1.50', username: 'admin', password: 'secret' };
+    fs.writeFileSync(
+      path.join(dir, 'cameras.json'),
+      JSON.stringify({
+        cameras: [
+          { ...base, id: 'cam-legacy' },
+          { ...base, id: 'cam-own-volume', volume: 0.8 },
+        ],
+        uiDisplay: { volume: 0.42 },
+      }),
+      'utf8',
+    );
+
+    configStore.init(dir);
+
+    expect(configStore.getCameras()).toEqual([
+      { ...base, id: 'cam-legacy', volume: 0.42 },
+      { ...base, id: 'cam-own-volume', volume: 0.8 },
+    ]);
   });
 
   it('returns default mainLayout when the field is absent in a legacy config', () => {

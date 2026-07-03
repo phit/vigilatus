@@ -46,7 +46,6 @@ export function App() {
   const setHeaderVisible = useCameraStore((s) => s.setHeaderVisible);
   const setDebugOverlayVisible = useCameraStore((s) => s.setDebugOverlayVisible);
   const setPreviewPosition = useCameraStore((s) => s.setPreviewPosition);
-  const setVolume = useCameraStore((s) => s.setVolume);
   const loadRecordings = useCameraStore((s) => s.loadRecordings);
   const seekTo = useCameraStore((s) => s.seekTo);
   const goLive = useCameraStore((s) => s.goLive);
@@ -108,10 +107,6 @@ export function App() {
         void i18n.changeLanguage(language);
       }
     });
-    const offSetVolume = window.vigilatus.ui.onSetVolume((volume) => {
-      setVolume(volume);
-    });
-
     return () => {
       offOpenAdd();
       offSetPreviewsVisible();
@@ -122,7 +117,6 @@ export function App() {
       offStreamsInvalidated();
       offStreamDied();
       offSetLanguage();
-      offSetVolume();
     };
   }, [
     setPreviewsVisible,
@@ -130,7 +124,6 @@ export function App() {
     setHeaderVisible,
     setDebugOverlayVisible,
     setPreviewPosition,
-    setVolume,
     restartActiveStreams,
     scheduleStreamRestart,
   ]);

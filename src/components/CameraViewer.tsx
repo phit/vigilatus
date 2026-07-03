@@ -25,10 +25,15 @@ export function CameraViewer({ camera, playbackMode }: Props) {
   const [prevVolume, setPrevVolume] = useState(0.5);
   const [retryTick, setRetryTick] = useState(0);
   const showDebugOverlay = useCameraStore((s) => s.showDebugOverlay);
-  const volume = useCameraStore((s) => s.volume);
-  const setVolume = useCameraStore((s) => s.setVolume);
+  const setCameraVolume = useCameraStore((s) => s.setCameraVolume);
   const playbackStartTime = useCameraStore((s) => s.playbackStartTime);
   const setPlaybackTime = useCameraStore((s) => s.setPlaybackTime);
+
+  const cameraId = camera?.config.id;
+  const volume = camera?.config.volume ?? 0;
+  const setVolume = (v: number) => {
+    if (cameraId) setCameraVolume(cameraId, v);
+  };
 
   const hlsUrl = camera?.hlsUrl;
   const isHlsSource = Boolean(hlsUrl && hlsUrl.toLowerCase().includes('.m3u8'));

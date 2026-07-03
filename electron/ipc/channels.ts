@@ -15,6 +15,7 @@ export const IPC = {
     remove: 'cameras:remove',
     move: 'cameras:move',
     test: 'cameras:test',
+    saveVolume: 'cameras:saveVolume',
   },
   stream: {
     start: 'stream:start',
@@ -45,7 +46,6 @@ export const IPC = {
     showCameraContextMenu: 'ui:showCameraContextMenu',
     showTileContextMenu: 'ui:showTileContextMenu',
     showLayoutContextMenu: 'ui:showLayoutContextMenu',
-    saveVolume: 'ui:saveVolume',
     openAddCamera: 'ui:openAddCamera',
     setPreviewsVisible: 'ui:setPreviewsVisible',
     setTimelineVisible: 'ui:setTimelineVisible',
@@ -53,6 +53,5 @@ export const IPC = {
     setDebugOverlayVisible: 'ui:setDebugOverlayVisible',
     setPreviewPosition: 'ui:setPreviewPosition',
     setLanguage: 'ui:setLanguage',
-    setVolume: 'ui:setVolume',
   },
 } as const;

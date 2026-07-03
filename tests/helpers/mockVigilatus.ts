@@ -21,6 +21,7 @@ export type VigilatusMock = {
       [Pick<CameraConfig, 'host' | 'username' | 'password'>],
       Promise<{ success: boolean; error?: string }>
     >;
+    saveVolume: FnMock<[string, number], void>;
   };
   stream: {
     start: FnMock<[string], Promise<string | null>>;
@@ -56,8 +57,6 @@ export type VigilatusMock = {
     onStreamsInvalidated: FnMock<[() => void], Unsubscribe>;
     onStreamDied: FnMock<[(cameraId: string) => void], Unsubscribe>;
     onSetLanguage: FnMock<[(language: string) => void], Unsubscribe>;
-    onSetVolume: FnMock<[(volume: number) => void], Unsubscribe>;
-    saveVolume: FnMock<[number], void>;
   };
 };
 
@@ -70,6 +69,7 @@ export function createVigilatusMock(overrides: Partial<VigilatusMock> = {}): Vig
       update: vi.fn().mockResolvedValue(undefined),
       remove: vi.fn().mockResolvedValue(undefined),
       test: vi.fn().mockResolvedValue({ success: true }),
+      saveVolume: vi.fn(),
     },
     stream: {
       start: vi.fn().mockResolvedValue(null),
@@ -110,8 +110,6 @@ export function createVigilatusMock(overrides: Partial<VigilatusMock> = {}): Vig
       onStreamsInvalidated: vi.fn().mockImplementation(() => noop),
       onStreamDied: vi.fn().mockImplementation(() => noop),
       onSetLanguage: vi.fn().mockImplementation(() => noop),
-      onSetVolume: vi.fn().mockImplementation(() => noop),
-      saveVolume: vi.fn(),
     },
   };
 

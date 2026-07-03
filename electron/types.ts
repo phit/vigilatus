@@ -23,6 +23,8 @@ export interface CameraConfig {
   streamProtocol?: 'rtsp' | 'http';
   /** Auto-detected password hash method for HTTP media session (md5 or sha256) */
   httpHashMethod?: 'md5' | 'sha256';
+  /** Viewer playback volume for this camera, 0..1 (0 / unset = muted) */
+  volume?: number;
 }
 
 export interface Recording {
@@ -96,6 +98,9 @@ export interface VigilatusApi {
     test: (
       cfg: Pick<CameraConfig, 'host' | 'username' | 'password'>,
     ) => Promise<{ success: boolean; error?: string }>;
+    /** Fire-and-forget volume persistence — unlike `update`, it must not
+     *  interrupt recording playback or clear recording caches. */
+    saveVolume: (id: string, volume: number) => void;
   };
   stream: {
     start: (cameraId: string) => Promise<string | null>;
@@ -137,7 +142,5 @@ export interface VigilatusApi {
     onStreamsInvalidated: (callback: () => void) => () => void;
     onStreamDied: (callback: (cameraId: string) => void) => () => void;
     onSetLanguage: (callback: (language: string) => void) => () => void;
-    onSetVolume: (callback: (volume: number) => void) => () => void;
-    saveVolume: (volume: number) => void;
   };
 }

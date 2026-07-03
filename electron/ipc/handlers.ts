@@ -102,6 +102,13 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     return client.testConnection();
   });
 
+  // Volume-only persistence — deliberately not IPC.cameras.update: fired from
+  // the viewer's volume slider, so it must not stop an active recording
+  // playback or clear recording caches.
+  ipcMain.on(IPC.cameras.saveVolume, (_e, id: string, volume: number) => {
+    configStore.updateCamera(id, { volume });
+  });
+
   // ------------------------------------------------------------------
   // Layout
   // ------------------------------------------------------------------

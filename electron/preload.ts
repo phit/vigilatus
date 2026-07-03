@@ -24,6 +24,9 @@ const api: VigilatusApi = {
     test: (
       cfg: Pick<CameraConfig, 'host' | 'username' | 'password'>,
     ): Promise<{ success: boolean; error?: string }> => ipcRenderer.invoke(IPC.cameras.test, cfg),
+    saveVolume: (id: string, volume: number): void => {
+      ipcRenderer.send(IPC.cameras.saveVolume, id, volume);
+    },
   },
   stream: {
     start: (cameraId: string): Promise<string | null> => ipcRenderer.invoke(IPC.stream.start, cameraId),
@@ -105,14 +108,6 @@ const api: VigilatusApi = {
       const handler = (_event: Electron.IpcRendererEvent, language: string) => callback(language);
       ipcRenderer.on(IPC.ui.setLanguage, handler);
       return () => ipcRenderer.removeListener(IPC.ui.setLanguage, handler);
-    },
-    onSetVolume: (callback: (volume: number) => void): (() => void) => {
-      const handler = (_event: Electron.IpcRendererEvent, volume: number) => callback(volume);
-      ipcRenderer.on(IPC.ui.setVolume, handler);
-      return () => ipcRenderer.removeListener(IPC.ui.setVolume, handler);
-    },
-    saveVolume: (volume: number): void => {
-      ipcRenderer.send(IPC.ui.saveVolume, volume);
     },
   },
 };

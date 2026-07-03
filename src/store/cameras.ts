@@ -19,6 +19,7 @@ const PLAYBACK_WINDOW_MS = 120_000;
 const RECORDINGS_CACHE_TTL_MS = 2 * 60_000;
 const HTTP_STREAM_LINGER_MS = 60_000;
 const SAVE_LAYOUT_DEBOUNCE_MS = 300;
+const SAVE_VOLUME_DEBOUNCE_MS = 300;
 export const MAX_CONCURRENT_TILES = 4;
 
 const DEFAULT_LAYOUT: MainLayout = { tiles: [], focusedTileId: null };
@@ -81,6 +82,8 @@ const RESTART_MAX_DELAY_MS = 2 * 60 * 1000;
 
 /** Debounce timer for saving the layout. */
 let saveLayoutTimer: ReturnType<typeof setTimeout> | null = null;
+/** Debounce timers for persisting per-camera volume, keyed by camera id. */
+const saveVolumeTimers = new Map<string, ReturnType<typeof setTimeout>>();
 /** Auto-clear timer for transient UI notices. */
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -139,9 +142,8 @@ interface CamerasStore {
   setHeaderVisible(visible: boolean): void;
   setDebugOverlayVisible(visible: boolean): void;
   setPreviewPosition(position: PreviewPosition): void;
-  setVolume(volume: number): void;
+  setCameraVolume(cameraId: string, volume: number): void;
   setPlaybackTime(time: number | null): void;
-  volume: number;
   loadRecordings(cameraId: string, date: string): Promise<void>;
   seekTo(time: number): Promise<void>;
   goLive(): void;
@@ -207,7 +209,6 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
     playbackMode: 'live',
     playbackTime: null,
     playbackStartTime: null,
-    volume: 0,
     recordings: [],
     recordingEvents: [],
     recordingsLoading: false,
@@ -686,9 +687,17 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
       set({ previewPosition: position });
     },
 
-    setVolume(volume) {
-      set({ volume });
-      window.vigilatus.ui.saveVolume(volume);
+    setCameraVolume(cameraId, volume) {
+      patchCamera(cameraId, (c) => ({ config: { ...c.config, volume } }));
+      const pending = saveVolumeTimers.get(cameraId);
+      if (pending) clearTimeout(pending);
+      saveVolumeTimers.set(
+        cameraId,
+        setTimeout(() => {
+          saveVolumeTimers.delete(cameraId);
+          window.vigilatus.cameras.saveVolume(cameraId, volume);
+        }, SAVE_VOLUME_DEBOUNCE_MS),
+      );
     },
 
     setPlaybackTime(time) {
