@@ -37,6 +37,7 @@ import {
   isExpectedStopError,
   markStreamReady,
   notifyStreamDied,
+  releaseStreamEntry,
   setOnStreamDied,
   startStreamWatchdog,
   stopAllStreams,
@@ -173,10 +174,14 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
 
     attachFfmpegStderr(proc, stderrLines);
 
+    // All cleanup below is session-scoped via releaseStreamEntry(cameraId, m3u8):
+    // these handlers can fire after stopStream() and a restart have replaced the
+    // registry entry with a newer session's, which must be left untouched and
+    // must not be reported as died.
     onFfmpegError(proc, (err: Error, _stdout: string, stderr: string) => {
       if (isExpectedStopError(cameraId, err)) {
         expectedStops.delete(cameraId);
-        streams.delete(cameraId);
+        releaseStreamEntry(cameraId, m3u8);
         if (!settled) {
           settled = true;
           reject(new Error('Stream start cancelled'));
@@ -187,19 +192,21 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
       const details = summarizeFfmpegDetails(stderr?.trim() || stderrLines.join('\n').trim());
       const message = details ? `${err.message}: ${details}` : err.message;
       createLogger(`stream:${cameraId}`).error(`error:`, message);
-      streams.delete(cameraId);
+      const wasCurrent = releaseStreamEntry(cameraId, m3u8);
       if (!settled) {
         settled = true;
         reject(new Error(message));
       }
-      notifyDiedOnce();
+      if (wasCurrent) {
+        notifyDiedOnce();
+      }
     });
 
     proc.on('end', () => {
       const wasExpected = expectedStops.has(cameraId);
       expectedStops.delete(cameraId);
-      streams.delete(cameraId);
-      if (!wasExpected && settled) {
+      const wasCurrent = releaseStreamEntry(cameraId, m3u8);
+      if (!wasExpected && settled && wasCurrent) {
         notifyDiedOnce();
       }
     });
@@ -213,7 +220,7 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
         }
       })
       .catch((err: Error) => {
-        streams.delete(cameraId);
+        const wasCurrent = releaseStreamEntry(cameraId, m3u8);
         try {
           proc.kill('SIGKILL');
         } catch {
@@ -222,7 +229,9 @@ function startRtspStream(cameraId: string, cfg: CameraConfig): Promise<string> {
         if (!settled) {
           settled = true;
           reject(err);
-          notifyDiedOnce();
+          if (wasCurrent) {
+            notifyDiedOnce();
+          }
         }
       });
   });

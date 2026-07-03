@@ -27,6 +27,7 @@ import {
   expectedStops,
   markStreamReady,
   notifyStreamDied,
+  releaseStreamEntry,
   stopStream,
   streams,
   type StreamEntry,
@@ -195,7 +196,13 @@ async function attemptHttpStream(
   let session: MediaSession | null = null;
   let ffmpegProc: ChildProcess | null = null;
 
-  const cleanup = () => {
+  /**
+   * Tear down this attempt's resources. Returns whether the registry entry
+   * still belonged to this attempt's session — a stale cleanup (a newer session
+   * has re-registered the camera) must leave the new entry alone and must not
+   * report the camera as died.
+   */
+  const cleanup = (): boolean => {
     expectedStops.add(cameraId);
     if (ffmpegProc && !ffmpegProc.killed) {
       try {
@@ -210,7 +217,7 @@ async function attemptHttpStream(
       });
       session = null;
     }
-    streams.delete(cameraId);
+    return releaseStreamEntry(cameraId, m3u8);
   };
 
   try {
@@ -280,8 +287,9 @@ async function attemptHttpStream(
       .catch((err) => {
         if (!expectedStops.has(cameraId)) {
           log.error(`http media session error:`, (err as Error).message);
-          cleanup();
-          notifyDiedOnce();
+          if (cleanup()) {
+            notifyDiedOnce();
+          }
         }
       });
 
@@ -358,9 +366,8 @@ async function attemptHttpStream(
     });
 
     ffmpegProc.on('exit', (code) => {
-      if (!expectedStops.has(cameraId)) {
+      if (!expectedStops.has(cameraId) && releaseStreamEntry(cameraId, m3u8)) {
         log.error(`http ffmpeg exited with code ${code}`);
-        streams.delete(cameraId);
         notifyDiedOnce();
       }
     });

@@ -47,6 +47,23 @@ export function notifyStreamDied(cameraId: string): void {
   onStreamDiedCallback?.(cameraId);
 }
 
+/**
+ * Session-scoped removal of a camera's registry entry: delete it only when it
+ * still belongs to the session identified by `playlistPath`, and report whether
+ * it did. Cleanup handlers of an old ffmpeg process can fire after a restart
+ * has registered a new entry under the same camera id; a blind
+ * `streams.delete(cameraId)` would unregister the healthy new stream — hiding
+ * it from the stall watchdog and orphaning its process on the next stop. A
+ * caller that gets `false` must treat itself as stale and not report the
+ * camera as died.
+ */
+export function releaseStreamEntry(cameraId: string, playlistPath: string): boolean {
+  const entry = streams.get(cameraId);
+  if (!entry || entry.playlistPath !== playlistPath) return false;
+  streams.delete(cameraId);
+  return true;
+}
+
 export function isExpectedStopError(cameraId: string, err: Error): boolean {
   const message = String(err?.message ?? '');
   return expectedStops.has(cameraId) && message.includes('killed with signal SIGKILL');
