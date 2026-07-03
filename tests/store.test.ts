@@ -595,6 +595,58 @@ describe('scheduleStreamRestart', () => {
   });
 });
 
+describe('bringToFront', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    resetRecordingsCache();
+    installVigilatusMock(createVigilatusMock());
+    resetStore();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('raises a non-frontmost tile above the max z and schedules a layout save', () => {
+    const mock = createVigilatusMock();
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({
+      layout: {
+        tiles: [tileFor('cam-1'), { ...tileFor('cam-2'), z: 1 }],
+        focusedTileId: 'tile-cam-2',
+      },
+    });
+
+    useCameraStore.getState().bringToFront('tile-cam-1');
+
+    expect(useCameraStore.getState().layout.tiles[0]?.z).toBe(2);
+    expect(mock.layout.save).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(300);
+
+    expect(mock.layout.save).toHaveBeenCalledTimes(1);
+    expect(mock.layout.save).toHaveBeenCalledWith(useCameraStore.getState().layout);
+  });
+
+  it('is a no-op for the tile that is already frontmost', () => {
+    const mock = createVigilatusMock();
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({
+      layout: {
+        tiles: [tileFor('cam-1'), { ...tileFor('cam-2'), z: 1 }],
+        focusedTileId: 'tile-cam-2',
+      },
+    });
+
+    useCameraStore.getState().bringToFront('tile-cam-2');
+
+    expect(useCameraStore.getState().layout.tiles[1]?.z).toBe(1);
+    vi.advanceTimersByTime(300);
+    expect(mock.layout.save).not.toHaveBeenCalled();
+  });
+});
+
 describe('setCameraVolume', () => {
   beforeEach(() => {
     vi.useFakeTimers();

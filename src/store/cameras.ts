@@ -509,15 +509,18 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
     },
 
     bringToFront(tileId) {
-      set((s) => {
-        const maxZ = s.layout.tiles.reduce((z, t) => Math.max(z, t.z), 0);
-        return {
-          layout: {
-            ...s.layout,
-            tiles: s.layout.tiles.map((t) => (t.id === tileId ? { ...t, z: maxZ + 1 } : t)),
-          },
-        };
-      });
+      const { tiles } = get().layout;
+      const tile = tiles.find((t) => t.id === tileId);
+      if (!tile) return;
+      const maxZ = tiles.reduce((z, t) => Math.max(z, t.z), 0);
+      if (tile.z === maxZ && tiles.every((t) => t.id === tileId || t.z < maxZ)) return;
+      set((s) => ({
+        layout: {
+          ...s.layout,
+          tiles: s.layout.tiles.map((t) => (t.id === tileId ? { ...t, z: maxZ + 1 } : t)),
+        },
+      }));
+      scheduleSaveLayout();
     },
 
     clearFocus() {
