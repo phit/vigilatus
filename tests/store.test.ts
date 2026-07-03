@@ -253,7 +253,7 @@ describe('layout actions', () => {
     await waitFor(() => expect(mock.stream.stop).toHaveBeenCalledWith('cam-1'));
   });
 
-  it('setTileLocked prevents moveTile from changing the rect', () => {
+  it('setTileLocked prevents setTileRect from changing the rect', () => {
     useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'idle' }] });
 
     useCameraStore.getState().addTile('cam-1');
@@ -261,7 +261,7 @@ describe('layout actions', () => {
     const originalRect = { x: 0, y: 0, w: 1, h: 1 };
 
     useCameraStore.getState().setTileLocked(tileId, true);
-    useCameraStore.getState().moveTile(tileId, { x: 0.2, y: 0.2, w: 0.5, h: 0.5 });
+    useCameraStore.getState().setTileRect(tileId, { x: 0.2, y: 0.2, w: 0.5, h: 0.5 });
 
     const tile = useCameraStore.getState().layout.tiles[0]!;
     expect(tile.x).toBeCloseTo(originalRect.x);

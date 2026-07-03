@@ -26,8 +26,7 @@ export function CameraTile({ tile, camera, containerW, containerH, isFocused }: 
   const playbackMode = useCameraStore((s) => s.playbackMode);
   const startStream = useCameraStore((s) => s.startStream);
   const focusTile = useCameraStore((s) => s.focusTile);
-  const moveTile = useCameraStore((s) => s.moveTile);
-  const resizeTile = useCameraStore((s) => s.resizeTile);
+  const setTileRect = useCameraStore((s) => s.setTileRect);
   const bringToFront = useCameraStore((s) => s.bringToFront);
   const removeTile = useCameraStore((s) => s.removeTile);
   const setTileLocked = useCameraStore((s) => s.setTileLocked);
@@ -101,11 +100,7 @@ export function CameraTile({ tile, camera, containerW, containerH, isFocused }: 
   const handleDragPointerUp = () => {
     const ds = dragState.current;
     if (ds?.currentRect) {
-      if (ds.mode === 'move') {
-        moveTile(tile.id, ds.currentRect);
-      } else {
-        resizeTile(tile.id, ds.currentRect);
-      }
+      setTileRect(tile.id, ds.currentRect);
     }
     dragState.current = null;
   };

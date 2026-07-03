@@ -115,8 +115,7 @@ interface CamerasStore {
   loadLayout(): Promise<void>;
   addTile(cameraId: string, rect?: { x: number; y: number; w: number; h: number }): void;
   removeTile(tileId: string): void;
-  moveTile(tileId: string, rect: { x: number; y: number; w: number; h: number }): void;
-  resizeTile(tileId: string, rect: { x: number; y: number; w: number; h: number }): void;
+  setTileRect(tileId: string, rect: { x: number; y: number; w: number; h: number }): void;
   setTileLocked(tileId: string, locked: boolean): void;
   lockAllTiles(): void;
   unlockAllTiles(): void;
@@ -384,17 +383,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
       }
     },
 
-    moveTile(tileId, rect) {
-      set((s) => ({
-        layout: {
-          ...s.layout,
-          tiles: s.layout.tiles.map((t) => (t.id === tileId && !t.locked ? { ...t, ...clampRect(rect) } : t)),
-        },
-      }));
-      scheduleSaveLayout();
-    },
-
-    resizeTile(tileId, rect) {
+    setTileRect(tileId, rect) {
       set((s) => ({
         layout: {
           ...s.layout,
