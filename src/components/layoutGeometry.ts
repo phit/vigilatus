@@ -33,11 +33,11 @@ export function toPixels(
 
 /**
  * Return a sensible default rect for a new tile based on how many tiles already exist.
- * The first tile fills the whole area; subsequent tiles cascade with decreasing size.
+ * The first tile fills the whole area; subsequent tiles cascade down-right at the
+ * drag-drop default size (0.5 × 0.5) so the tiles underneath stay clearly visible.
  */
 export function cascadeRect(existingCount: number): NormalizedRect {
   if (existingCount === 0) return { x: 0, y: 0, w: 1, h: 1 };
   const offset = Math.min(0.05 * existingCount, 0.3);
-  const size = Math.max(0.5, 1 - offset * 2);
-  return clampRect({ x: offset, y: offset, w: size, h: size });
+  return clampRect({ x: offset, y: offset, w: 0.5, h: 0.5 });
 }

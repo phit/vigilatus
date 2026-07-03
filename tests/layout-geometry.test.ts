@@ -69,15 +69,19 @@ describe('cascadeRect', () => {
     expect(cascadeRect(0)).toEqual({ x: 0, y: 0, w: 1, h: 1 });
   });
 
-  it('offsets subsequent tiles and keeps them within bounds', () => {
+  it('places the second tile at the half-size drag-drop default, leaving the first visible', () => {
+    expect(cascadeRect(1)).toEqual({ x: 0.05, y: 0.05, w: 0.5, h: 0.5 });
+  });
+
+  it('offsets subsequent tiles at half size and keeps them within bounds', () => {
     for (let i = 1; i <= 6; i++) {
       const r = cascadeRect(i);
       expect(r.x).toBeGreaterThanOrEqual(0);
       expect(r.y).toBeGreaterThanOrEqual(0);
       expect(r.x + r.w).toBeLessThanOrEqual(1);
       expect(r.y + r.h).toBeLessThanOrEqual(1);
-      expect(r.w).toBeGreaterThanOrEqual(0.1);
-      expect(r.h).toBeGreaterThanOrEqual(0.1);
+      expect(r.w).toBe(0.5);
+      expect(r.h).toBe(0.5);
     }
   });
 });
