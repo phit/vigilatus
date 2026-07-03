@@ -311,6 +311,84 @@ describe('layout actions', () => {
     await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1'));
   });
 
+  it('focusTile during playback restarts the previously-focused camera live stream', async () => {
+    const mock = createVigilatusMock();
+    mock.stream.start.mockResolvedValue('http://127.0.0.1/live.m3u8');
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({
+      cameras: [
+        { config: camera('cam-1'), status: 'live', hlsUrl: 'blob:recording' },
+        { config: camera('cam-2', 'Side Yard'), status: 'live', hlsUrl: 'http://y' },
+      ],
+      selectedId: 'cam-1',
+      layout: { tiles: [tileFor('cam-1'), tileFor('cam-2')], focusedTileId: 'tile-cam-1' },
+      playbackMode: 'playback',
+      playbackTime: 150_000,
+      playbackStartTime: 100_000,
+    });
+
+    useCameraStore.getState().focusTile('tile-cam-2');
+
+    const s = useCameraStore.getState();
+    expect(s.playbackMode).toBe('live');
+    expect(s.playbackTime).toBeNull();
+    expect(s.playbackStartTime).toBeNull();
+    expect(s.selectedId).toBe('cam-2');
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1'));
+    expect(useCameraStore.getState().cameras[0]?.hlsUrl).toBe('http://127.0.0.1/live.m3u8');
+  });
+
+  it('focusTile on the focused tile during playback returns it to live', async () => {
+    const mock = createVigilatusMock();
+    mock.stream.start.mockResolvedValue('http://127.0.0.1/live.m3u8');
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({
+      cameras: [{ config: camera('cam-1'), status: 'live', hlsUrl: 'blob:recording' }],
+      selectedId: 'cam-1',
+      layout: { tiles: [tileFor('cam-1')], focusedTileId: 'tile-cam-1' },
+      playbackMode: 'playback',
+      playbackTime: 150_000,
+      playbackStartTime: 100_000,
+    });
+
+    useCameraStore.getState().focusTile('tile-cam-1');
+
+    expect(useCameraStore.getState().playbackMode).toBe('live');
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1'));
+    expect(useCameraStore.getState().cameras[0]?.hlsUrl).toBe('http://127.0.0.1/live.m3u8');
+  });
+
+  it('addTile during playback restarts the previously-focused camera live stream', async () => {
+    const mock = createVigilatusMock();
+    mock.stream.start.mockResolvedValue('http://127.0.0.1/live.m3u8');
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({
+      cameras: [
+        { config: camera('cam-1'), status: 'live', hlsUrl: 'blob:recording' },
+        { config: camera('cam-2', 'Side Yard'), status: 'idle' },
+      ],
+      selectedId: 'cam-1',
+      layout: { tiles: [tileFor('cam-1')], focusedTileId: 'tile-cam-1' },
+      playbackMode: 'playback',
+      playbackTime: 150_000,
+      playbackStartTime: 100_000,
+    });
+
+    useCameraStore.getState().addTile('cam-2');
+
+    const s = useCameraStore.getState();
+    expect(s.playbackMode).toBe('live');
+    expect(s.playbackTime).toBeNull();
+    expect(s.playbackStartTime).toBeNull();
+    expect(s.selectedId).toBe('cam-2');
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1'));
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-2'));
+    expect(useCameraStore.getState().cameras[0]?.hlsUrl).toBe('http://127.0.0.1/live.m3u8');
+  });
+
   it('clearFocus in live mode does not call goLive or restart the stream', () => {
     const mock = createVigilatusMock();
     installVigilatusMock(mock);

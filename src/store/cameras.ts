@@ -197,6 +197,20 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
     }
   }
 
+  /**
+   * If the focused camera is in recording playback, return it to its live stream.
+   * Must run before the focus/selection changes, while `selectedId` still points at
+   * the camera whose `hlsUrl` holds the downloaded clip.
+   */
+  function exitPlaybackToLive() {
+    const { playbackMode, selectedId } = get();
+    if (playbackMode !== 'playback') return;
+    set({ playbackMode: 'live', playbackTime: null, playbackStartTime: null });
+    if (selectedId) {
+      void get().startStream(selectedId);
+    }
+  }
+
   return {
     cameras: [],
     selectedId: null,
@@ -304,6 +318,8 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
         get().setNotice('notices.tileCapReached');
         return;
       }
+
+      exitPlaybackToLive();
 
       const tileRect = rect ? clampRect(rect) : cascadeRect(layout.tiles.length);
       const maxZ = layout.tiles.reduce((z, t) => Math.max(z, t.z), -1);
@@ -420,6 +436,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
     focusTile(tileId) {
       const tile = get().layout.tiles.find((t) => t.id === tileId);
       if (!tile) return;
+      exitPlaybackToLive();
       const cached = getFreshRecordingsCache(tile.cameraId, getCurrentDateString());
       set((s) => ({
         layout: { ...s.layout, focusedTileId: tileId },
@@ -504,9 +521,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
     },
 
     clearFocus() {
-      if (get().playbackMode === 'playback') {
-        get().goLive();
-      }
+      exitPlaybackToLive();
       set((s) => ({ layout: { ...s.layout, focusedTileId: null }, selectedId: null }));
     },
 
