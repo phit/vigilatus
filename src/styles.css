@@ -73,13 +73,6 @@ body {
   overflow: hidden;
 }
 
-.header-cam-name {
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .workspace {
   display: grid;
   grid-template-columns: 1fr;
@@ -131,12 +124,12 @@ body {
   height: 100%;
   gap: 8px;
   color: var(--text-soft);
-  font-size: 15px;
+  font-size: 1.0714rem;
   pointer-events: none;
 }
 
 .main-layout-empty-sub {
-  font-size: 13px;
+  font-size: 0.9286rem;
   opacity: 0.7;
 }
 
@@ -260,7 +253,7 @@ body {
 }
 
 .viewer-label {
-  font-size: 15px;
+  font-size: 1.0714rem;
 }
 
 .viewer-overlay-meta {
@@ -275,7 +268,7 @@ body {
 
 .viewer-cam-name {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 0.9286rem;
   background: rgba(0, 0, 0, 0.55);
   padding: 4px 8px;
   border-radius: 6px;
@@ -290,7 +283,7 @@ body {
   flex-direction: column;
   gap: 2px;
   font-family: 'Consolas', 'SF Mono', 'Fira Code', monospace;
-  font-size: 11px;
+  font-size: 0.7857rem;
   color: #0f0;
   background: rgba(0, 0, 0, 0.7);
   padding: 6px 10px;
@@ -322,7 +315,7 @@ body {
   padding: 6px 10px;
   border-radius: 999px;
   backdrop-filter: blur(6px);
-  font-size: 12px;
+  font-size: 0.8571rem;
   font-weight: 600;
 }
 
@@ -347,7 +340,7 @@ body {
   background: none;
   backdrop-filter: none;
   padding: 6px 6px 6px 10px;
-  font-size: 14px;
+  font-size: 1rem;
   line-height: 1;
 }
 
@@ -378,7 +371,7 @@ body {
 }
 
 .viewer-badge {
-  font-size: 11px;
+  font-size: 0.7857rem;
   font-weight: 700;
   letter-spacing: 0.06em;
   padding: 3px 7px;
@@ -469,7 +462,7 @@ body {
   align-items: center;
   justify-content: center;
   color: var(--text-soft);
-  font-size: 18px;
+  font-size: 1.2857rem;
 }
 
 .preview-footer {
@@ -480,7 +473,7 @@ body {
 }
 
 .preview-name {
-  font-size: 12px;
+  font-size: 0.8571rem;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -511,15 +504,6 @@ body {
 .dot-offline,
 .dot-error {
   background: var(--danger);
-}
-
-.badge {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  padding: 3px 7px;
-  border-radius: 999px;
-  text-transform: uppercase;
 }
 
 .badge-live {
@@ -566,7 +550,7 @@ body {
 
 .timeline-title {
   font-weight: 700;
-  font-size: 12px;
+  font-size: 0.8571rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-soft);
@@ -574,7 +558,7 @@ body {
 
 .timeline-date,
 .timeline-playback-time {
-  font-size: 12px;
+  font-size: 0.8571rem;
   color: var(--text-soft);
 }
 
@@ -589,14 +573,14 @@ body {
   border: none;
   color: var(--text-soft);
   cursor: pointer;
-  font-size: 10px;
+  font-size: 0.7143rem;
   padding: 2px 4px;
   border-radius: 4px;
   line-height: 1;
 }
 
 .btn-date-nav:hover:not(:disabled) {
-  color: var(--text-primary, #fff);
+  color: var(--text);
   background: rgba(255, 255, 255, 0.1);
 }
 
@@ -610,13 +594,13 @@ button.timeline-date {
   border: none;
   color: var(--text-soft);
   cursor: pointer;
-  font-size: 12px;
+  font-size: 0.8571rem;
   padding: 2px 6px;
   border-radius: 4px;
 }
 
 button.timeline-date:hover {
-  color: var(--text-primary, #fff);
+  color: var(--text);
   background: rgba(255, 255, 255, 0.1);
 }
 
@@ -626,7 +610,7 @@ button.timeline-date:hover {
 }
 
 .timeline-status {
-  font-size: 12px;
+  font-size: 0.8571rem;
   color: var(--text-soft);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -640,7 +624,7 @@ button.timeline-date:hover {
   color: var(--text-soft);
   padding: 4px 10px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 0.8571rem;
   font-weight: 600;
 }
 
@@ -747,7 +731,7 @@ button.timeline-date:hover {
   background: rgba(15, 23, 42, 0.9);
   border: 1px solid rgba(148, 163, 184, 0.22);
   color: var(--text);
-  font-size: 11px;
+  font-size: 0.7857rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   pointer-events: none;
@@ -762,7 +746,7 @@ button.timeline-date:hover {
 .timeline-marks span {
   position: absolute;
   transform: translateX(-50%);
-  font-size: 11px;
+  font-size: 0.7857rem;
   color: var(--text-soft);
   white-space: nowrap;
 }
@@ -778,7 +762,7 @@ button {
   border: none;
   padding: 8px 14px;
   border-radius: 999px;
-  font-size: 13px;
+  font-size: 0.9286rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -789,7 +773,7 @@ button {
   color: var(--text);
   padding: 7px 12px;
   border-radius: 999px;
-  font-size: 13px;
+  font-size: 0.9286rem;
   white-space: nowrap;
 }
 
@@ -800,7 +784,7 @@ button {
   width: 28px;
   height: 28px;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 1rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -848,7 +832,7 @@ button {
 }
 
 .modal-header h2 {
-  font-size: 18px;
+  font-size: 1.2857rem;
   font-weight: 700;
 }
 
@@ -856,11 +840,11 @@ button {
   background: transparent;
   border: none;
   color: var(--text-soft);
-  font-size: 18px;
+  font-size: 1.2857rem;
 }
 
 .modal-hint {
-  font-size: 12px;
+  font-size: 0.8571rem;
   color: var(--text-soft);
   line-height: 1.5;
   margin-bottom: 16px;
@@ -880,7 +864,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  font-size: 13px;
+  font-size: 0.9286rem;
   font-weight: 600;
   color: var(--text-soft);
 }
@@ -892,7 +876,7 @@ button {
   padding: 8px 10px;
   color: var(--text);
   font: inherit;
-  font-size: 14px;
+  font-size: 1rem;
 }
 
 .modal-form input:focus {
@@ -907,7 +891,7 @@ button {
   padding: 8px 10px;
   color: var(--text);
   font: inherit;
-  font-size: 14px;
+  font-size: 1rem;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238896b3' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -950,7 +934,7 @@ button {
 }
 
 .test-result {
-  font-size: 13px;
+  font-size: 0.9286rem;
   padding: 8px 12px;
   border-radius: 8px;
 }
@@ -972,7 +956,7 @@ button {
   justify-content: center;
   gap: 16px;
   color: var(--text-soft);
-  font-size: 15px;
+  font-size: 1.0714rem;
   grid-column: 1 / -1;
 }
 
@@ -1031,7 +1015,7 @@ button {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 16px;
-  font-size: 13px;
+  font-size: 0.9286rem;
   color: var(--text);
   z-index: 200;
   pointer-events: none;
@@ -1087,6 +1071,6 @@ button {
 
   .viewer-control-btn {
     padding: 5px 8px;
-    font-size: 11px;
+    font-size: 0.7857rem;
   }
 }
