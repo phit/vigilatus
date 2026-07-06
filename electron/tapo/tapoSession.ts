@@ -18,6 +18,10 @@ import { normalizeBase64, type ApiResponse } from './recordingParse';
 
 const MAX_LOGIN_RETRIES = 2;
 const CONTROL_CONNECT_TIMEOUT_MS = 3_000;
+const CONTROL_WAKE_DEADLINE_MS = 10_000;
+const CONTROL_WAKE_RETRY_DELAY_MS = 500;
+const TRANSIENT_ERROR_MAX_RETRIES = 4;
+const TRANSIENT_ERROR_RETRY_DELAY_MS = 1_500;
 
 export interface TapoSessionConfig {
   host: string;
@@ -55,6 +59,92 @@ function aesDecrypt(b64: string, key: Buffer, iv: Buffer): string {
   return decrypted.toString('utf8');
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Errors where the camera dropped or never answered a request mid-flight.
+ * Battery cameras (e.g. C400) do this while dozing off or waking up, so such
+ * a failure is worth one re-login + retry rather than failing the caller.
+ */
+export function isTransientNetworkError(error: unknown): boolean {
+  const msg = String((error as Error)?.message ?? error ?? '');
+  return (
+    msg.includes('socket hang up') ||
+    msg.includes('ECONNRESET') ||
+    msg.includes('EPIPE') ||
+    msg.includes('ETIMEDOUT') ||
+    msg.includes('Request timed out')
+  );
+}
+
+function connectOnce(host: string, port: number, timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host, port });
+
+    const cleanup = () => {
+      socket.removeAllListeners();
+      socket.destroy();
+    };
+
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => {
+      cleanup();
+      resolve();
+    });
+    socket.once('timeout', () => {
+      cleanup();
+      reject(new Error('connect timed out'));
+    });
+    socket.once('error', (error) => {
+      cleanup();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    });
+  });
+}
+
+export interface ControlPortWakeOptions {
+  connectTimeoutMs?: number;
+  deadlineMs?: number;
+  retryDelayMs?: number;
+}
+
+/**
+ * Wait for the camera's control port to accept a TCP connection.
+ *
+ * Battery cameras sleep their control server between uses; the first connect
+ * attempts act as the wake signal and are dropped, with the port typically
+ * answering a few seconds after the first knock. A single failed connect
+ * therefore does not mean the camera is gone — keep knocking until the
+ * deadline before declaring it unreachable.
+ */
+export async function waitForControlPort(
+  host: string,
+  port: number,
+  options: ControlPortWakeOptions = {},
+): Promise<void> {
+  const connectTimeoutMs = options.connectTimeoutMs ?? CONTROL_CONNECT_TIMEOUT_MS;
+  const deadlineMs = options.deadlineMs ?? CONTROL_WAKE_DEADLINE_MS;
+  const retryDelayMs = options.retryDelayMs ?? CONTROL_WAKE_RETRY_DELAY_MS;
+  const deadline = Date.now() + deadlineMs;
+
+  for (;;) {
+    try {
+      await connectOnce(host, port, connectTimeoutMs);
+      return;
+    } catch (error) {
+      if (Date.now() + retryDelayMs >= deadline) {
+        const message = (error as Error)?.message ?? String(error);
+        throw new Error(`Camera control port is unreachable (${host}:${port}): ${message}`, {
+          cause: error,
+        });
+      }
+      await delay(retryDelayMs);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // TapoSession
 // ---------------------------------------------------------------------------
@@ -87,7 +177,10 @@ export class TapoSession {
     this.cnonce = crypto.randomBytes(8).toString('hex').toUpperCase();
     this.agent = new https.Agent({
       rejectUnauthorized: false,
-      ciphers: 'AES256-SHA:AES128-GCM-SHA256',
+      // Older Tapo firmware (C110/C200 era) only accepts these legacy CBC/GCM
+      // ciphers, while newer TLS stacks (e.g. C400) reject a legacy-only list
+      // outright — offer Node's defaults plus the legacy ciphers.
+      ciphers: `${crypto.constants.defaultCipherList}:AES256-SHA:AES128-GCM-SHA256`,
     });
   }
 
@@ -291,6 +384,32 @@ export class TapoSession {
   // -------------------------------------------------------------------------
 
   async apiRequest(req: ApiRequest, retryCount = 0): Promise<ApiResponse> {
+    if (retryCount > 0) {
+      return this.performApiRequest(req, retryCount);
+    }
+
+    // A waking battery camera accepts TCP but keeps dropping HTTP(S) requests
+    // for several more seconds; retry transient transport failures (with a
+    // fresh login, since the session seq may be desynced) before failing the
+    // caller. Only the outermost call runs this loop — login-retry recursion
+    // passes retryCount > 0 and its errors propagate up into this loop.
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= TRANSIENT_ERROR_MAX_RETRIES; attempt += 1) {
+      if (attempt > 0) {
+        this.clearSession();
+        await delay(TRANSIENT_ERROR_RETRY_DELAY_MS);
+      }
+      try {
+        return await this.performApiRequest(req, 0);
+      } catch (error) {
+        if (!isTransientNetworkError(error)) throw error;
+        lastError = error;
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
+  }
+
+  private async performApiRequest(req: ApiRequest, retryCount: number): Promise<ApiResponse> {
     const secure = await this.isSecureConnection();
     const stok = await this.getStok(retryCount);
     const url = `https://${this.host}/stok=${stok}/ds`;
@@ -371,29 +490,7 @@ export class TapoSession {
   // -------------------------------------------------------------------------
 
   private async ensureControlPortReachable(port = 443): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
-      const socket = net.createConnection({ host: this.host, port });
-
-      const cleanup = () => {
-        socket.removeAllListeners();
-        socket.destroy();
-      };
-
-      socket.setTimeout(CONTROL_CONNECT_TIMEOUT_MS);
-      socket.once('connect', () => {
-        cleanup();
-        resolve();
-      });
-      socket.once('timeout', () => {
-        cleanup();
-        reject(new Error(`Camera control port is unreachable (${this.host}:${port})`));
-      });
-      socket.once('error', (error) => {
-        const message = (error as Error)?.message ?? String(error);
-        cleanup();
-        reject(new Error(`Camera control port is unreachable (${this.host}:${port}): ${message}`));
-      });
-    });
+    await waitForControlPort(this.host, port);
   }
 
   private post<T>(url: string, body: object, extraHeaders?: Record<string, string>): Promise<T> {
