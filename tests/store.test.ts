@@ -79,6 +79,29 @@ describe('useCameraStore', () => {
     expect(useCameraStore.getState().cameras[0]?.hlsUrl).toBe('http://127.0.0.1/live.m3u8');
   });
 
+  it('restartStream stops the camera stream and starts it again', async () => {
+    const mock = createVigilatusMock();
+    mock.stream.start.mockResolvedValueOnce('http://127.0.0.1/live-2.m3u8');
+    installVigilatusMock(mock);
+
+    useCameraStore.setState({
+      cameras: [
+        {
+          config: camera('cam-1'),
+          status: 'live',
+          hlsUrl: 'http://127.0.0.1/live.m3u8',
+        },
+      ],
+    });
+
+    useCameraStore.getState().restartStream('cam-1');
+
+    expect(mock.stream.stop).toHaveBeenCalledWith('cam-1');
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1'));
+    expect(useCameraStore.getState().cameras[0]?.status).toBe('live');
+    expect(useCameraStore.getState().cameras[0]?.hlsUrl).toBe('http://127.0.0.1/live-2.m3u8');
+  });
+
   it('promotes the next camera when the selected one is removed', async () => {
     useCameraStore.setState({
       cameras: [

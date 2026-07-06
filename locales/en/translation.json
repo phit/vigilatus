@@ -31,6 +31,7 @@
     "selectCamera": "Select a camera",
     "playback": "Playback",
     "live": "Live",
+    "restartStream": "Restart stream",
     "streamError": "Stream error",
     "retrying": "Retrying in {{seconds}}s...",
     "hlsNetworkError": "Failed to load HLS stream from local server",

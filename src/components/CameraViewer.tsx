@@ -26,6 +26,7 @@ export function CameraViewer({ camera, playbackMode }: Props) {
   const [retryTick, setRetryTick] = useState(0);
   const showDebugOverlay = useCameraStore((s) => s.showDebugOverlay);
   const setCameraVolume = useCameraStore((s) => s.setCameraVolume);
+  const restartStream = useCameraStore((s) => s.restartStream);
   const playbackStartTime = useCameraStore((s) => s.playbackStartTime);
   const setPlaybackTime = useCameraStore((s) => s.setPlaybackTime);
 
@@ -180,13 +181,26 @@ export function CameraViewer({ camera, playbackMode }: Props) {
       {camera && (
         <div className="viewer-overlay-meta">
           <span className="viewer-cam-name">{label}</span>
-          <span className={`viewer-badge badge-${playbackMode === 'playback' ? 'playback' : status}`}>
-            {playbackMode === 'playback'
-              ? t('viewer.playback')
-              : status === 'live'
-                ? t('viewer.live')
-                : status}
-          </span>
+          {playbackMode === 'live' && status === 'live' && cameraId ? (
+            <button
+              type="button"
+              className="viewer-badge badge-live"
+              onClick={() => restartStream(cameraId)}
+              title={t('viewer.restartStream')}
+            >
+              {t('viewer.live')}
+            </button>
+          ) : (
+            <span
+              className={`viewer-badge badge-${playbackMode === 'playback' ? 'playback' : status}`}
+            >
+              {playbackMode === 'playback'
+                ? t('viewer.playback')
+                : status === 'live'
+                  ? t('viewer.live')
+                  : status}
+            </span>
+          )}
         </div>
       )}
 

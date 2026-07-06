@@ -129,6 +129,7 @@ interface CamerasStore {
   selectCamera(id: string): void;
   startStream(id: string): Promise<void>;
   stopStream(id: string): void;
+  restartStream(id: string): void;
   restartActiveStreams(): void;
   updateSnapshot(id: string, dataUrl: string): void;
   setStatus(id: string, status: CameraState['status'], error?: string): void;
@@ -590,6 +591,11 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
       patchCamera(id, { status: 'idle', hlsUrl: undefined, errorMessage: undefined, retryAt: undefined });
     },
 
+    restartStream(id) {
+      get().stopStream(id);
+      void get().startStream(id);
+    },
+
     restartActiveStreams() {
       const liveIds = get()
         .cameras.filter((c) => c.status === 'live' || c.status === 'connecting')
@@ -845,9 +851,10 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
       set({ playbackMode: 'live', playbackTime: null, playbackStartTime: null });
       if (selectedId) {
         if (playbackMode === 'live') {
-          get().stopStream(selectedId);
+          get().restartStream(selectedId);
+        } else {
+          void get().startStream(selectedId);
         }
-        void get().startStream(selectedId);
       }
     },
 
