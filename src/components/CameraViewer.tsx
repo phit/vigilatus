@@ -191,9 +191,7 @@ export function CameraViewer({ camera, playbackMode }: Props) {
               {t('viewer.live')}
             </button>
           ) : (
-            <span
-              className={`viewer-badge badge-${playbackMode === 'playback' ? 'playback' : status}`}
-            >
+            <span className={`viewer-badge badge-${playbackMode === 'playback' ? 'playback' : status}`}>
               {playbackMode === 'playback'
                 ? t('viewer.playback')
                 : status === 'live'
