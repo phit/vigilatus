@@ -276,6 +276,56 @@ describe('layout actions', () => {
     await waitFor(() => expect(mock.stream.stop).toHaveBeenCalledWith('cam-1'));
   });
 
+  it('swapTilePositions exchanges the two rects and leaves the cameras in place', () => {
+    useCameraStore.setState({
+      cameras: [
+        { config: camera('cam-1'), status: 'idle' },
+        { config: camera('cam-2'), status: 'idle' },
+      ],
+    });
+
+    useCameraStore.getState().addTile('cam-1', { x: 0, y: 0, w: 0.4, h: 0.4 });
+    useCameraStore.getState().addTile('cam-2', { x: 0.5, y: 0.5, w: 0.3, h: 0.3 });
+    const [first, second] = useCameraStore.getState().layout.tiles;
+
+    useCameraStore.getState().swapTilePositions(first!.id, second!.id);
+
+    const tiles = useCameraStore.getState().layout.tiles;
+    expect(tiles[0]).toMatchObject({ cameraId: 'cam-1', x: 0.5, y: 0.5, w: 0.3, h: 0.3, z: first!.z });
+    expect(tiles[1]).toMatchObject({ cameraId: 'cam-2', x: 0, y: 0, w: 0.4, h: 0.4, z: second!.z });
+  });
+
+  it('swapTilePositions is a no-op when either tile is locked', () => {
+    useCameraStore.setState({
+      cameras: [
+        { config: camera('cam-1'), status: 'idle' },
+        { config: camera('cam-2'), status: 'idle' },
+      ],
+    });
+
+    useCameraStore.getState().addTile('cam-1', { x: 0, y: 0, w: 0.4, h: 0.4 });
+    useCameraStore.getState().addTile('cam-2', { x: 0.5, y: 0.5, w: 0.3, h: 0.3 });
+    const [first, second] = useCameraStore.getState().layout.tiles;
+    useCameraStore.getState().setTileLocked(second!.id, true);
+
+    useCameraStore.getState().swapTilePositions(first!.id, second!.id);
+
+    const tiles = useCameraStore.getState().layout.tiles;
+    expect(tiles[0]).toMatchObject({ x: 0, y: 0, w: 0.4, h: 0.4 });
+    expect(tiles[1]).toMatchObject({ x: 0.5, y: 0.5, w: 0.3, h: 0.3 });
+  });
+
+  it('swapTilePositions ignores unknown tile ids', () => {
+    useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'idle' }] });
+
+    useCameraStore.getState().addTile('cam-1', { x: 0, y: 0, w: 0.4, h: 0.4 });
+    const tileId = useCameraStore.getState().layout.tiles[0]!.id;
+
+    useCameraStore.getState().swapTilePositions(tileId, 'nope');
+
+    expect(useCameraStore.getState().layout.tiles[0]).toMatchObject({ x: 0, y: 0, w: 0.4, h: 0.4 });
+  });
+
   it('setTileLocked prevents setTileRect from changing the rect', () => {
     useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'idle' }] });
 

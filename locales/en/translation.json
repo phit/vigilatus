@@ -104,6 +104,7 @@
     "showInMainArea": "Show in Main Area",
     "lock": "Lock Position",
     "unlock": "Unlock Position",
+    "swapPosition": "Swap Position With",
     "removeFromLayout": "Remove from Layout",
     "lockAll": "Lock All",
     "unlockAll": "Unlock All",

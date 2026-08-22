@@ -30,6 +30,7 @@ export function CameraTile({ tile, camera, containerW, containerH, isFocused }: 
   const bringToFront = useCameraStore((s) => s.bringToFront);
   const removeTile = useCameraStore((s) => s.removeTile);
   const setTileLocked = useCameraStore((s) => s.setTileLocked);
+  const swapTilePositions = useCameraStore((s) => s.swapTilePositions);
   const lockAllTiles = useCameraStore((s) => s.lockAllTiles);
   const unlockAllTiles = useCameraStore((s) => s.unlockAllTiles);
   const clearTiles = useCameraStore((s) => s.clearTiles);
@@ -123,8 +124,24 @@ export function CameraTile({ tile, camera, containerW, containerH, isFocused }: 
   const handleContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const action = await window.vigilatus.contextMenu.showTileContextMenu(tile.locked);
-    if (action === 'lock') setTileLocked(tile.id, true);
+    // Read the layout on demand instead of subscribing: the swap targets are
+    // only needed while the menu is open, and subscribing here would re-render
+    // every tile whenever any other tile moves.
+    const { layout, cameras } = useCameraStore.getState();
+    const swapTargets = layout.tiles
+      .filter((t) => t.id !== tile.id)
+      .map((t) => ({
+        tileId: t.id,
+        label: cameras.find((c) => c.config.id === t.cameraId)?.config.name ?? t.cameraId,
+        locked: t.locked,
+      }));
+
+    const action = await window.vigilatus.contextMenu.showTileContextMenu({
+      locked: tile.locked,
+      swapTargets,
+    });
+    if (action?.startsWith('swap:')) swapTilePositions(tile.id, action.slice('swap:'.length));
+    else if (action === 'lock') setTileLocked(tile.id, true);
     else if (action === 'unlock') setTileLocked(tile.id, false);
     else if (action === 'removeTile') removeTile(tile.id);
     else if (action === 'lockAll') lockAllTiles();

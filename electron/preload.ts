@@ -8,6 +8,7 @@ import type {
   Recording,
   RecordingEvent,
   RuntimeInfo,
+  TileContextMenuOptions,
   VigilatusApi,
 } from './types';
 
@@ -59,8 +60,8 @@ const api: VigilatusApi = {
   contextMenu: {
     showCameraMenu: (isFirst: boolean, isLast: boolean): Promise<string | null> =>
       ipcRenderer.invoke(IPC.ui.showCameraContextMenu, isFirst, isLast),
-    showTileContextMenu: (locked: boolean): Promise<string | null> =>
-      ipcRenderer.invoke(IPC.ui.showTileContextMenu, locked),
+    showTileContextMenu: (options: TileContextMenuOptions): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.ui.showTileContextMenu, options),
     showLayoutContextMenu: (): Promise<string | null> => ipcRenderer.invoke(IPC.ui.showLayoutContextMenu),
   },
   ui: {

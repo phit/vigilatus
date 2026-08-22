@@ -23,7 +23,7 @@ import { IPC } from './ipc/channels';
 import { loadTestFixtures } from './testing/fixtures';
 import { t, setLanguage } from './i18n';
 import { initAutoUpdater, checkForUpdates } from './autoUpdater';
-import { PreviewPosition } from './types';
+import { PreviewPosition, TileContextMenuOptions, TileSwapTarget } from './types';
 import { createLogger } from './log';
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
@@ -634,15 +634,41 @@ ipcMain.handle(
   },
 );
 
-ipcMain.handle(IPC.ui.showTileContextMenu, (_e, locked: boolean): Promise<string | null> => {
+/**
+ * "Swap Position With ▸" submenu listing the other tiles in the layout. Omitted
+ * when there is nothing to swap with; individual entries are disabled when
+ * either side is locked, since a locked tile must keep its position.
+ */
+function swapPositionItem(
+  locked: boolean,
+  swapTargets: TileSwapTarget[],
+  done: (v: string | null) => void,
+): Electron.MenuItemConstructorOptions[] {
+  if (swapTargets.length === 0) return [];
+  return [
+    {
+      label: t('contextMenu.swapPosition'),
+      enabled: !locked,
+      submenu: swapTargets.map((target) => ({
+        label: target.label,
+        enabled: !target.locked,
+        click: () => done(`swap:${target.tileId}`),
+      })),
+    },
+    { type: 'separator' },
+  ];
+}
+
+ipcMain.handle(IPC.ui.showTileContextMenu, (_e, options: TileContextMenuOptions): Promise<string | null> => {
   const win = BrowserWindow.getFocusedWindow();
   if (!win) return Promise.resolve(null);
 
   return popupMenuWithResult(win, (done, pendingDialog) => [
-    locked
+    options.locked
       ? { label: t('contextMenu.unlock'), click: () => done('unlock') }
       : { label: t('contextMenu.lock'), click: () => done('lock') },
     { type: 'separator' },
+    ...swapPositionItem(options.locked, options.swapTargets, done),
     { label: t('contextMenu.removeFromLayout'), click: () => done('removeTile') },
     { type: 'separator' },
     ...sharedLayoutItems(win, done, pendingDialog),

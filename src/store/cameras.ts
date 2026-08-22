@@ -117,6 +117,7 @@ interface CamerasStore {
   removeTile(tileId: string): void;
   setTileRect(tileId: string, rect: { x: number; y: number; w: number; h: number }): void;
   setTileLocked(tileId: string, locked: boolean): void;
+  swapTilePositions(tileIdA: string, tileIdB: string): void;
   lockAllTiles(): void;
   unlockAllTiles(): void;
   clearTiles(): void;
@@ -389,6 +390,34 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
         layout: {
           ...s.layout,
           tiles: s.layout.tiles.map((t) => (t.id === tileId && !t.locked ? { ...t, ...clampRect(rect) } : t)),
+        },
+      }));
+      scheduleSaveLayout();
+    },
+
+    swapTilePositions(tileIdA, tileIdB) {
+      const { tiles } = get().layout;
+      const a = tiles.find((t) => t.id === tileIdA);
+      const b = tiles.find((t) => t.id === tileIdB);
+      if (!a || !b || a.id === b.id) return;
+      // A locked tile keeps its position, so a swap involving one is a no-op
+      // rather than a half-applied move.
+      if (a.locked || b.locked) {
+        log.warn('cannot swap positions, a tile is locked');
+        return;
+      }
+
+      const rectOf = (t: LayoutTile) => ({ x: t.x, y: t.y, w: t.w, h: t.h });
+      const rectA = rectOf(a);
+      const rectB = rectOf(b);
+      set((s) => ({
+        layout: {
+          ...s.layout,
+          tiles: s.layout.tiles.map((t) => {
+            if (t.id === a.id) return { ...t, ...rectB };
+            if (t.id === b.id) return { ...t, ...rectA };
+            return t;
+          }),
         },
       }));
       scheduleSaveLayout();

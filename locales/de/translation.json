@@ -104,6 +104,7 @@
     "showInMainArea": "Im Hauptbereich anzeigen",
     "lock": "Position fixieren",
     "unlock": "Position lösen",
+    "swapPosition": "Position tauschen mit",
     "removeFromLayout": "Aus Layout entfernen",
     "lockAll": "Alle fixieren",
     "unlockAll": "Alle lösen",

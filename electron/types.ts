@@ -67,6 +67,22 @@ export interface MainLayout {
   focusedTileId: string | null;
 }
 
+/** A tile offered as a "swap position with" target in the tile context menu. */
+export interface TileSwapTarget {
+  tileId: string;
+  /** Display label (the camera's name). */
+  label: string;
+  /** Locked tiles cannot change position, so they are offered but disabled. */
+  locked: boolean;
+}
+
+/** Arguments for the tile context menu, built by the renderer per tile. */
+export interface TileContextMenuOptions {
+  locked: boolean;
+  /** The other tiles in the layout; empty when this is the only tile. */
+  swapTargets: TileSwapTarget[];
+}
+
 export interface RuntimeInfo {
   userData: string;
   logPath: string | null;
@@ -129,7 +145,8 @@ export interface VigilatusApi {
   };
   contextMenu: {
     showCameraMenu: (isFirst: boolean, isLast: boolean) => Promise<string | null>;
-    showTileContextMenu: (locked: boolean) => Promise<string | null>;
+    /** Resolves the chosen action, `swap:<tileId>` for a swap target, or `null`. */
+    showTileContextMenu: (options: TileContextMenuOptions) => Promise<string | null>;
     showLayoutContextMenu: () => Promise<string | null>;
   };
   ui: {
