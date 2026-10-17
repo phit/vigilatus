@@ -236,6 +236,29 @@ export function waitForHlsReady(filePath: string, timeoutMs: number, stderrLines
   });
 }
 
+/**
+ * The newest segment in an HLS playlist, plus its fMP4 init segment
+ * (`#EXT-X-MAP`) when present. Live segments always start on a keyframe
+ * (forced when transcoding, cut at the camera's when copying), so
+ * init + segment is a clean, self-contained snapshot source.
+ */
+export function getLastHlsSegment(
+  playlistPath: string,
+  content: string,
+): { segment: string; init?: string } | null {
+  const lines = content.split(/\r?\n/).map((line) => line.trim());
+  const segmentLine = lines.filter((line) => line && !line.startsWith('#')).pop();
+  if (!segmentLine) return null;
+
+  const dir = path.dirname(playlistPath);
+  const mapUri = lines
+    .map((line) => /^#EXT-X-MAP:.*URI="([^"]+)"/.exec(line)?.[1])
+    .filter((uri): uri is string => !!uri)
+    .pop();
+  const segment = path.resolve(dir, segmentLine);
+  return mapUri ? { segment, init: path.resolve(dir, mapUri) } : { segment };
+}
+
 export function getFirstHlsSegmentPath(playlistPath: string, content: string): string | null {
   const segmentLine = content
     .split(/\r?\n/)

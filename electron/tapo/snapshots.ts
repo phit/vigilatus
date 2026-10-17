@@ -13,7 +13,8 @@ import { MediaSession, hashMediaPassword } from './mediaSession';
 import * as configStore from '../config/store';
 import { createLogger } from '../log';
 import { SNAP_DIR } from './streamConstants';
-import { buildRtspUrl } from './streamHelpers';
+import { buildRtspUrl, getLastHlsSegment } from './streamHelpers';
+import { keyframeOnlyInputArgs } from './ffmpegFragments';
 import { streams } from './streamRegistry';
 
 type HashMethod = 'md5' | 'sha256';
@@ -39,8 +40,18 @@ async function snapshotFromHls(cameraId: string): Promise<string | null> {
   const entry = streams.get(cameraId);
   if (!entry) return null;
 
-  const m3u8 = entry.playlistPath;
-  if (!fs.existsSync(m3u8)) return null;
+  // Read init (fMP4 only) + newest segment up front: the muxer may delete the
+  // segment at any moment, and the pair is decodable on its own.
+  let input: Buffer;
+  try {
+    const last = getLastHlsSegment(entry.playlistPath, fs.readFileSync(entry.playlistPath, 'utf8'));
+    if (!last) return null;
+    const parts = last.init ? [fs.readFileSync(last.init)] : [];
+    parts.push(fs.readFileSync(last.segment));
+    input = Buffer.concat(parts);
+  } catch {
+    return null;
+  }
 
   const outFile = path.join(SNAP_DIR, `${cameraId}.jpg`);
   return new Promise<string | null>((resolve) => {
@@ -55,9 +66,23 @@ async function snapshotFromHls(cameraId: string): Promise<string | null> {
 
     const proc = spawn(
       ffmpegBinaryPath,
-      ['-loglevel', 'error', '-sseof', '-1', '-i', m3u8, '-frames:v', '1', '-q:v', '5', '-y', outFile],
-      { stdio: ['ignore', 'ignore', 'ignore'] },
+      [
+        '-loglevel',
+        'error',
+        ...keyframeOnlyInputArgs(),
+        '-i',
+        'pipe:0',
+        '-frames:v',
+        '1',
+        '-q:v',
+        '5',
+        '-y',
+        outFile,
+      ],
+      { stdio: ['pipe', 'ignore', 'ignore'] },
     );
+    proc.stdin?.on('error', () => {}); // EPIPE once ffmpeg has its frame
+    proc.stdin?.end(input);
 
     proc.on('close', () => {
       clearTimeout(timer);
@@ -100,7 +125,7 @@ async function captureSnapshot(cameraId: string, cfg: CameraConfig): Promise<str
     }, 8000);
 
     const proc = ffmpeg(rtsp)
-      .inputOptions(['-rtsp_transport', 'tcp'])
+      .inputOptions(['-rtsp_transport', 'tcp', ...keyframeOnlyInputArgs()])
       .frames(1)
       .outputOptions(['-q:v 5'])
       .on('error', () => {
@@ -155,6 +180,7 @@ async function captureHttpSnapshot(cameraId: string, cfg: CameraConfig): Promise
           '1000000',
           '-probesize',
           '500000',
+          ...keyframeOnlyInputArgs(),
           '-f',
           'mpegts',
           '-i',

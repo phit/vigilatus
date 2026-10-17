@@ -1,8 +1,13 @@
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildHttpLiveFfmpegArgs } from '../electron/tapo/httpStream';
-import { liveHwDecodeInputArgs, liveSegmentNames, liveVideoArgs } from '../electron/tapo/ffmpegFragments';
-import { parseFfmpegVideoStream } from '../electron/tapo/streamHelpers';
+import {
+  keyframeOnlyInputArgs,
+  liveHwDecodeInputArgs,
+  liveSegmentNames,
+  liveVideoArgs,
+} from '../electron/tapo/ffmpegFragments';
+import { getLastHlsSegment, parseFfmpegVideoStream } from '../electron/tapo/streamHelpers';
 import { chooseLiveVideoMode, copyFailedCameras } from '../electron/tapo/streamRegistry';
 import { detectTsVideoCodec } from '../electron/tapo/tsDemux';
 
@@ -152,6 +157,10 @@ describe('live video fragments', () => {
     expect(liveHwDecodeInputArgs('transcode')).toEqual(['-hwaccel', 'auto']);
   });
 
+  it('keyframe-only snapshot input', () => {
+    expect(keyframeOnlyInputArgs()).toEqual(['-skip_frame', 'nokey']);
+  });
+
   it('HTTP live pipeline in copy mode neither scales nor encodes', () => {
     const args = buildHttpLiveFfmpegArgs({
       audioCodec: undefined,
@@ -165,6 +174,35 @@ describe('live video fragments', () => {
     expect(args).not.toContain('libx264');
     expect(args).not.toContain('-hwaccel');
     expect(args).not.toContain('-vf');
+  });
+});
+
+describe('getLastHlsSegment', () => {
+  it('returns the newest segment resolved against the playlist dir', () => {
+    const playlist = path.join('/hls', 'cam', 'stream.m3u8');
+    const content = '#EXTM3U\n#EXTINF:1.0,\nsegment-001.ts\n#EXTINF:1.0,\nsegment-002.ts\n';
+    expect(getLastHlsSegment(playlist, content)).toEqual({
+      segment: path.resolve('/hls/cam', 'segment-002.ts'),
+    });
+  });
+
+  it('includes the fMP4 init segment from EXT-X-MAP', () => {
+    const playlist = path.join('/hls', 'cam', 'stream.m3u8');
+    const content = [
+      '#EXTM3U',
+      '#EXT-X-MAP:URI="init-tok.mp4"',
+      '#EXTINF:1.0,',
+      'segment-tok-007.m4s',
+      '',
+    ].join('\n');
+    expect(getLastHlsSegment(playlist, content)).toEqual({
+      segment: path.resolve('/hls/cam', 'segment-tok-007.m4s'),
+      init: path.resolve('/hls/cam', 'init-tok.mp4'),
+    });
+  });
+
+  it('returns null for a playlist without segments', () => {
+    expect(getLastHlsSegment('/hls/cam/stream.m3u8', '#EXTM3U\n')).toBeNull();
   });
 });
 

@@ -95,6 +95,16 @@ export function liveVideoArgs(mode: LiveVideoMode): string[] {
 }
 
 /**
+ * Decoder input option that drops every non-keyframe, so a one-frame snapshot
+ * is always a complete keyframe. Without it, joining a stream mid-GOP decodes
+ * a P-frame with no reference and yields a grey/smeared image — common on
+ * newer cameras with long GOPs.
+ */
+export function keyframeOnlyInputArgs(): string[] {
+  return ['-skip_frame', 'nokey'];
+}
+
+/**
  * Per-session live HLS file names: MPEG-TS segments, or fMP4 segments plus an
  * init segment for `copy-hevc`. Bare names (no directory) — callers join them.
  */
