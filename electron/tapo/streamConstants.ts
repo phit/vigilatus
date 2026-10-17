@@ -26,3 +26,9 @@ export const RECORDING_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 export const LIVE_HLS_SEGMENT_SECONDS = 1;
 export const LIVE_HLS_PLAYLIST_SIZE = 5;
 export const LIVE_AUDIO_FILTER = 'aresample=async=1:first_pts=0';
+
+// Live transcode cap: feeds taller than this (e.g. 1440p/2160p) are downscaled
+// before libx264 encoding. Copy-mode (H.264 passthrough) streams are unaffected.
+export const LIVE_MAX_TRANSCODE_HEIGHT = 1080;
+// Bound on the one-off RTSP codec probe before falling back to transcoding.
+export const RTSP_PROBE_TIMEOUT_MS = 8_000;

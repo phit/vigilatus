@@ -186,6 +186,59 @@ export class TsAudioReader {
   }
 }
 
+/**
+ * Identify the video codec from the PAT/PMT of an MPEG-TS byte stream:
+ * `'h264'` (stream_type 0x1B), `'hevc'` (0x24), another stream_type as
+ * `'0xNN'`, or `null` if no PMT with a video stream was found.
+ */
+export function detectTsVideoCodec(data: Buffer): string | null {
+  let pmtPid = -1;
+  let offset = data.indexOf(0x47);
+  while (offset >= 0 && offset + 188 <= data.length) {
+    if (data[offset] !== 0x47) {
+      offset = data.indexOf(0x47, offset + 1);
+      continue;
+    }
+    const packet = data.subarray(offset, offset + 188);
+    offset += 188;
+
+    const payloadStart = (packet[1] & 0x40) !== 0;
+    const pid = ((packet[1] & 0x1f) << 8) | packet[2];
+    if (!payloadStart || (pid !== 0 && pid !== pmtPid)) continue;
+
+    let pos = 4;
+    if ((packet[3] & 0x20) !== 0) pos += 1 + packet[4];
+    pos += 1 + (packet[pos] ?? 0); // pointer_field
+    if (pos + 8 > 188) continue;
+    const sectionLength = ((packet[pos + 1] & 0x0f) << 8) | packet[pos + 2];
+    const end = Math.min(pos + 3 + sectionLength - 4, 188); // exclude CRC
+
+    if (pid === 0) {
+      for (let p = pos + 8; p + 4 <= end; p += 4) {
+        const programNumber = packet.readUInt16BE(p);
+        if (programNumber !== 0) {
+          pmtPid = packet.readUInt16BE(p + 2) & 0x1fff;
+          break;
+        }
+      }
+      continue;
+    }
+
+    if (pos + 12 > 188) continue;
+    const programInfoLength = packet.readUInt16BE(pos + 10) & 0x0fff;
+    for (let p = pos + 12 + programInfoLength; p + 5 <= end;) {
+      const streamType = packet[p];
+      const infoLength = packet.readUInt16BE(p + 3) & 0x0fff;
+      p += 5 + infoLength;
+      if (streamType === 0x1b) return 'h264';
+      if (streamType === 0x24) return 'hevc';
+      // 0x02 = MPEG-2 video, 0x10 = MPEG-4 Part 2; Tapo audio uses 0x90/0x91.
+      if (streamType === 0x02 || streamType === 0x10) return `0x${streamType.toString(16)}`;
+    }
+  }
+  return null;
+}
+
 export async function writeAlignedTsPackets(
   buffer: Buffer,
   chunk: Buffer,

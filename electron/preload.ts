@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { preloadBindings } from 'i18next-electron-fs-backend';
 import { IPC } from './ipc/channels';
 import type {
+  LiveStreamOptions,
   CameraConfig,
   MainLayout,
   PreviewPosition,
@@ -30,7 +31,8 @@ const api: VigilatusApi = {
     },
   },
   stream: {
-    start: (cameraId: string): Promise<string | null> => ipcRenderer.invoke(IPC.stream.start, cameraId),
+    start: (cameraId: string, options?: LiveStreamOptions): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.stream.start, cameraId, options),
     stop: (cameraId: string): Promise<void> => ipcRenderer.invoke(IPC.stream.stop, cameraId),
   },
   snapshot: {

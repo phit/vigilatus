@@ -11,6 +11,7 @@ import type {
 } from '../types';
 import { cascadeRect, clampRect } from '../components/layoutGeometry';
 import { createLogger } from '../log';
+import { canPlayHevc } from '../mediaSupport';
 
 const log = createLogger('cameras');
 
@@ -574,7 +575,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
       }
 
       const startPromise = window.vigilatus.stream
-        .start(id)
+        .start(id, { hevc: canPlayHevc() })
         .then((hlsUrl) => {
           if (!hlsUrl) {
             patchCamera(id, {

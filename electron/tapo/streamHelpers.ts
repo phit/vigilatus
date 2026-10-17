@@ -5,11 +5,23 @@
  */
 
 import ffmpeg from 'fluent-ffmpeg';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CameraConfig } from '../types';
-import { LIVE_AUDIO_FILTER, STDERR_HISTORY_LIMIT, STREAM_READY_POLL_MS } from './streamConstants';
-import { hlsMuxArgs, liveH264VideoArgs } from './ffmpegFragments';
+import {
+  LIVE_AUDIO_FILTER,
+  RTSP_PROBE_TIMEOUT_MS,
+  STDERR_HISTORY_LIMIT,
+  STREAM_READY_POLL_MS,
+} from './streamConstants';
+import {
+  hlsMuxArgs,
+  liveHwDecodeInputArgs,
+  liveSegmentNames,
+  liveVideoArgs,
+  type LiveVideoMode,
+} from './ffmpegFragments';
 
 export function buildRtspUrl(cfg: CameraConfig, stream: 'main' | 'sub'): string {
   if (cfg.rtspUrl) {
@@ -41,13 +53,18 @@ export function withRtspAuth(url: string, username?: string, password?: string):
  * The exact `.outputOptions([...])` vector for the live RTSP → HLS pipeline.
  * Pure so it can be snapshot-tested; `createHlsCommand` spreads it.
  */
-export function buildRtspHlsOutputOptions(segDir: string, sessionToken?: string): string[] {
+export function buildRtspHlsOutputOptions(
+  segDir: string,
+  sessionToken?: string,
+  mode: LiveVideoMode = 'transcode',
+): string[] {
+  const segmentNames = liveSegmentNames(mode, sessionToken ?? 'live');
   return [
     '-map',
     '0:v:0',
     '-map',
     '0:a:0?',
-    ...liveH264VideoArgs(),
+    ...liveVideoArgs(mode),
     // NOTE: this AAC block lists `-c:a` before `-af`, the reverse of the HTTP
     // pipeline's order, so it is intentionally NOT shared via a fragment.
     '-c:a',
@@ -60,7 +77,7 @@ export function buildRtspHlsOutputOptions(segDir: string, sessionToken?: string)
     '44100',
     '-b:a',
     '128k',
-    ...hlsMuxArgs(path.join(segDir, `segment-${sessionToken ?? 'live'}-%03d.ts`)),
+    ...hlsMuxArgs(path.join(segDir, segmentNames.segment), segmentNames.init),
   ];
 }
 
@@ -69,8 +86,12 @@ export function createHlsCommand(
   segDir: string,
   m3u8Path: string,
   sessionToken?: string,
+  mode: LiveVideoMode = 'transcode',
 ): ffmpeg.FfmpegCommand {
-  const command = ffmpeg(rtspUrl).inputOptions([
+  // cwd = segDir: ffmpeg writes the fMP4 init file relative to its working
+  // directory, and it must sit next to the playlist for the relative EXT-X-MAP.
+  const command = ffmpeg(rtspUrl, { cwd: segDir }).inputOptions([
+    ...liveHwDecodeInputArgs(mode),
     '-rtsp_transport',
     'tcp',
     '-fflags',
@@ -79,7 +100,66 @@ export function createHlsCommand(
     'low_delay',
   ]);
 
-  return command.outputOptions(buildRtspHlsOutputOptions(segDir, sessionToken)).save(m3u8Path);
+  return command.outputOptions(buildRtspHlsOutputOptions(segDir, sessionToken, mode)).save(m3u8Path);
+}
+
+export interface ProbedVideoStream {
+  codec: string;
+  width?: number;
+  height?: number;
+}
+
+/**
+ * Extract the first video stream's codec (and resolution, when printed) from
+ * ffmpeg's input banner, e.g.
+ * `Stream #0:0: Video: h264 (Main), yuvj420p(pc, bt709, progressive), 2560x1440, 15 fps`.
+ */
+export function parseFfmpegVideoStream(stderr: string): ProbedVideoStream | null {
+  for (const line of stderr.split(/\r?\n/)) {
+    const match = /Stream #\d+:\d+.*?: Video: (\w+)/.exec(line);
+    if (!match) continue;
+    const size = /, (\d{2,5})x(\d{2,5})\b/.exec(line);
+    return size ? { codec: match[1], width: Number(size[1]), height: Number(size[2]) } : { codec: match[1] };
+  }
+  return null;
+}
+
+/**
+ * Open the RTSP feed just long enough for ffmpeg to print its stream info,
+ * then report the video codec. Resolves `null` on timeout or if no video
+ * stream is found; never rejects.
+ */
+export function probeRtspVideoStream(ffmpegPath: string, rtspUrl: string): Promise<ProbedVideoStream | null> {
+  return new Promise((resolve) => {
+    let stderr = '';
+    let proc: ReturnType<typeof spawn>;
+    try {
+      proc = spawn(ffmpegPath, ['-hide_banner', '-rtsp_transport', 'tcp', '-i', rtspUrl], {
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+    } catch {
+      resolve(null);
+      return;
+    }
+    const timer = setTimeout(() => {
+      try {
+        proc.kill('SIGKILL');
+      } catch {
+        /* ignore */
+      }
+    }, RTSP_PROBE_TIMEOUT_MS);
+    proc.stderr?.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8');
+    });
+    proc.on('error', () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+    proc.on('close', () => {
+      clearTimeout(timer);
+      resolve(parseFfmpegVideoStream(stderr));
+    });
+  });
 }
 
 export function createHlsSessionToken(): string {

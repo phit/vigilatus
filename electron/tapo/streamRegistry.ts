@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type ffmpeg from 'fluent-ffmpeg';
 import type { ChildProcess } from 'node:child_process';
+import type { LiveVideoMode } from './ffmpegFragments';
 import type { MediaSession } from './mediaSession';
 import { createLogger } from '../log';
 import {
@@ -33,6 +34,33 @@ export interface StreamEntry {
 
 export const streams = new Map<string, StreamEntry>();
 export const expectedStops = new Set<string>();
+/**
+ * Cameras whose H.264 passthrough (copy-mode) live stream failed to start this
+ * session; they are transcoded from then on.
+ */
+export const copyFailedCameras = new Set<string>();
+
+/**
+ * Thrown when a copy-mode start fails before the HLS playlist is ready, so the
+ * caller can retry the same session with transcoding.
+ */
+export class CopyStartFailedError extends Error {}
+
+/**
+ * Pass H.264 straight through (near-zero CPU), and HEVC too when the renderer
+ * reported it can play it; transcode anything else (unknown/unprobed codec) or
+ * any camera whose passthrough already failed.
+ */
+export function chooseLiveVideoMode(
+  cameraId: string,
+  codec: string | undefined,
+  hevcPlayback = false,
+): LiveVideoMode {
+  if (copyFailedCameras.has(cameraId)) return 'transcode';
+  if (codec === 'h264') return 'copy';
+  if (codec === 'hevc' && hevcPlayback) return 'copy-hevc';
+  return 'transcode';
+}
 
 let streamWatchdogTimer: NodeJS.Timeout | null = null;
 let onStreamDiedCallback: ((cameraId: string) => void) | null = null;

@@ -46,7 +46,7 @@ describe('useCameraStore', () => {
 
     useCameraStore.getState().selectCamera('cam-1');
 
-    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1'));
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1', { hevc: false }));
     expect(useCameraStore.getState().selectedId).toBe('cam-1');
     expect(useCameraStore.getState().cameras[0]?.status).toBe('live');
     expect(useCameraStore.getState().cameras[0]?.hlsUrl).toBe('http://127.0.0.1/live.m3u8');
@@ -97,7 +97,7 @@ describe('useCameraStore', () => {
     useCameraStore.getState().restartStream('cam-1');
 
     expect(mock.stream.stop).toHaveBeenCalledWith('cam-1');
-    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1'));
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1', { hevc: false }));
     expect(useCameraStore.getState().cameras[0]?.status).toBe('live');
     expect(useCameraStore.getState().cameras[0]?.hlsUrl).toBe('http://127.0.0.1/live-2.m3u8');
   });
@@ -204,7 +204,7 @@ describe('layout actions', () => {
     expect(layout.tiles[0]?.cameraId).toBe('cam-1');
     expect(layout.focusedTileId).toBe(layout.tiles[0]?.id);
     expect(selectedId).toBe('cam-1');
-    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1'));
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1', { hevc: false }));
   });
 
   it('addTile with a position uses the given rect', () => {
@@ -272,7 +272,7 @@ describe('layout actions', () => {
     const { layout, selectedId } = useCameraStore.getState();
     expect(layout.tiles[0]?.cameraId).toBe('cam-2');
     expect(selectedId).toBe('cam-2');
-    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-2'));
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-2', { hevc: false }));
     await waitFor(() => expect(mock.stream.stop).toHaveBeenCalledWith('cam-1'));
   });
 
@@ -381,7 +381,7 @@ describe('layout actions', () => {
     expect(s.playbackStartTime).toBeNull();
     expect(s.layout.focusedTileId).toBeNull();
     expect(s.selectedId).toBeNull();
-    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1'));
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1', { hevc: false }));
   });
 
   it('focusTile during playback restarts the previously-focused camera live stream', async () => {
@@ -408,7 +408,7 @@ describe('layout actions', () => {
     expect(s.playbackTime).toBeNull();
     expect(s.playbackStartTime).toBeNull();
     expect(s.selectedId).toBe('cam-2');
-    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1'));
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1', { hevc: false }));
     expect(useCameraStore.getState().cameras[0]?.hlsUrl).toBe('http://127.0.0.1/live.m3u8');
   });
 
@@ -429,7 +429,7 @@ describe('layout actions', () => {
     useCameraStore.getState().focusTile('tile-cam-1');
 
     expect(useCameraStore.getState().playbackMode).toBe('live');
-    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1'));
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1', { hevc: false }));
     expect(useCameraStore.getState().cameras[0]?.hlsUrl).toBe('http://127.0.0.1/live.m3u8');
   });
 
@@ -457,8 +457,8 @@ describe('layout actions', () => {
     expect(s.playbackTime).toBeNull();
     expect(s.playbackStartTime).toBeNull();
     expect(s.selectedId).toBe('cam-2');
-    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1'));
-    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-2'));
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-1', { hevc: false }));
+    await waitFor(() => expect(mock.stream.start).toHaveBeenCalledWith('cam-2', { hevc: false }));
     expect(useCameraStore.getState().cameras[0]?.hlsUrl).toBe('http://127.0.0.1/live.m3u8');
   });
 
@@ -541,7 +541,7 @@ describe('scheduleStreamRestart', () => {
 
     await vi.advanceTimersByTimeAsync(2_000);
 
-    expect(mock.stream.start).toHaveBeenCalledWith('cam-1');
+    expect(mock.stream.start).toHaveBeenCalledWith('cam-1', { hevc: false });
     expect(useCameraStore.getState().cameras[0]?.status).toBe('live');
     expect(useCameraStore.getState().cameras[0]?.retryAt).toBeUndefined();
   });
@@ -627,7 +627,7 @@ describe('scheduleStreamRestart', () => {
 
     useCameraStore.getState().addTile('cam-1');
 
-    expect(mock.stream.start).toHaveBeenCalledWith('cam-1');
+    expect(mock.stream.start).toHaveBeenCalledWith('cam-1', { hevc: false });
   });
 
   it('bail during playback focus leaves the playback hlsUrl untouched', async () => {
@@ -714,8 +714,8 @@ describe('scheduleStreamRestart', () => {
 
     await vi.advanceTimersByTimeAsync(10_000);
 
-    expect(mock.stream.start).not.toHaveBeenCalledWith('cam-1');
-    expect(mock.stream.start).toHaveBeenCalledWith('cam-2');
+    expect(mock.stream.start.mock.calls.some(([id]) => id === 'cam-1')).toBe(false);
+    expect(mock.stream.start).toHaveBeenCalledWith('cam-2', { hevc: false });
   });
 });
 

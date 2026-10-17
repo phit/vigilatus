@@ -8,10 +8,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { Writable } from 'node:stream';
-import type { CameraConfig } from '../types';
+import type { CameraConfig, LiveStreamOptions } from '../types';
 import { ffmpegBinaryPath } from './ffmpegPath';
 import { MediaSession, hashMediaPassword } from './mediaSession';
-import { writeAlignedTsPackets } from './tsDemux';
+import { detectTsVideoCodec, writeAlignedTsPackets } from './tsDemux';
 import * as configStore from '../config/store';
 import { createLogger } from '../log';
 import {
@@ -20,10 +20,20 @@ import {
   LIVE_AUDIO_FILTER,
   STDERR_HISTORY_LIMIT,
 } from './streamConstants';
-import { hlsMuxArgs, liveH264VideoArgs, pcmAudioInputArgs } from './ffmpegFragments';
+import {
+  hlsMuxArgs,
+  liveHwDecodeInputArgs,
+  liveSegmentNames,
+  liveVideoArgs,
+  pcmAudioInputArgs,
+  type LiveVideoMode,
+} from './ffmpegFragments';
 import { createHlsSessionToken, waitForHlsReady } from './streamHelpers';
 import { getHlsPort } from './mediaServer';
 import {
+  chooseLiveVideoMode,
+  copyFailedCameras,
+  CopyStartFailedError,
   expectedStops,
   markStreamReady,
   notifyStreamDied,
@@ -45,8 +55,9 @@ export function buildHttpLiveFfmpegArgs(opts: {
   segDir: string;
   sessionToken: string;
   m3u8: string;
+  videoMode?: LiveVideoMode;
 }): string[] {
-  const { audioCodec, audioRate, segDir, sessionToken, m3u8 } = opts;
+  const { audioCodec, audioRate, segDir, sessionToken, m3u8, videoMode = 'transcode' } = opts;
 
   const ffmpegArgs = [
     '-loglevel',
@@ -59,6 +70,7 @@ export function buildHttpLiveFfmpegArgs(opts: {
     '2000000',
     '-probesize',
     '1000000',
+    ...liveHwDecodeInputArgs(videoMode),
     '-f',
     'mpegts',
     '-i',
@@ -69,7 +81,7 @@ export function buildHttpLiveFfmpegArgs(opts: {
     ffmpegArgs.push(...pcmAudioInputArgs(audioCodec, audioRate));
   }
 
-  ffmpegArgs.push('-map', '0:v:0?', ...liveH264VideoArgs());
+  ffmpegArgs.push('-map', '0:v:0?', ...liveVideoArgs(videoMode));
 
   if (audioCodec) {
     ffmpegArgs.push(
@@ -88,18 +100,57 @@ export function buildHttpLiveFfmpegArgs(opts: {
     );
   }
 
-  ffmpegArgs.push(...hlsMuxArgs(path.join(segDir, `segment-${sessionToken}-%03d.ts`)), m3u8);
+  const names = liveSegmentNames(videoMode, sessionToken);
+  ffmpegArgs.push(...hlsMuxArgs(path.join(segDir, names.segment), names.init), m3u8);
 
   return ffmpegArgs;
 }
 
-export function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<string> {
+export function startHttpStream(
+  cameraId: string,
+  cfg: CameraConfig,
+  options: LiveStreamOptions = {},
+): Promise<string> {
   const log = createLogger(`stream:${cameraId}`);
   const segDir = path.join(HLS_DIR, cameraId);
   fs.mkdirSync(segDir, { recursive: true });
   const sessionToken = createHlsSessionToken();
   const m3u8 = path.join(segDir, `stream-${sessionToken}.m3u8`);
   const hlsUrl = `http://127.0.0.1:${getHlsPort()}/${cameraId}/stream-${sessionToken}.m3u8`;
+
+  // One media-session attempt; if H.264 passthrough fails to start, retry the
+  // same hash method once with transcoding (the camera is then transcoded for
+  // the rest of the session).
+  const attempt = async (hashedPassword: string): Promise<string> => {
+    try {
+      return await attemptHttpStream(
+        cameraId,
+        cfg,
+        hashedPassword,
+        segDir,
+        m3u8,
+        hlsUrl,
+        sessionToken,
+        options.hevc,
+      );
+    } catch (err) {
+      if (!(err instanceof CopyStartFailedError)) throw err;
+      copyFailedCameras.add(cameraId);
+      log.warn(`Passthrough failed, falling back to transcoding: ${err.message}`);
+      stopStream(cameraId);
+      fs.mkdirSync(segDir, { recursive: true });
+      return attemptHttpStream(
+        cameraId,
+        cfg,
+        hashedPassword,
+        segDir,
+        m3u8,
+        hlsUrl,
+        sessionToken,
+        options.hevc,
+      );
+    }
+  };
 
   const streamReady = (async () => {
     // Use previously discovered hash method first, then try both
@@ -112,15 +163,7 @@ export function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<st
       log.info(`trying HTTP media session with ${method} password hash...`);
 
       try {
-        const url = await attemptHttpStream(
-          cameraId,
-          cfg,
-          hashedPassword,
-          segDir,
-          m3u8,
-          hlsUrl,
-          sessionToken,
-        );
+        const url = await attempt(hashedPassword);
         // Persist the working hash method so we skip the wrong one next time
         if (cfg.httpHashMethod !== method) {
           configStore.updateCamera(cameraId, { httpHashMethod: method });
@@ -142,15 +185,7 @@ export function startHttpStream(cameraId: string, cfg: CameraConfig): Promise<st
       log.info(`retrying HTTP media session with ${fallback} password hash...`);
 
       try {
-        const url = await attemptHttpStream(
-          cameraId,
-          cfg,
-          hashedPassword,
-          segDir,
-          m3u8,
-          hlsUrl,
-          sessionToken,
-        );
+        const url = await attempt(hashedPassword);
         configStore.updateCamera(cameraId, { httpHashMethod: fallback });
         return url;
       } catch (err) {
@@ -183,6 +218,7 @@ async function attemptHttpStream(
   m3u8: string,
   hlsUrl: string,
   sessionToken: string,
+  hevcPlayback = false,
 ): Promise<string> {
   const log = createLogger(`stream:${cameraId}`);
   let diedNotified = false;
@@ -195,6 +231,7 @@ async function attemptHttpStream(
 
   let session: MediaSession | null = null;
   let ffmpegProc: ChildProcess | null = null;
+  let videoMode: LiveVideoMode | undefined;
 
   /**
    * Tear down this attempt's resources. Returns whether the registry entry
@@ -300,9 +337,21 @@ async function attemptHttpStream(
     const audioCodec = detectedAudioCodec;
     const audioRate = audioCodec === 'pcmu' ? 16000 : 8000;
 
-    const ffmpegArgs = buildHttpLiveFfmpegArgs({ audioCodec, audioRate, segDir, sessionToken, m3u8 });
+    const videoCodec = detectTsVideoCodec(Buffer.concat(buffered.map((b) => b.plaintext))) ?? undefined;
+    videoMode = chooseLiveVideoMode(cameraId, videoCodec, hevcPlayback);
+    log.info(`live video ${videoCodec ?? 'unknown'} → ${videoMode}`);
+
+    const ffmpegArgs = buildHttpLiveFfmpegArgs({
+      audioCodec,
+      audioRate,
+      segDir,
+      sessionToken,
+      m3u8,
+      videoMode,
+    });
 
     ffmpegProc = spawn(ffmpegBinaryPath, ffmpegArgs, {
+      cwd: segDir, // fMP4 init file is written relative to cwd (see createHlsCommand)
       stdio: audioCodec ? ['pipe', 'ignore', 'pipe', 'pipe'] : ['pipe', 'ignore', 'pipe'],
     });
 
@@ -365,19 +414,38 @@ async function attemptHttpStream(
       if (stderrLines.length > STDERR_HISTORY_LIMIT) stderrLines.shift();
     });
 
+    let exitedBeforeReady: (err: Error) => void = () => {};
+    const exitBeforeReady = new Promise<never>((_, reject) => {
+      exitedBeforeReady = reject;
+    });
     ffmpegProc.on('exit', (code) => {
+      // Copy-mode start failures are reported via the thrown error and retried
+      // with transcoding, not surfaced as a died stream.
+      if (videoMode !== 'transcode' && !entry.readyResolved) {
+        exitedBeforeReady(new Error(`ffmpeg exited with code ${code}`));
+        return;
+      }
       if (!expectedStops.has(cameraId) && releaseStreamEntry(cameraId, m3u8)) {
         log.error(`http ffmpeg exited with code ${code}`);
         notifyDiedOnce();
       }
     });
 
-    await Promise.race([waitForHlsReady(m3u8, HTTP_STREAM_READY_TIMEOUT_MS, stderrLines), noDataTimeout]);
+    await Promise.race([
+      waitForHlsReady(m3u8, HTTP_STREAM_READY_TIMEOUT_MS, stderrLines),
+      noDataTimeout,
+      exitBeforeReady,
+    ]);
     markStreamReady(cameraId, m3u8);
     log.info(`HTTP stream ready, received ${totalChunks} chunks so far`);
     return hlsUrl;
   } catch (err) {
+    // stopStream() (or a newer session) has replaced our registry entry.
+    const cancelled = streams.get(cameraId)?.playlistPath !== m3u8;
     cleanup();
+    if (videoMode !== undefined && videoMode !== 'transcode' && !cancelled) {
+      throw new CopyStartFailedError((err as Error).message);
+    }
     throw err;
   }
 }

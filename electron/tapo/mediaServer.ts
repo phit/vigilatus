@@ -181,6 +181,7 @@ export function startMediaServer(): Promise<number> {
           if (ext === '.m3u8') mime = 'application/vnd.apple.mpegurl';
           else if (ext === '.ts') mime = 'video/MP2T';
           else if (ext === '.mp4') mime = 'video/mp4';
+          else if (ext === '.m4s') mime = 'video/iso.segment';
 
           const fileSize = stats.size;
           const rangeHeader = req.headers.range;

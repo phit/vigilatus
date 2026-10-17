@@ -5,7 +5,7 @@ import { startOfDay } from 'date-fns';
 import * as configStore from '../config/store';
 import * as streamManager from '../tapo/streamManager';
 import { TapoClient } from '../tapo/client';
-import type { CameraConfig, MainLayout, RecordingEvent } from '../types';
+import type { CameraConfig, LiveStreamOptions, MainLayout, RecordingEvent } from '../types';
 import type { TestFixtures } from '../testing/fixtures';
 import { IPC } from './channels';
 import { normalizePlaybackWindow } from './playbackWindow';
@@ -120,7 +120,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
   // Streaming
   // ------------------------------------------------------------------
 
-  ipcMain.handle(IPC.stream.start, async (_e, cameraId: string) => {
+  ipcMain.handle(IPC.stream.start, async (_e, cameraId: string, options?: LiveStreamOptions) => {
     if (testFixtures?.streams) {
       return testFixtures.streams[cameraId] ?? null;
     }
@@ -128,7 +128,7 @@ export function registerHandlers(fixtures: TestFixtures | null = null): void {
     const cam = requireCamera(cameraId);
 
     try {
-      return await streamManager.startStream(cameraId, cam);
+      return await streamManager.startStream(cameraId, cam, options);
     } catch (error) {
       const message = (error as Error)?.message ?? String(error);
       if (message.includes('Stream start cancelled')) {

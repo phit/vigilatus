@@ -90,6 +90,12 @@ export interface RuntimeInfo {
   isPackaged: boolean;
 }
 
+/** Renderer playback capabilities sent with a live stream start. */
+export interface LiveStreamOptions {
+  /** MSE can play HEVC (`hvc1`), so H.265 cameras may be passed through untranscoded. */
+  hevc?: boolean;
+}
+
 /**
  * Shape of the `window.vigilatus` bridge exposed by `electron/preload.ts`.
  *
@@ -119,7 +125,7 @@ export interface VigilatusApi {
     saveVolume: (id: string, volume: number) => void;
   };
   stream: {
-    start: (cameraId: string) => Promise<string | null>;
+    start: (cameraId: string, options?: LiveStreamOptions) => Promise<string | null>;
     stop: (cameraId: string) => Promise<void>;
   };
   snapshot: {
