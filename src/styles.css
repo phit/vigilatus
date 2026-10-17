@@ -110,6 +110,9 @@ body {
 
 .main-layout {
   position: relative;
+  /* Own stacking context: tile z-indexes grow with every bring-to-front, and
+     must only order tiles among themselves — never above modals/toasts. */
+  isolation: isolate;
   width: 100%;
   height: 100%;
   overflow: hidden;
