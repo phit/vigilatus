@@ -81,6 +81,8 @@
     "httpStreamHint": "Streams directly over the Tapo HTTP protocol (port 8800) using your API password. No RTSP credentials or Camera Account needed.",
     "rtspUrl": "External RTSP source URL (optional)",
     "rtspUrlPlaceholder": "rtsp://proxy.local:8554/front-door",
+    "rtspSubUrl": "Low-resolution sub-stream URL (optional, used for small tiles)",
+    "rtspSubUrlPlaceholder": "rtsp://proxy.local:8554/front-door_sub",
     "proxyUsername": "Proxy RTSP username",
     "proxyUsernamePlaceholder": "viewer",
     "proxyPassword": "Proxy RTSP password",

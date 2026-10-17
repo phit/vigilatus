@@ -31,6 +31,17 @@ describe('buildRtspUrl', () => {
     expect(buildRtspUrl(makeCfg(), 'sub')).toBe('rtsp://admin:streampass@10.0.0.5:554/stream2');
   });
 
+  it('uses rtspSubUrl for the sub stream of an external source, else the main URL', () => {
+    const ext = makeCfg({ rtspUrl: 'rtsp://proxy:8554/cam', rtspUsername: 'u', rtspPassword: 'p' });
+    expect(buildRtspUrl(ext, 'sub')).toBe('rtsp://u:p@proxy:8554/cam');
+    expect(buildRtspUrl({ ...ext, rtspSubUrl: 'rtsp://proxy:8554/cam_sub' }, 'sub')).toBe(
+      'rtsp://u:p@proxy:8554/cam_sub',
+    );
+    expect(buildRtspUrl({ ...ext, rtspSubUrl: 'rtsp://proxy:8554/cam_sub' }, 'main')).toBe(
+      'rtsp://u:p@proxy:8554/cam',
+    );
+  });
+
   it('url-encodes special characters in credentials', () => {
     const url = buildRtspUrl(makeCfg({ streamUser: 'a b', streamPassword: 'p@ss/w?rd' }), 'main');
     expect(url).toBe('rtsp://a%20b:p%40ss%2Fw%3Frd@10.0.0.5:554/stream1');

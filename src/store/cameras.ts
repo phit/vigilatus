@@ -12,6 +12,7 @@ import type {
 import { cascadeRect, clampRect } from '../components/layoutGeometry';
 import { createLogger } from '../log';
 import { canPlayHevc } from '../mediaSupport';
+import { desiredStreamQuality, type Viewport } from '../streamQuality';
 
 const log = createLogger('cameras');
 
@@ -105,6 +106,8 @@ interface CamerasStore {
   recordingsLoading: boolean;
   recordingsError: string | null;
   notice: string | null;
+  /** Measured layout area; drives main/sub stream selection. Null until measured. */
+  viewport: Viewport | null;
 
   loadCameras(): Promise<void>;
   addCamera(cfg: CameraConfig): Promise<void>;
@@ -137,6 +140,9 @@ interface CamerasStore {
   setStatus(id: string, status: CameraState['status'], error?: string): void;
   setRetryAt(id: string, retryAt?: number): void;
   scheduleStreamRestart(id: string): void;
+  setViewport(viewport: Viewport): void;
+  /** Switch live cameras between main and sub streams to match their tile sizes. */
+  syncStreamQualities(): void;
 
   togglePreviews(): void;
   setPreviewsVisible(visible: boolean): void;
@@ -230,6 +236,7 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
     recordingsLoading: false,
     recordingsError: null,
     notice: null,
+    viewport: null,
 
     // ------------------------------------------------------------------
     // Config operations
@@ -574,8 +581,15 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
         return existingStart;
       }
 
+      const { cameras, layout, viewport } = get();
+      const cam = cameras.find((c) => c.config.id === id);
+      const quality = cam
+        ? desiredStreamQuality(cam.config, layout.tiles, viewport, cam.streamQuality)
+        : 'main';
+      patchCamera(id, { streamQuality: quality });
+
       const startPromise = window.vigilatus.stream
-        .start(id, { hevc: canPlayHevc() })
+        .start(id, { hevc: canPlayHevc(), quality })
         .then((hlsUrl) => {
           if (!hlsUrl) {
             patchCamera(id, {
@@ -624,6 +638,25 @@ export const useCameraStore = create<CamerasStore>((set, get) => {
     restartStream(id) {
       get().stopStream(id);
       void get().startStream(id);
+    },
+
+    setViewport(viewport) {
+      const prev = get().viewport;
+      if (prev && prev.w === viewport.w && prev.h === viewport.h && prev.dpr === viewport.dpr) return;
+      set({ viewport });
+    },
+
+    syncStreamQualities() {
+      const { cameras, layout, viewport, playbackMode } = get();
+      if (playbackMode !== 'live') return;
+      for (const cam of cameras) {
+        if (cam.status !== 'live' && cam.status !== 'connecting') continue;
+        if (!layout.tiles.some((t) => t.cameraId === cam.config.id)) continue;
+        const quality = desiredStreamQuality(cam.config, layout.tiles, viewport, cam.streamQuality);
+        if (quality === cam.streamQuality) continue;
+        log.info(`switching ${cam.config.id} to ${quality} stream`);
+        get().restartStream(cam.config.id);
+      }
     },
 
     restartActiveStreams() {

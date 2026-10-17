@@ -4,6 +4,9 @@ import { useCameraStore } from '../store/cameras';
 import { CameraTile } from './CameraTile';
 import { CameraViewer } from './CameraViewer';
 
+/** Settle time after a layout/resize change before switching main/sub streams. */
+const STREAM_QUALITY_SYNC_DELAY_MS = 1_000;
+
 export function MainLayoutArea() {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -18,6 +21,9 @@ export function MainLayoutArea() {
   const lockAllTiles = useCameraStore((s) => s.lockAllTiles);
   const unlockAllTiles = useCameraStore((s) => s.unlockAllTiles);
   const clearTiles = useCameraStore((s) => s.clearTiles);
+  const setViewport = useCameraStore((s) => s.setViewport);
+  const syncStreamQualities = useCameraStore((s) => s.syncStreamQualities);
+  const viewport = useCameraStore((s) => s.viewport);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -26,11 +32,19 @@ export function MainLayoutArea() {
       const { width, height } = entries[0].contentRect;
       if (width > 0 && height > 0) {
         setContainerSize({ w: width, h: height });
+        setViewport({ w: width, h: height, dpr: window.devicePixelRatio || 1 });
       }
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [setViewport]);
+
+  // Debounced: a window drag-resize fires many observer callbacks, and each
+  // stream switch is a restart.
+  useEffect(() => {
+    const timer = setTimeout(syncStreamQualities, STREAM_QUALITY_SYNC_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [layout.tiles, viewport, syncStreamQualities]);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();

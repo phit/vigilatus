@@ -27,7 +27,8 @@ export function buildRtspUrl(cfg: CameraConfig, stream: 'main' | 'sub'): string 
   if (cfg.rtspUrl) {
     const username = cfg.rtspUsername || cfg.streamUser || cfg.username;
     const password = cfg.rtspPassword || cfg.streamPassword || cfg.password;
-    return withRtspAuth(cfg.rtspUrl, username, password);
+    const url = stream === 'sub' && cfg.rtspSubUrl ? cfg.rtspSubUrl : cfg.rtspUrl;
+    return withRtspAuth(url, username, password);
   }
 
   const user = encodeURIComponent(cfg.streamUser || cfg.username);

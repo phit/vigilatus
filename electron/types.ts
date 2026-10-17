@@ -14,6 +14,11 @@ export interface CameraConfig {
   streamPassword: string;
   /** Optional external RTSP source, e.g. an RTSP proxy that fans out the camera stream */
   rtspUrl?: string;
+  /**
+   * Optional low-resolution counterpart of `rtspUrl` (e.g. the proxy's path for
+   * the camera's `stream2`), used for small tiles. Same credentials as `rtspUrl`.
+   */
+  rtspSubUrl?: string;
   /** Optional basic auth username for the external RTSP source */
   rtspUsername?: string;
   /** Optional basic auth password for the external RTSP source */
@@ -90,10 +95,15 @@ export interface RuntimeInfo {
   isPackaged: boolean;
 }
 
-/** Renderer playback capabilities sent with a live stream start. */
+/** Which camera stream to view: full-resolution main, or low-resolution sub. */
+export type StreamQuality = 'main' | 'sub';
+
+/** Renderer playback capabilities and preferences sent with a live stream start. */
 export interface LiveStreamOptions {
   /** MSE can play HEVC (`hvc1`), so H.265 cameras may be passed through untranscoded. */
   hevc?: boolean;
+  /** Stream to open (RTSP only; default `main`). Ignored when no sub-stream exists. */
+  quality?: StreamQuality;
 }
 
 /**

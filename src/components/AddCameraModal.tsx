@@ -19,6 +19,7 @@ const DEFAULT: Omit<CameraConfig, 'id' | 'name'> = {
   streamUser: 'admin',
   streamPassword: '',
   rtspUrl: '',
+  rtspSubUrl: '',
   rtspUsername: '',
   rtspPassword: '',
   streamProtocol: 'rtsp',
@@ -175,6 +176,16 @@ export function AddCameraModal({ initial, onSave, onClose }: Props) {
                       placeholder={t('modal.rtspUrlPlaceholder')}
                     />
                   </label>
+                  {!!form.rtspUrl && (
+                    <label>
+                      {t('modal.rtspSubUrl')}
+                      <input
+                        value={form.rtspSubUrl ?? ''}
+                        onChange={(e) => set('rtspSubUrl', e.target.value)}
+                        placeholder={t('modal.rtspSubUrlPlaceholder')}
+                      />
+                    </label>
+                  )}
                   <div className="form-row">
                     <label>
                       {t('modal.proxyUsername')}

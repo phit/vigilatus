@@ -184,7 +184,8 @@ function startRtspStream(cameraId: string, cfg: CameraConfig, options: LiveStrea
   const sessionToken = createHlsSessionToken();
   const m3u8 = path.join(segDir, `stream-${sessionToken}.m3u8`);
   const hlsUrl = `http://127.0.0.1:${getHlsPort()}/${cameraId}/stream-${sessionToken}.m3u8`;
-  const rtsp = buildRtspUrl(cfg, 'main');
+  const quality = options.quality ?? 'main';
+  const rtsp = buildRtspUrl(cfg, quality);
 
   // Registered before the (async) codec probe so a concurrent startStream()
   // dedupes onto it and stopStream() can cancel it.
@@ -203,7 +204,7 @@ function startRtspStream(cameraId: string, cfg: CameraConfig, options: LiveStrea
     const codec = await resolveRtspVideoCodec(cameraId, rtsp);
     if (!isCurrent()) throw new Error('Stream start cancelled');
     const mode = chooseLiveVideoMode(cameraId, codec, options.hevc);
-    log.info(`live video ${codec ?? 'unknown'} → ${mode}`);
+    log.info(`live ${quality} video ${codec ?? 'unknown'} → ${mode}`);
 
     if (mode !== 'transcode') {
       try {
