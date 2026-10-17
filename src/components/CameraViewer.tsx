@@ -181,14 +181,19 @@ export function CameraViewer({ camera, playbackMode }: Props) {
       {camera && (
         <div className="viewer-overlay-meta">
           <span className="viewer-cam-name">{label}</span>
-          {playbackMode === 'live' && status === 'live' && cameraId ? (
+          {playbackMode === 'live' && cameraId ? (
+            // Clickable in every live-view state: it's the only manual recovery
+            // for an errored/offline stream with no auto-retry pending.
             <button
               type="button"
-              className="viewer-badge badge-live"
-              onClick={() => restartStream(cameraId)}
+              className={`viewer-badge badge-${status}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                restartStream(cameraId);
+              }}
               title={t('viewer.restartStream')}
             >
-              {t('viewer.live')}
+              {status === 'live' ? t('viewer.live') : status}
             </button>
           ) : (
             <span className={`viewer-badge badge-${playbackMode === 'playback' ? 'playback' : status}`}>
