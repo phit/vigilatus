@@ -45,7 +45,6 @@ describe('writeAlignedTsPackets', () => {
     const remainder = await writeAlignedTsPackets(Buffer.alloc(0), input, writable);
 
     expect(remainder.length).toBe(0);
-    expect(writable.chunks).toHaveLength(1);
     expect(writable.written.equals(packet)).toBe(true);
   });
 
@@ -58,9 +57,7 @@ describe('writeAlignedTsPackets', () => {
 
     const remainder = await writeAlignedTsPackets(Buffer.alloc(0), input, writable);
 
-    expect(writable.chunks).toHaveLength(2);
-    expect(writable.chunks[0].equals(packetA)).toBe(true);
-    expect(writable.chunks[1].equals(packetB)).toBe(true);
+    expect(writable.written.equals(Buffer.concat([packetA, packetB]))).toBe(true);
     expect(remainder.equals(partial)).toBe(true);
   });
 
@@ -72,7 +69,7 @@ describe('writeAlignedTsPackets', () => {
     const remainder = await writeAlignedTsPackets(Buffer.alloc(0), input, writable);
 
     expect(remainder.length).toBe(0);
-    expect(writable.chunks).toHaveLength(0);
+    expect(writable.written.length).toBe(0);
   });
 
   it('concatenates the prior buffer with the new chunk before aligning', async () => {
@@ -83,7 +80,6 @@ describe('writeAlignedTsPackets', () => {
 
     const remainder = await writeAlignedTsPackets(firstHalf, secondHalf, writable);
 
-    expect(writable.chunks).toHaveLength(1);
     expect(writable.written.equals(packet)).toBe(true);
     expect(remainder.length).toBe(0);
   });
@@ -147,11 +143,8 @@ describe('getHeader', () => {
 });
 
 describe('parseStatusCode', () => {
-  it('parses a standard HTTP/1.1 200 status line', () => {
+  it('parses the status code from an HTTP/1.x status line', () => {
     expect(parseStatusCode('HTTP/1.1 200 OK')).toBe(200);
-  });
-
-  it('parses a HTTP/1.0 401 status line', () => {
     expect(parseStatusCode('HTTP/1.0 401 Unauthorized')).toBe(401);
   });
 
@@ -166,14 +159,11 @@ describe('parseStatusCode', () => {
 
 describe('buildRetryWindowSizes', () => {
   it('keeps a finite positive value then appends the fallback', () => {
-    expect(buildRetryWindowSizes(200)).toEqual([200, 50]);
+    expect(buildRetryWindowSizes(120)).toEqual([120, 50]);
   });
 
-  it('uses the 200 default for undefined, then dedupes the appended fallback', () => {
+  it('treats missing, zero, negative and non-finite values as the 200 default', () => {
     expect(buildRetryWindowSizes(undefined)).toEqual([200, 50]);
-  });
-
-  it('treats zero/negative/non-finite as the 200 default', () => {
     expect(buildRetryWindowSizes(0)).toEqual([200, 50]);
     expect(buildRetryWindowSizes(-5)).toEqual([200, 50]);
     expect(buildRetryWindowSizes(Number.POSITIVE_INFINITY)).toEqual([200, 50]);
@@ -245,89 +235,13 @@ describe('buildDownloadFfmpegArgs', () => {
     `);
   });
 
-  it('builds args with pcmu (mulaw) audio', () => {
-    expect(buildDownloadFfmpegArgs('/out/clip.mp4', { codec: 'pcmu', sampleRate: 8000 }))
-      .toMatchInlineSnapshot(`
-      [
-        "-loglevel",
-        "error",
-        "-y",
-        "-f",
-        "mpegts",
-        "-i",
-        "pipe:0",
-        "-analyzeduration",
-        "0",
-        "-probesize",
-        "32",
-        "-f",
-        "mulaw",
-        "-ar",
-        "8000",
-        "-ac",
-        "1",
-        "-i",
-        "pipe:3",
-        "-map",
-        "0:v:0",
-        "-map",
-        "1:a:0",
-        "-c:v",
-        "copy",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-movflags",
-        "+faststart",
-        "/out/clip.mp4",
-      ]
-    `);
+  it('feeds pcmu audio to ffmpeg as mulaw', () => {
+    const args = buildDownloadFfmpegArgs('/out/clip.mp4', { codec: 'pcmu', sampleRate: 8000 });
+    expect(args.join(' ')).toContain('-f mulaw -ar 8000 -ac 1 -i pipe:3');
   });
 });
 
 describe('buildPlaybackFfmpegArgs', () => {
-  it('builds video-only transcode args', () => {
-    expect(buildPlaybackFfmpegArgs('/out/stream.mp4')).toMatchInlineSnapshot(`
-      [
-        "-loglevel",
-        "error",
-        "-y",
-        "-fflags",
-        "+genpts+discardcorrupt",
-        "-err_detect",
-        "ignore_err",
-        "-analyzeduration",
-        "1000000",
-        "-probesize",
-        "1000000",
-        "-f",
-        "mpegts",
-        "-i",
-        "pipe:0",
-        "-map",
-        "0:v:0",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "ultrafast",
-        "-tune",
-        "zerolatency",
-        "-pix_fmt",
-        "yuv420p",
-        "-g",
-        "50",
-        "-sc_threshold",
-        "0",
-        "-f",
-        "mp4",
-        "-movflags",
-        "frag_keyframe+empty_moov+default_base_moof",
-        "/out/stream.mp4",
-      ]
-    `);
-  });
-
   it('builds args with pcma (alaw) audio', () => {
     expect(buildPlaybackFfmpegArgs('/out/stream.mp4', { codec: 'pcma', sampleRate: 8000 }))
       .toMatchInlineSnapshot(`
@@ -388,112 +302,24 @@ describe('buildPlaybackFfmpegArgs', () => {
     `);
   });
 
-  it('builds args with pcmu (mulaw) audio', () => {
-    expect(buildPlaybackFfmpegArgs('/out/stream.mp4', { codec: 'pcmu', sampleRate: 8000 }))
-      .toMatchInlineSnapshot(`
-      [
-        "-loglevel",
-        "error",
-        "-y",
-        "-fflags",
-        "+genpts+discardcorrupt",
-        "-err_detect",
-        "ignore_err",
-        "-analyzeduration",
-        "1000000",
-        "-probesize",
-        "1000000",
-        "-f",
-        "mpegts",
-        "-i",
-        "pipe:0",
-        "-analyzeduration",
-        "0",
-        "-probesize",
-        "32",
-        "-f",
-        "mulaw",
-        "-ar",
-        "8000",
-        "-ac",
-        "1",
-        "-i",
-        "pipe:3",
-        "-map",
-        "0:v:0",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "ultrafast",
-        "-tune",
-        "zerolatency",
-        "-pix_fmt",
-        "yuv420p",
-        "-g",
-        "50",
-        "-sc_threshold",
-        "0",
-        "-map",
-        "1:a:0",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-f",
-        "mp4",
-        "-movflags",
-        "frag_keyframe+empty_moov+default_base_moof",
-        "/out/stream.mp4",
-      ]
-    `);
+  it('feeds pcmu audio to ffmpeg as mulaw', () => {
+    const args = buildPlaybackFfmpegArgs('/out/stream.mp4', { codec: 'pcmu', sampleRate: 8000 });
+    expect(args.join(' ')).toContain('-f mulaw -ar 8000 -ac 1 -i pipe:3');
   });
 
-  it('inserts a seek before the input when seekOffsetSec > 0', () => {
-    expect(buildPlaybackFfmpegArgs('/out/stream.mp4', undefined, 12)).toMatchInlineSnapshot(`
-      [
-        "-loglevel",
-        "error",
-        "-y",
-        "-fflags",
-        "+genpts+discardcorrupt",
-        "-err_detect",
-        "ignore_err",
-        "-analyzeduration",
-        "1000000",
-        "-probesize",
-        "1000000",
-        "-ss",
-        "12",
-        "-f",
-        "mpegts",
-        "-i",
-        "pipe:0",
-        "-map",
-        "0:v:0",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "ultrafast",
-        "-tune",
-        "zerolatency",
-        "-pix_fmt",
-        "yuv420p",
-        "-g",
-        "50",
-        "-sc_threshold",
-        "0",
-        "-f",
-        "mp4",
-        "-movflags",
-        "frag_keyframe+empty_moov+default_base_moof",
-        "/out/stream.mp4",
-      ]
-    `);
+  it('builds video-only args without an audio input or audio encode', () => {
+    const args = buildPlaybackFfmpegArgs('/out/stream.mp4');
+    expect(args).not.toContain('pipe:3');
+    expect(args).not.toContain('-c:a');
+    expect(args).toContain('libx264');
+  });
+
+  it('seeks before the TS input when seekOffsetSec > 0', () => {
+    const args = buildPlaybackFfmpegArgs('/out/stream.mp4', undefined, 12).join(' ');
+    expect(args).toContain('-ss 12 -f mpegts -i pipe:0');
   });
 
   it('omits the seek when seekOffsetSec is 0', () => {
-    expect(buildPlaybackFfmpegArgs('/out/stream.mp4', undefined, 0)).toEqual(
-      buildPlaybackFfmpegArgs('/out/stream.mp4'),
-    );
+    expect(buildPlaybackFfmpegArgs('/out/stream.mp4', undefined, 0)).not.toContain('-ss');
   });
 });

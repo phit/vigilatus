@@ -84,6 +84,7 @@ describe('config store', () => {
       ...DEFAULTS,
       previews: false,
     });
+    expect(configStore.getMainLayout()).toEqual({ tiles: [], focusedTileId: null });
   });
 
   it('returns a copy that does not affect stored state when mutated', () => {
@@ -183,19 +184,6 @@ describe('config store', () => {
       { ...base, id: 'cam-legacy', volume: 0.42 },
       { ...base, id: 'cam-own-volume', volume: 0.8 },
     ]);
-  });
-
-  it('returns default mainLayout when the field is absent in a legacy config', () => {
-    const dir = makeTmpDir();
-    fs.writeFileSync(
-      path.join(dir, 'cameras.json'),
-      JSON.stringify({ cameras: [], uiDisplay: { previews: false } }),
-      'utf8',
-    );
-
-    configStore.init(dir);
-
-    expect(configStore.getMainLayout()).toEqual({ tiles: [], focusedTileId: null });
   });
 
   it('round-trips mainLayout through save and re-init', () => {

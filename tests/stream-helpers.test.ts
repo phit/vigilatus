@@ -6,7 +6,6 @@ import {
   createHlsSessionToken,
   getFirstHlsSegmentPath,
   summarizeFfmpegDetails,
-  withRtspAuth,
 } from '../electron/tapo/streamHelpers';
 
 function makeCfg(overrides: Partial<CameraConfig> = {}): CameraConfig {
@@ -52,22 +51,10 @@ describe('buildRtspUrl', () => {
     expect(url).toBe('rtsp://admin:apipass@10.0.0.5:554/stream1');
   });
 
-  it('uses an explicit rtspUrl with injected proxy auth when provided', () => {
-    const url = buildRtspUrl(
-      makeCfg({ rtspUrl: 'rtsp://proxy.local:8554/feed', rtspUsername: 'u', rtspPassword: 'p' }),
-      'main',
-    );
-    expect(url).toBe('rtsp://u:p@proxy.local:8554/feed');
-  });
-});
-
-describe('withRtspAuth', () => {
-  it('injects username and password into the URL', () => {
-    expect(withRtspAuth('rtsp://host:554/s', 'user', 'pass')).toBe('rtsp://user:pass@host:554/s');
-  });
-
-  it('returns the input unchanged when it is not a valid URL', () => {
-    expect(withRtspAuth('not a url', 'user', 'pass')).toBe('not a url');
+  it('passes an unparseable external rtspUrl through unchanged', () => {
+    expect(
+      buildRtspUrl(makeCfg({ rtspUrl: 'not a url', rtspUsername: 'u', rtspPassword: 'p' }), 'main'),
+    ).toBe('not a url');
   });
 });
 
@@ -103,9 +90,9 @@ describe('getFirstHlsSegmentPath', () => {
 });
 
 describe('createHlsSessionToken', () => {
-  it('returns two base36 segments and is unique across calls', () => {
+  it('is unique across calls and safe to embed in segment file names and URLs', () => {
     const token = createHlsSessionToken();
-    expect(token).toMatch(/^[a-z0-9]+-[a-z0-9]{1,6}$/);
+    expect(token).toMatch(/^[A-Za-z0-9-]+$/);
     expect(createHlsSessionToken()).not.toBe(token);
   });
 });

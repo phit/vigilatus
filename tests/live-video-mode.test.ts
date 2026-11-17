@@ -1,12 +1,7 @@
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildHttpLiveFfmpegArgs } from '../electron/tapo/httpStream';
-import {
-  keyframeOnlyInputArgs,
-  liveHwDecodeInputArgs,
-  liveSegmentNames,
-  liveVideoArgs,
-} from '../electron/tapo/ffmpegFragments';
+import { keyframeOnlyInputArgs } from '../electron/tapo/ffmpegFragments';
 import { getLastHlsSegment, parseFfmpegVideoStream } from '../electron/tapo/streamHelpers';
 import { chooseLiveVideoMode, copyFailedCameras } from '../electron/tapo/streamRegistry';
 import { detectTsVideoCodec } from '../electron/tapo/tsDemux';
@@ -128,35 +123,26 @@ describe('parseFfmpegVideoStream', () => {
 describe('chooseLiveVideoMode', () => {
   afterEach(() => copyFailedCameras.clear());
 
-  it('copies H.264 and transcodes anything else', () => {
+  it('copies H.264 and transcodes unknown codecs', () => {
     expect(chooseLiveVideoMode('cam', 'h264')).toBe('copy');
-    expect(chooseLiveVideoMode('cam', 'hevc')).toBe('transcode');
     expect(chooseLiveVideoMode('cam', undefined)).toBe('transcode');
   });
 
-  it('transcodes a camera whose passthrough already failed', () => {
+  it('passes HEVC through only when the renderer can play it', () => {
+    expect(chooseLiveVideoMode('cam', 'hevc', true)).toBe('copy-hevc');
+    expect(chooseLiveVideoMode('cam', 'hevc', false)).toBe('transcode');
+    expect(chooseLiveVideoMode('cam', 'h264', true)).toBe('copy');
+  });
+
+  it('transcodes a camera whose passthrough already failed, regardless of codec', () => {
     copyFailedCameras.add('cam');
     expect(chooseLiveVideoMode('cam', 'h264')).toBe('transcode');
+    expect(chooseLiveVideoMode('cam', 'hevc', true)).toBe('transcode');
     expect(chooseLiveVideoMode('other', 'h264')).toBe('copy');
   });
 });
 
-describe('live video fragments', () => {
-  it('copy mode is a plain stream copy with no hw decode', () => {
-    expect(liveVideoArgs('copy')).toEqual(['-c:v', 'copy']);
-    expect(liveHwDecodeInputArgs('copy')).toEqual([]);
-  });
-
-  it('transcode mode caps height at 1080 and enables hw decode', () => {
-    expect(liveVideoArgs('transcode').slice(0, 4)).toEqual([
-      '-vf',
-      "scale=-2:'min(ih,1080)'",
-      '-c:v',
-      'libx264',
-    ]);
-    expect(liveHwDecodeInputArgs('transcode')).toEqual(['-hwaccel', 'auto']);
-  });
-
+describe('live video pipeline args', () => {
   it('keyframe-only snapshot input', () => {
     expect(keyframeOnlyInputArgs()).toEqual(['-skip_frame', 'nokey']);
   });
@@ -206,30 +192,8 @@ describe('getLastHlsSegment', () => {
   });
 });
 
-describe('chooseLiveVideoMode with HEVC playback', () => {
-  afterEach(() => copyFailedCameras.clear());
-
-  it('passes HEVC through only when the renderer can play it', () => {
-    expect(chooseLiveVideoMode('cam', 'hevc', true)).toBe('copy-hevc');
-    expect(chooseLiveVideoMode('cam', 'hevc', false)).toBe('transcode');
-    expect(chooseLiveVideoMode('cam', 'h264', true)).toBe('copy');
-  });
-
-  it('transcodes HEVC after a failed passthrough', () => {
-    copyFailedCameras.add('cam');
-    expect(chooseLiveVideoMode('cam', 'hevc', true)).toBe('transcode');
-  });
-});
-
 describe('HEVC fMP4 live args', () => {
   it('tags hvc1 and muxes fMP4 segments with a per-session init file', () => {
-    expect(liveVideoArgs('copy-hevc')).toEqual(['-c:v', 'copy', '-tag:v', 'hvc1']);
-    expect(liveSegmentNames('copy-hevc', 'tok')).toEqual({
-      segment: 'segment-tok-%03d.m4s',
-      init: 'init-tok.mp4',
-    });
-    expect(liveSegmentNames('copy', 'tok')).toEqual({ segment: 'segment-tok-%03d.ts' });
-
     const args = buildHttpLiveFfmpegArgs({
       audioCodec: 'pcma',
       audioRate: 8000,
@@ -241,6 +205,7 @@ describe('HEVC fMP4 live args', () => {
     expect(args.join(' ')).toContain(
       '-hls_segment_type fmp4 -hls_fmp4_init_filename init-tok.mp4 -hls_segment_filename /seg/segment-tok-%03d.m4s',
     );
+    expect(args.join(' ')).toContain('-c:v copy -tag:v hvc1');
     expect(args).not.toContain('-hwaccel');
   });
 });

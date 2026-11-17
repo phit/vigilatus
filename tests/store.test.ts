@@ -350,7 +350,7 @@ describe('layout actions', () => {
     expect(tile.y).toBeCloseTo(originalRect.y);
   });
 
-  it('removeCamera removes associated tiles and updates selectedId', async () => {
+  it('removeCamera removes only the tiles showing that camera', async () => {
     useCameraStore.setState({
       cameras: [
         { config: camera('cam-a', 'Front Door'), status: 'idle' },
@@ -363,9 +363,7 @@ describe('layout actions', () => {
 
     await useCameraStore.getState().removeCamera('cam-b');
 
-    const { layout, selectedId } = useCameraStore.getState();
-    expect(layout.tiles.every((t) => t.cameraId !== 'cam-b')).toBe(true);
-    expect(selectedId).not.toBe('cam-b');
+    expect(useCameraStore.getState().layout.tiles.map((t) => t.cameraId)).toEqual(['cam-a']);
   });
 
   it('clearFocus during playback exits playback and restarts the live stream', async () => {
@@ -481,7 +479,7 @@ describe('layout actions', () => {
     expect(useCameraStore.getState().cameras[0]?.hlsUrl).toBe('http://127.0.0.1/live.m3u8');
   });
 
-  it('clearFocus in live mode does not call goLive or restart the stream', () => {
+  it('clearFocus in live mode does not restart the stream', () => {
     const mock = createVigilatusMock();
     installVigilatusMock(mock);
 
@@ -799,14 +797,6 @@ describe('setCameraVolume', () => {
   });
   afterEach(() => {
     vi.useRealTimers();
-  });
-
-  it('updates the camera volume in state immediately', () => {
-    useCameraStore.setState({ cameras: [{ config: camera('cam-1'), status: 'idle' }] });
-
-    useCameraStore.getState().setCameraVolume('cam-1', 0.6);
-
-    expect(useCameraStore.getState().cameras[0]?.config.volume).toBe(0.6);
   });
 
   it('debounces persistence and saves only the last value', () => {

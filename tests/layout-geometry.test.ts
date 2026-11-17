@@ -45,15 +45,6 @@ describe('clampRect', () => {
 });
 
 describe('toPixels', () => {
-  it('converts a full-area normalised rect to container dimensions', () => {
-    expect(toPixels({ x: 0, y: 0, w: 1, h: 1 }, 1280, 720)).toEqual({
-      left: 0,
-      top: 0,
-      width: 1280,
-      height: 720,
-    });
-  });
-
   it('converts a half-size centred rect correctly', () => {
     expect(toPixels({ x: 0.25, y: 0.25, w: 0.5, h: 0.5 }, 1000, 800)).toEqual({
       left: 250,

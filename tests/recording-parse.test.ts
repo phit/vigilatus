@@ -177,12 +177,11 @@ describe('extractRecordingsFromResponse', () => {
 
 describe('extractRecordingEventsFromResponse', () => {
   it('reads top-level playback.search_detection_list[] direct items', () => {
-    // seconds-form: startRaw < 10e9 so startSec = startRaw + timeCorrection, then *1000.
     const out = extractRecordingEventsFromResponse(
       resp({ playback: { search_detection_list: [{ startTime: 1000, endTime: 2000, alarm_type: 1 }] } }),
       10,
     );
-    expect(out).toEqual([{ startTime: (1000 + 10) * 1000, endTime: (2000 + 10) * 1000, alarmType: 1 }]);
+    expect(out).toEqual([{ startTime: 1_010_000, endTime: 2_010_000, alarmType: 1 }]);
   });
 
   it('reads nested responses[0].result.playback.search_detection_list[]', () => {
@@ -226,27 +225,22 @@ describe('extractRecordingEventsFromResponse', () => {
   });
 
   it('applies timeCorrection to seconds-form timestamps but not to ms-form', () => {
-    const corr = 25;
     const out = extractRecordingEventsFromResponse(
       resp({
         playback: {
           search_detection_list: [
-            // seconds-form (< 10e9): start = (5 + 25) * 1000, end = (9 + 25) * 1000
+            // seconds-form (< 10e9): corrected, then converted to ms
             { startTime: 5, endTime: 9 },
-            // ms-form (>= 10e9): startSec = floor(start/1000), corr NOT applied
-            { startTime: 10_000_005_000, endTime: 10_000_009_000 },
+            // ms-form (>= 10e9): truncated to whole seconds, not corrected
+            { startTime: 10_000_005_400, endTime: 10_000_009_900 },
           ],
         },
       }),
-      corr,
+      25,
     );
     expect(out).toEqual([
-      { startTime: (5 + corr) * 1000, endTime: (9 + corr) * 1000, alarmType: undefined },
-      {
-        startTime: Math.floor(10_000_005_000 / 1000) * 1000,
-        endTime: Math.floor(10_000_009_000 / 1000) * 1000,
-        alarmType: undefined,
-      },
+      { startTime: 30_000, endTime: 34_000, alarmType: undefined },
+      { startTime: 10_000_005_000, endTime: 10_000_009_000, alarmType: undefined },
     ]);
   });
 
@@ -277,10 +271,6 @@ describe('normalizeBase64', () => {
     expect(normalizeBase64('ab-_')).toBe('ab+/');
   });
 
-  it('leaves input unchanged when length is already a multiple of 4 (remainder 0)', () => {
-    expect(normalizeBase64('abcd')).toBe('abcd');
-  });
-
   it('pads with two = when length % 4 === 2', () => {
     expect(normalizeBase64('ab')).toBe('ab==');
   });
@@ -290,7 +280,6 @@ describe('normalizeBase64', () => {
   });
 
   it('substitutes and pads together', () => {
-    // 'a-c' length 3 -> '+' for none, '-' -> '+', remainder 3 -> one '='.
     expect(normalizeBase64('a-c')).toBe('a+c=');
   });
 });

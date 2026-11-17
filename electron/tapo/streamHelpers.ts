@@ -37,7 +37,7 @@ export function buildRtspUrl(cfg: CameraConfig, stream: 'main' | 'sub'): string 
   return `rtsp://${user}:${pass}@${cfg.host}:554/${path}`;
 }
 
-export function withRtspAuth(url: string, username?: string, password?: string): string {
+function withRtspAuth(url: string, username?: string, password?: string): string {
   try {
     const parsed = new URL(url);
     if (username) {
@@ -56,10 +56,10 @@ export function withRtspAuth(url: string, username?: string, password?: string):
  */
 export function buildRtspHlsOutputOptions(
   segDir: string,
-  sessionToken?: string,
+  sessionToken: string,
   mode: LiveVideoMode = 'transcode',
 ): string[] {
-  const segmentNames = liveSegmentNames(mode, sessionToken ?? 'live');
+  const segmentNames = liveSegmentNames(mode, sessionToken);
   return [
     '-map',
     '0:v:0',
@@ -86,7 +86,7 @@ export function createHlsCommand(
   rtspUrl: string,
   segDir: string,
   m3u8Path: string,
-  sessionToken?: string,
+  sessionToken: string,
   mode: LiveVideoMode = 'transcode',
 ): ffmpeg.FfmpegCommand {
   // cwd = segDir: ffmpeg writes the fMP4 init file relative to its working
